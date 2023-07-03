@@ -501,7 +501,7 @@ class Rumar:
         """
         if self.o.source_files:
             for file_path in self.o.source_files:
-                yield self.o.source_dir / self._make_relative(file_path)
+                yield self.o.source_dir / self._make_relative(Path(file_path))
         else:
             for p in self._walk(self.o.source_dir):
                 yield p
@@ -573,7 +573,7 @@ class Rumar:
         try:
             os.utime(target_path, (0, mtime_dt.timestamp()))
         except:
-            logger.error_(f">> error setting mtime -> {sys.exc_info()}")
+            logger.error(f">> error setting mtime -> {sys.exc_info()}")
 
 
 if __name__ == '__main__':
