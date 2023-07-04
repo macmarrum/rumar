@@ -112,8 +112,10 @@ def main():
             print(f" {options}")
     elif args.all:
         rumar.create_for_all_profiles()
-    else:
+    elif args.create:
         rumar.create_for_profile(args.profile)
+    elif args.extract:
+        print('** extract not implemented')
 
 
 def is_extract():
