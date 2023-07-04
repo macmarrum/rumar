@@ -182,7 +182,7 @@ class Settings:
         archive file to be created
     compression_level: int = 3
         for formats tgz, tbz, txz: compression level from 0 to 9
-    no_compression_suffixes_default: str = '7z,zip,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,png,jpg,mp4,mov,,mp3,m4a,acc,ogg,ogv,kdbx'
+    no_compression_suffixes_default: str = '7z,zip,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,png,jpg,mp4,mov,mp3,m4a,aac,ogg,ogv,kdbx'
         comma-separated string of lower-case suffixes for which to use uncompressed tar
     no_compression_suffixes: str = ''
         extra lower-case suffixes in addition to no_compression_suffixes_default
@@ -215,7 +215,7 @@ class Settings:
     no_compression_suffixes_default: str = (
         '7z,zip,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,'
         'xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,'
-        'png,jpg,mp4,mov,mp3,m4a,acc,ogg,ogv,'
+        'png,jpg,mp4,mov,mp3,m4a,aac,ogg,ogv,kdbx'
     )
     no_compression_suffixes: str = ''
     tar_format: Literal[0, 1, 2] = tarfile.GNU_FORMAT
