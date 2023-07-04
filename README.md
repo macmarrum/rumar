@@ -54,5 +54,6 @@ excluded_dirs_as_regex = ['^/(My Music|My Pictures|My Videos)$']
   must use `/` also on Windows\
   the first segment in the relative path (to match against) also starts with a slash\
   e.g. `['/B$',]` will exclude any basename equal to B, at any level
-* `sha256_comparison_if_same_size`: bool = False
-
+* `sha256_comparison_if_same_size`: bool = False\
+  when False, a file is considered changed if its mtime is later than the latest backup's mtime and its size changed\
+  when True, SHA256 checksum is compared to determine if the file changed despite having the same size

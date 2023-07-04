@@ -201,6 +201,8 @@ class Options:
       the first segment in the relative path (to match against) also starts with a slash
       e.g. ['/B$',] will exclude any basename equal to B, at any level
     sha256_comparison_if_same_size: bool = False
+      when False, a file is considered changed if its mtime is later than the latest backup's mtime and its size changed
+      when True, SHA256 checksum is compared to determine if the file changed despite having the same size
     """
     profile: str
     backup_base_dir: Union[str, Path]
@@ -367,15 +369,18 @@ class Rumar:
                     else:
                         is_changed = False
                         if self.o.sha256_comparison_if_same_size:
-                            checksum_file = self.get_checksum_file(latest_archive)
+                            checksum_file = self.get_checksum_file_path(latest_archive)
                             if not checksum_file.exists():
-                                latest_checksum = self.get_checksum_from_archive(latest_archive)
+                                latest_checksum = self.compute_checksum_of_file_in_archive(latest_archive)
                                 logger.info(f':- {relative_p}  {latest_mtime_str}  {latest_checksum}')
                                 checksum_file.write_text(latest_checksum)
                             else:
                                 latest_checksum = checksum_file.read_text()
                             checksum = sha256(p.open('rb').read()).hexdigest()
                             is_changed = checksum != latest_checksum
+                        else:
+                            pass
+                            # newer mtime, same size, not instructed to do checksum comparison => no backup
                 if is_changed:
                     if checksum:  # save checksum, if it was calculated
                         checksum_file = archive_container_dir / f"{mtime_str}{self.MTIME_SEP}{size}{self.CHECKSUM_SUFFIX}"
@@ -399,12 +404,12 @@ class Rumar:
         return stat.S_ISSOCK(mode) or stat.S_ISDOOR(mode)
 
     @classmethod
-    def get_checksum_file(cls, archive_path: Path) -> Path:
+    def get_checksum_file_path(cls, archive_path: Path) -> Path:
         core = cls.extract_core(archive_path.name)
         return archive_path.with_name(f"{core}{cls.CHECKSUM_SUFFIX}")
 
     @staticmethod
-    def get_checksum_from_archive(archive: Union[os.DirEntry, Path]) -> Optional[str]:
+    def compute_checksum_of_file_in_archive(archive: Union[os.DirEntry, Path]) -> Optional[str]:
         with tarfile.open(archive) as tf:
             member = tf.getmembers()[0]
             return sha256(tf.extractfile(member).read()).hexdigest()
