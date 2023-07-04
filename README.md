@@ -16,6 +16,17 @@ Each backup is a separate **tar** file.
 
 ![](images/original-file-and-tar-containing-directory.png)
 
+## How to use it
+
+1. Install [Python](https://www.python.org/downloads/) (at least 3.9), if not yet installed
+2. Download [rumar.py](https://raw.githubusercontent.com/macmarrum/rumar/main/src/rumar.py)
+3. Create your `rumar.toml` settings in the same directory as `rumar.py` – see [settings example](#settings-example)
+4. Open terminal in the directory containing `rumar.py`
+5. Run `python -m pip install tomli` to install the module [tomli](https://pypi.org/project/tomli/), if not yet installed
+6. Run `python rumar.py --list` to list your profiles; you should see your profile name printed in the console
+7. Run `python rumar.py --profile "My Documents" --create` to create a backup of the profile "My Documents"
+8. Add this command to Task Scheduler or cron, to be run at an interval or each day/night
+
 ## Settings
 
 Settings are read from `rumar.toml` in the same directory as `rumar.py` or located in `rumar/rumar.toml` inside `$XDG_CONFIG_HOME` (`$HOME/.config` if not set) on POSIX, or inside `%APPDATA%` on NT (Windows).
@@ -50,7 +61,7 @@ excluded_dirs_as_regex = ['^/(My Music|My Pictures|My Videos)$']
 * `no_compression_suffixes`: str = ''\
     extra lower-case suffixes in addition to no_compression_suffixes_default
 * `tar_format`: Literal[0, 1, 2] = tarfile.GNU_FORMAT\
-  DoubleCmd fails to correctly display mtime when PAX is used -- GNU is recommended
+  DoubleCmd fails to correctly display mtime when PAX is used – GNU is recommended
 * `source_dir`: str\
   path to the root directory that is to be archived
 * `source_files`: Optional[list[str]]\
