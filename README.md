@@ -4,15 +4,23 @@
 
 Creates a directory named as the original file, containing a **tar**red copy of the file, optionally compressed.
 
-Files are added to the **tar** archive only if they were changed (modification time, size), as compared to the last archive.
+Files are added to the **tar** archive only if they were changed, as compared to the last archive.
 
+\
 The directory containing **tar** files is placed in a mirrored directory hierarchy.
 
-## Configuration
+![](images/original-and-backup-directories.png)
 
-Reads configuration from `rumar.toml` in the same directory as `rumar.py` or located in `rumar/rumar.toml` inside `$XDG_CONFIG_HOME` (`$HOME/.config` if not set) on POSIX, or inside `%APPDATA%` on NT (Windows).
+\
+Each backup is a separate **tar** file.
 
-### Configuration Example
+![](images/original-file-and-tar-containing-directory.png)
+
+## Settings
+
+Settings are read from `rumar.toml` in the same directory as `rumar.py` or located in `rumar/rumar.toml` inside `$XDG_CONFIG_HOME` (`$HOME/.config` if not set) on POSIX, or inside `%APPDATA%` on NT (Windows).
+
+### Settings example
 
 ```toml
 # rumar.toml
@@ -24,7 +32,7 @@ excluded_files_as_regex = ['^(desktop\.ini|thumbs\.db)$']
 excluded_dirs_as_regex = ['^/(My Music|My Pictures|My Videos)$']
 ```
 
-### Configuration Options
+### Settings details
 
 * `profile`: str\
   name of the profile
