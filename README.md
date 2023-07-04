@@ -29,7 +29,9 @@ Each backup is a separate **tar** file.
 
 ## Settings
 
-Settings are read from `rumar.toml` in the same directory as `rumar.py` or located in `rumar/rumar.toml` inside `$XDG_CONFIG_HOME` (`$HOME/.config` if not set) on POSIX, or inside `%APPDATA%` on NT (Windows).
+Unless specified by `--toml path/to/your/settings.toml`,
+settings are read from `rumar.toml` in the same directory as `rumar.py` or located in `rumar/rumar.toml` inside `$XDG_CONFIG_HOME` (`$HOME/.config` if not set) on POSIX,
+or inside `%APPDATA%` on NT (Windows).
 
 ### Settings example
 
