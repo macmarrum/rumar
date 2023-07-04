@@ -12,7 +12,7 @@ from enum import Enum
 from hashlib import sha256
 from pathlib import Path
 from types import TracebackType
-from typing import Iterator, Union, Optional, Literal, TypeVar, Pattern, Any
+from typing import Iterator, Union, Optional, Literal, Pattern, Any
 
 import tomli
 
@@ -84,7 +84,6 @@ logger.addHandler(to_file)
 # </logger>
 
 
-Options = TypeVar('Options')  # so that mypy does not complain for from_toml_dict -> Options
 create_args = ('-c', '--create')
 extract_args = ('-x', '--extract')
 
@@ -102,14 +101,14 @@ def main():
     profile_gr.add_argument('-a', '--all', action=store_true)
     profile_gr.add_argument('-p', '--profile')
     args = parser.parse_args()
-    profile_to_options = create_profile2options_from_toml(args.toml)
-    rumar = Rumar(profile_to_options)
+    profile_to_settings = create_profile_to_settings_from_toml(args.toml)
+    rumar = Rumar(profile_to_settings)
     if args.list_profiles:
         print('Profiles:')
-        for profile, options in profile_to_options.items():
+        for profile, settings in profile_to_settings.items():
             if args.profile and profile != args.profile:
                 continue
-            print(f" {options}")
+            print(f" {settings}")
     elif args.all:
         rumar.create_for_all_profiles()
     elif args.create:
@@ -170,7 +169,7 @@ class RumarFormat(Enum):
 
 
 @dataclass
-class Options:
+class Settings:
     """
     profile: str
       name of the profile
@@ -260,28 +259,28 @@ class Options:
                 "}")
 
 
-ProfileToOptions = dict[str, Options]
+ProfileToSettings = dict[str, Settings]
 
 
-def create_profile2options_from_toml(toml_file: Path) -> ProfileToOptions:
+def create_profile_to_settings_from_toml(toml_file: Path) -> ProfileToSettings:
     logger.log(DEBUG_11, f"{toml_file=}")
-    profile_to_options: ProfileToOptions = {}
+    profile_to_settings: ProfileToSettings = {}
     toml_str = toml_file.read_text(encoding='UTF-8')
     toml_dict = tomli.loads(toml_str)
-    common_kwargs_for_options = {}
+    common_kwargs_for_settings = {}
     profile_to_dict = {}
     for key, value in toml_dict.items():
         if isinstance(value, dict):
             profile_to_dict[key] = value
         else:
-            common_kwargs_for_options[key] = value
+            common_kwargs_for_settings[key] = value
     for profile, dct in profile_to_dict.items():
-        kwargs_for_options = common_kwargs_for_options.copy()
-        kwargs_for_options['profile'] = profile
+        kwargs_for_settings = common_kwargs_for_settings.copy()
+        kwargs_for_settings['profile'] = profile
         for key, value in dct.items():
-            kwargs_for_options[key] = value
-        profile_to_options[profile] = Options(**kwargs_for_options)
-    return profile_to_options
+            kwargs_for_settings[key] = value
+        profile_to_settings[profile] = Settings(**kwargs_for_settings)
+    return profile_to_settings
 
 
 class CreateReason(Enum):
@@ -317,8 +316,8 @@ class Rumar:
     STEMS = 'stems'
     PATHS = 'paths'
 
-    def __init__(self, profile_to_options: ProfileToOptions):
-        self._profile_to_options = profile_to_options
+    def __init__(self, profile_to_settings: ProfileToSettings):
+        self._profile_to_settings = profile_to_settings
         self._profile: Optional[str] = None
         self._suffix_size_stems_and_paths: dict[str, dict[int, dict]] = {}
 
@@ -340,7 +339,7 @@ class Rumar:
     def create_for_profile(self, profile: str):
         """Create a backup for the specified profile
         """
-        assert profile in self._profile_to_options
+        assert profile in self._profile_to_settings
         self._profile = profile
         for p in self.source_files:
             relative_p = self._make_relative(p)
@@ -368,7 +367,7 @@ class Rumar:
                         is_changed = True
                     else:
                         is_changed = False
-                        if self.o.sha256_comparison_if_same_size:
+                        if self.s.sha256_comparison_if_same_size:
                             checksum_file = self.get_checksum_file_path(latest_archive)
                             if not checksum_file.exists():
                                 latest_checksum = self.compute_checksum_of_file_in_archive(latest_archive)
@@ -392,11 +391,11 @@ class Rumar:
         self._profile = None
 
     def create_for_all_profiles(self):
-        for profile in self._profile_to_options:
+        for profile in self._profile_to_settings:
             self.create_for_profile(profile)
 
     def _make_relative(self, path: Path) -> str:
-        return path.as_posix().removeprefix(self.o.source_dir.as_posix()).removeprefix('/')
+        return path.as_posix().removeprefix(self.s.source_dir.as_posix()).removeprefix('/')
 
     @staticmethod
     def should_ignore_for_archive(lstat: os.stat_result) -> bool:
@@ -473,7 +472,7 @@ class Rumar:
         mode = self.ARCHIVE_FORMAT_TO_MODE[archive_format]
         is_lnk = stat.S_ISLNK(self.cached_lstat(path).st_mode)
         archive_path = self.make_archive_path(archive_container_dir, archive_format, mtime_str, size, self.LNK if is_lnk else self.BLANK)
-        with tarfile.open(archive_path, mode, format=self.o.tar_format, **compresslevel_kwargs) as tf:
+        with tarfile.open(archive_path, mode, format=self.s.tar_format, **compresslevel_kwargs) as tf:
             tf.add(path, arcname=path.name)
 
     @classmethod
@@ -484,7 +483,7 @@ class Rumar:
         assert relative_p or path, '** either relative_p or path must be provided'
         if not relative_p:
             relative_p = self._make_relative(path)
-        return self.o.backup_base_dir_for_profile / relative_p
+        return self.s.backup_base_dir_for_profile / relative_p
 
     def get_archive_format_and_compresslevel_kwargs(self, path: Path) -> tuple[RumarFormat, dict]:
         if (
@@ -492,26 +491,26 @@ class Rumar:
                 stat.S_ISLNK(self.cached_lstat(path).st_mode)
         ):
             return self.SYMLINK_FORMAT_COMPRESSLEVEL
-        elif path.suffix.lower() in self.o.suffixes_without_compression or self.o.archive_format == RumarFormat.TAR:
+        elif path.suffix.lower() in self.s.suffixes_without_compression or self.s.archive_format == RumarFormat.TAR:
             return self.NOCOMPRESSION_FORMAT_COMPRESSLEVEL
         else:
-            key = self.PRESET if self.o.archive_format == RumarFormat.TXZ else self.COMPRESSLEVEL
-            return self.o.archive_format, {key: self.o.compression_level}
+            key = self.PRESET if self.s.archive_format == RumarFormat.TXZ else self.COMPRESSLEVEL
+            return self.s.archive_format, {key: self.s.compression_level}
 
     @property
-    def o(self) -> Options:
-        return self._profile_to_options[self._profile]
+    def s(self) -> Settings:
+        return self._profile_to_settings[self._profile]
 
     @property
     def source_files(self) -> Iterator[Path]:
         """if source_files are present, use those
         otherwise walk the source_dir
         """
-        if self.o.source_files:
-            for file_path in self.o.source_files:
-                yield self.o.source_dir / self._make_relative(Path(file_path))
+        if self.s.source_files:
+            for file_path in self.s.source_files:
+                yield self.s.source_dir / self._make_relative(Path(file_path))
         else:
-            for p in self._walk(self.o.source_dir):
+            for p in self._walk(self.s.source_dir):
                 yield p
 
     def _walk(self, root: Path) -> Iterator[Path]:
@@ -526,9 +525,9 @@ class Rumar:
             mode = self.cached_lstat(dir_path).st_mode
             is_dir = stat.S_ISDIR(mode)
             if is_dir:
-                excluded_relative_p, rx = self._get_relative_if_excluded(dir_path, self.o.excluded_dirs_as_regex)
+                excluded_relative_p, rx = self._get_relative_if_excluded(dir_path, self.s.excluded_dirs_as_regex)
             else:
-                excluded_relative_p, rx = self._get_relative_if_excluded(dir_path, self.o.excluded_files_as_regex)
+                excluded_relative_p, rx = self._get_relative_if_excluded(dir_path, self.s.excluded_files_as_regex)
             if excluded_relative_p:
                 logger.info(f"|| ...{excluded_relative_p}  -- skipping: matches '{rx}'")
                 continue
@@ -538,7 +537,7 @@ class Rumar:
                 files.append(dir_path)
         # yield files first, only then recurse into sub-dirs; sort by stem then suffix, i.e. 'abc.txt' before 'abc(2).txt'
         for file_path in sorted(files, key=lambda x: (x.stem.lower(), x.suffix.lower())):
-            if self.o.skip_duplicate_files and (duplicate := self.find_duplicate(file_path)):
+            if self.s.skip_duplicate_files and (duplicate := self.find_duplicate(file_path)):
                 logger.info(f"{self._make_relative(file_path)!r} -- skipping: duplicate of {self._make_relative(duplicate)!r}")
                 continue
             yield file_path
