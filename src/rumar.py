@@ -104,12 +104,14 @@ def main():
     args = parser.parse_args()
     profile_to_options = create_profile2options_from_toml(args.toml)
     rumar = Rumar(profile_to_options)
-    if args.all:
-        rumar.create_for_all_profiles()
-    elif args.list_profiles:
+    if args.list_profiles:
         print('Profiles:')
         for profile, options in profile_to_options.items():
+            if args.profile and profile != args.profile:
+                continue
             print(f" {options}")
+    elif args.all:
+        rumar.create_for_all_profiles()
     else:
         rumar.create_for_profile(args.profile)
 
