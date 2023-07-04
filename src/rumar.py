@@ -187,7 +187,7 @@ class Settings:
     no_compression_suffixes: str = ''
         extra lower-case suffixes in addition to no_compression_suffixes_default
     tar_format: Literal[0, 1, 2] = tarfile.GNU_FORMAT
-      DoubleCmd fails to correctly display mtime when PAX is used -- GNU is recommended
+      DoubleCmd fails to correctly display mtime when PAX is used – GNU is recommended
     source_dir: str
       path to the root directory that is to be archived
     source_files: Optional[list[str]]
