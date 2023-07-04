@@ -101,7 +101,6 @@ def main():
     profile_gr = parser.add_mutually_exclusive_group(required=is_create() or is_extract())
     profile_gr.add_argument('-a', '--all', action=store_true)
     profile_gr.add_argument('-p', '--profile')
-    # parser.add_argument('-d', '--db-file', type=make_path, default=get_default_path(suffix='.sqlite'))
     args = parser.parse_args()
     profile_to_options = create_profile2options_from_toml(args.toml)
     rumar = Rumar(profile_to_options)
