@@ -336,11 +336,18 @@ class Rumar:
     def from_mtime_str(cls, s: str) -> datetime:
         return datetime.fromisoformat(s.replace(cls.UNDERSCORE, cls.T).replace(cls.COMMA, cls.COLON))
 
+    @property
+    def s(self) -> Settings:
+        return self._profile_to_settings[self._profile]
+
+    def create_for_all_profiles(self):
+        for profile in self._profile_to_settings:
+            self.create_for_profile(profile)
+
     def create_for_profile(self, profile: str):
         """Create a backup for the specified profile
         """
-        assert profile in self._profile_to_settings
-        self._profile = profile
+        self._profile = profile  # for self.s to work
         for p in self.source_files:
             relative_p = self._make_relative(p)
             lstat = self.cached_lstat(p)  # don't follow symlinks - pathlib calls stat for each is_*()
@@ -388,11 +395,7 @@ class Rumar:
                     # file has changed as compared to the last backup
                     logger.info(f":= {relative_p}  {latest_mtime_str}  {latest_size} =: last backup")
                     self._create(CreateReason.CHANGED, p, relative_p, archive_container_dir, mtime_str, size)
-        self._profile = None
-
-    def create_for_all_profiles(self):
-        for profile in self._profile_to_settings:
-            self.create_for_profile(profile)
+        self._profile = None  # safeguard so that self.s will complain
 
     def _make_relative(self, path: Path) -> str:
         return path.as_posix().removeprefix(self.s.source_dir.as_posix()).removeprefix('/')
@@ -496,10 +499,6 @@ class Rumar:
         else:
             key = self.PRESET if self.s.archive_format == RumarFormat.TXZ else self.COMPRESSLEVEL
             return self.s.archive_format, {key: self.s.compression_level}
-
-    @property
-    def s(self) -> Settings:
-        return self._profile_to_settings[self._profile]
 
     @property
     def source_files(self) -> Iterator[Path]:
