@@ -3,14 +3,16 @@ import argparse
 import logging
 import os
 import re
+import sqlite3
 import stat
 import sys
 import tarfile
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, date
 from enum import Enum
 from hashlib import sha256
 from pathlib import Path
+from textwrap import dedent
 from types import TracebackType
 from typing import Iterator, Union, Optional, Literal, Pattern, Any
 
@@ -101,7 +103,7 @@ def main():
     profile_gr.add_argument('-a', '--all', action=store_true)
     profile_gr.add_argument('-p', '--profile')
     args = parser.parse_args()
-    profile_to_settings = create_profile_to_settings_from_toml(args.toml)
+    profile_to_settings = create_profile_to_settings_from_toml_path(args.toml)
     rumar = Rumar(profile_to_settings)
     if args.list_profiles:
         print('Profiles:')
@@ -202,6 +204,12 @@ class Settings:
     sha256_comparison_if_same_size: bool = False
       when False, a file is considered changed if its mtime is later than the latest backup's mtime and its size changed
       when True, SHA256 checksum is compared to determine if the file changed despite having the same size
+    age_threshold_of_backups_to_sweep: int = 2
+      when --broom is used, sweep backups older than X days
+    number_of_daily_backups_to_keep: int = 2
+    number_of_weekly_backups_to_keep: int = 14
+    number_of_monthly_backups_to_keep: int = 60
+      when --broom is used, remove backups if their number per file is above the setting per day and week and month
     """
     profile: str
     backup_base_dir: Union[str, Path]
@@ -221,6 +229,10 @@ class Settings:
     tar_format: Literal[0, 1, 2] = tarfile.GNU_FORMAT
     sha256_comparison_if_same_size: bool = False
     skip_duplicate_files: bool = False
+    age_threshold_of_backups_to_sweep: int = 2
+    number_of_daily_backups_to_keep: int = 2
+    number_of_weekly_backups_to_keep: int = 14
+    number_of_monthly_backups_to_keep: int = 60
     COMMA = ','
 
     @staticmethod
@@ -262,10 +274,14 @@ class Settings:
 ProfileToSettings = dict[str, Settings]
 
 
-def create_profile_to_settings_from_toml(toml_file: Path) -> ProfileToSettings:
+def create_profile_to_settings_from_toml_path(toml_file: Path) -> ProfileToSettings:
     logger.log(DEBUG_11, f"{toml_file=}")
-    profile_to_settings: ProfileToSettings = {}
     toml_str = toml_file.read_text(encoding='UTF-8')
+    return create_profile_to_settings_from_toml_text(toml_str)
+
+
+def create_profile_to_settings_from_toml_text(toml_str) -> ProfileToSettings:
+    profile_to_settings: ProfileToSettings = {}
     toml_dict = tomli.loads(toml_str)
     common_kwargs_for_settings = {}
     profile_to_dict = {}
@@ -580,6 +596,229 @@ class Rumar:
             os.utime(target_path, (0, mtime_dt.timestamp()))
         except:
             logger.error(f">> error setting mtime -> {sys.exc_info()}")
+
+
+class Broom:
+    DASH = '-'
+
+    def __init__(self, profile_to_settings: ProfileToSettings):
+        self._profile_to_settings = profile_to_settings
+        self._db = BroomDB()
+
+    @classmethod
+    def extract_date_from_name(cls, name: str) -> date:
+        iso_date_string = name[:10]
+        return date.fromisocalendar(*iso_date_string.split(cls.DASH))
+
+    def sweep_all_profiles(self):
+        for profile in self._profile_to_settings:
+            self.sweep_profile(profile)
+
+    def sweep_profile(self, profile):
+        logger.log(METHOD_17, f"{profile=}")
+        s = self._profile_to_settings[profile]
+        archive_format = RumarFormat(s.archive_format).value
+        date_older_than_x_days = date.today() - timedelta(days=s.age_threshold_of_backups_to_sweep)
+        for root, dirs, files in os.walk(s.backup_base_dir_for_profile):
+            for file in files:
+                path = Path(root, file)
+                if self.is_archive(file, archive_format):
+                    mdate = self.extract_date_from_name(file)
+                    if mdate < date_older_than_x_days:
+                        self._db.insert(path, mdate)
+                else:
+                    logger.warning(f"non-archive file found {path.as_posix()}")
+        self._db.update_counts(s)
+        for dirname, basename, d, w, m, d_rm, w_rm, m_rm in self._db.iter_marked_for_removal():
+            path = Path(dirname, basename)
+            logger.info(f"-- {path.as_posix()}  is removed because it's #{d_rm} in {d}, #{w_rm} in week {w}, #{m_rm} in month {m}")
+            path.unlink()
+
+    @staticmethod
+    def is_archive(name: str, archive_format: str) -> bool:
+        return (name.endswith(archive_format) or
+                name.endswith(RumarFormat.TAR.value))
+
+
+class BroomTable:
+    dirname = 'dirname'
+    basename = 'basename'
+    d = 'd'
+    w = 'w'
+    m = 'm'
+    d_keep = 'd_keep'
+    w_keep = 'w_keep'
+    m_keep = 'm_keep'
+    rm = 'rm'
+
+
+PeriodColType = Literal['d', 'w', 'm']
+col_to_setting = {
+    'd': 'number_of_daily_backups_to_keep',
+    'w': 'number_of_weekly_backups_to_keep',
+    'm': 'number_of_monthly_backups_to_keep',
+}
+
+
+class BroomDB:
+    TABLE_PREFIX = 'broom_'
+    # DATABASE = ':memory:'
+    DATABASE = me.with_suffix('.sqlite')
+    DATE_FORMAT = '%Y-%m-%d'
+    WEEK_FORMAT = '%Y-%W'  # Monday as the first day of the week
+    WEEK_ONLY_FORMAT = '%W'
+    MONTH_FORMAT = '%Y-%m'
+    DUNDER = '__'
+
+    def __init__(self):
+        self._db = sqlite3.connect(self.DATABASE)
+        # self._db.set_trace_callback(print)
+        self._table = f"{self.TABLE_PREFIX}{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        self.create_table()
+
+    def create_table(self):
+        ddl = dedent(f"""\
+            CREATE TABLE {self._table} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dirname TEXT NOT NULL,
+                basename TEXT NOT NULL,
+                d TEXT NOT NULL,
+                w TEXT NOT NULL,
+                m TEXT NOT NULL,
+                d_rm TEXT,
+                w_rm TEXT,
+                m_rm TEXT
+            )
+            """)
+        self._db.execute(ddl)
+
+    def insert(self, path: Path, mdate: date):
+        # logger.log(METHOD_17, f"{path.as_posix()}")
+        params = (
+            path.parent.as_posix(),
+            path.name,
+            mdate.strftime(self.DATE_FORMAT),
+            self.compute_week(mdate),
+            mdate.strftime(self.MONTH_FORMAT),
+        )
+        ins_stmt = f"INSERT INTO {self._table} (dirname, basename, d, w, m) VALUES (?,?,?,?,?)"
+        self._db.execute(ins_stmt, params)
+        self._db.commit()
+
+    @classmethod
+    def compute_week(cls, mdate: date) -> str:
+        """
+        consider week 0 as previous year's last week
+        """
+        if int(mdate.strftime(cls.WEEK_ONLY_FORMAT)) == 0:
+            mdate = mdate.replace(day=1) - timedelta(days=1)
+        return mdate.strftime(cls.WEEK_FORMAT)
+
+    def update_counts(self, s: Settings):
+        self._update_d_rm(s)
+        self._update_w_rm(s)
+        self._update_m_rm(s)
+
+    def _update_d_rm(self, s: Settings):
+        x = 'd'
+        number_of_backups_to_keep = getattr(s, col_to_setting[x])
+        stmt = dedent(f"""\
+        SELECT b.dirname, b.{x}, b.id, agg.cnt, row_number() OVER win1 AS num
+        FROM {self._table} b
+        JOIN (
+            SELECT dirname, {x}, count(*) cnt
+            FROM {self._table} 
+            GROUP BY dirname, {x}
+            HAVING count(*) > {number_of_backups_to_keep}
+        ) agg ON b.dirname = agg.dirname AND b.{x} = agg.{x}
+        WINDOW win1 AS (PARTITION BY b.dirname, b.{x} ORDER BY b.dirname, b.{x}, b.id)
+        ORDER BY b.dirname, b.{x}, b.id
+        """)
+        db = self._db
+        cur = db.cursor()
+        for row in db.execute(stmt):
+            dirname, x_val, broom_id, x_cnt, x_num = row
+            x_rm_target = x_cnt - number_of_backups_to_keep
+            if x_rm_target > 0:
+                if x_num <= x_rm_target:
+                    updt_stmt = dedent(f"""\
+                        UPDATE {self._table}
+                        SET {x}_rm = '{x_num} of ({x_cnt} - {number_of_backups_to_keep})'
+                        WHERE id = ?
+                        """)
+                    cur.execute(updt_stmt, (broom_id,))
+        db.commit()
+
+    def _update_w_rm(self, s: Settings):
+        x = 'w'
+        number_of_backups_to_keep = getattr(s, col_to_setting[x])
+        stmt = dedent(f"""\
+        SELECT b.dirname, b.{x}, b.id, agg.cnt, row_number() OVER win1 AS num
+        FROM {self._table} b
+        JOIN (
+            SELECT dirname, {x}, count(*) cnt
+            FROM {self._table} 
+            GROUP BY dirname, {x}
+            HAVING count(*) > {number_of_backups_to_keep}
+        ) agg ON b.dirname = agg.dirname AND b.{x} = agg.{x}
+        WHERE b.d_rm IS NOT NULL
+        WINDOW win1 AS (PARTITION BY b.dirname, b.{x} ORDER BY b.dirname, b.{x}, b.id)
+        ORDER BY b.dirname, b.{x}, b.id
+        """)
+        db = self._db
+        cur = db.cursor()
+        for row in db.execute(stmt):
+            dirname, x_val, broom_id, x_cnt, x_num = row
+            x_rm_target = x_cnt - number_of_backups_to_keep
+            if x_rm_target > 0:
+                if x_num <= x_rm_target:
+                    updt_stmt = dedent(f"""\
+                        UPDATE {self._table}
+                        SET {x}_rm = '{x_num} of ({x_cnt} - {number_of_backups_to_keep})'
+                        WHERE id = ?
+                        """)
+                    cur.execute(updt_stmt, (broom_id,))
+        db.commit()
+
+    def _update_m_rm(self, s: Settings):
+        x = 'm'
+        number_of_backups_to_keep = getattr(s, col_to_setting[x])
+        stmt = dedent(f"""\
+        SELECT b.dirname, b.{x}, b.id, agg.cnt, row_number() OVER win1 AS num
+        FROM {self._table} b
+        JOIN (
+            SELECT dirname, {x}, count(*) cnt
+            FROM {self._table} 
+            GROUP BY dirname, {x}
+            HAVING count(*) > {number_of_backups_to_keep}
+        ) agg ON b.dirname = agg.dirname AND b.{x} = agg.{x}
+        WHERE b.w_rm IS NOT NULL
+        WINDOW win1 AS (PARTITION BY b.dirname, b.{x} ORDER BY b.dirname, b.{x}, b.id)
+        ORDER BY b.dirname, b.{x}, b.id
+        """)
+        db = self._db
+        cur = db.cursor()
+        for row in db.execute(stmt):
+            dirname, x_val, broom_id, x_cnt, x_num = row
+            x_rm_target = x_cnt - number_of_backups_to_keep
+            if x_rm_target > 0:
+                if x_num <= x_rm_target:
+                    updt_stmt = dedent(f"""\
+                        UPDATE {self._table}
+                        SET {x}_rm = '{x_num} of ({x_cnt} - {number_of_backups_to_keep})'
+                        WHERE id = ?
+                        """)
+                    cur.execute(updt_stmt, (broom_id,))
+        db.commit()
+
+    def iter_marked_for_removal(self) -> Iterator[tuple[str, str, str, str, str, str, str, str]]:
+        stmt = dedent(f"""\
+            SELECT dirname, basename, d, w, m, d_rm, w_rm, m_rm
+            FROM {self._table}
+            WHERE m_rm IS NOT NULL
+            """)
+        for row in self._db.execute(stmt):
+            yield row
 
 
 if __name__ == '__main__':
