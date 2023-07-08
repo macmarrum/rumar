@@ -86,51 +86,35 @@ logger.addHandler(to_file)
 # </logger>
 
 
-create_args = ('-c', '--create')
-extract_args = ('-x', '--extract')
+store_true = 'store_true'
 
 
 def main():
-    store_true = 'store_true'
     parser = argparse.ArgumentParser()
-    action_gr = parser.add_mutually_exclusive_group(required=True)
-    action_gr.add_argument(*create_args, action=store_true)
-    action_gr.add_argument(*extract_args, action=store_true)
-    action_gr.add_argument('-l', '--list-profiles', action=store_true)
-    parser.add_argument('-e', '--extract-root', type=make_path, required=is_extract())
     parser.add_argument('-t', '--toml', type=make_path, default=get_default_path(suffix='.toml'))
-    profile_gr = parser.add_mutually_exclusive_group(required=is_create() or is_extract())
+    subparsers = parser.add_subparsers(dest='subparser')
+    parser_list = subparsers.add_parser('list-profiles', aliases=['l'])
+    parser_list.set_defaults(func=list_profiles)
+    add_profile_args_to_parser(parser_list, required=False)
+    parser_create = subparsers.add_parser('create', aliases=['c'])
+    parser_create.set_defaults(func=create)
+    add_profile_args_to_parser(parser_create, required=True)
+    parser_extract = subparsers.add_parser('extract', aliases=['x'])
+    parser_extract.set_defaults(func=extract)
+    add_profile_args_to_parser(parser_extract, required=True)
+    parser_extract.add_argument('-e', '--extract-root', type=make_path, required=True)
+    parser_sweep = subparsers.add_parser('sweep')
+    parser_sweep.set_defaults(func=sweep)
+    parser_sweep.add_argument('-d', '--dry-run', action=store_true)
+    add_profile_args_to_parser(parser_sweep, required=True)
+    args = parser.parse_args()
+    args.func(args)
+
+
+def add_profile_args_to_parser(parser: argparse.ArgumentParser, required: bool):
+    profile_gr = parser.add_mutually_exclusive_group(required=required)
     profile_gr.add_argument('-a', '--all', action=store_true)
     profile_gr.add_argument('-p', '--profile')
-    args = parser.parse_args()
-    profile_to_settings = create_profile_to_settings_from_toml_path(args.toml)
-    rumar = Rumar(profile_to_settings)
-    if args.list_profiles:
-        print('Profiles:')
-        for profile, settings in profile_to_settings.items():
-            if args.profile and profile != args.profile:
-                continue
-            print(f" {settings}")
-    elif args.all:
-        rumar.create_for_all_profiles()
-    elif args.create:
-        rumar.create_for_profile(args.profile)
-    elif args.extract:
-        print('** extract not implemented')
-
-
-def is_extract():
-    for a in sys.argv:
-        if a in extract_args:
-            return True
-    return False
-
-
-def is_create():
-    for a in sys.argv:
-        if a in create_args:
-            return True
-    return False
 
 
 def make_path(file_path: str) -> Path:
@@ -161,6 +145,36 @@ def get_appdata() -> Path:
         return Path(os.environ.get('XDG_CONFIG_HOME', '~/.config')).expanduser()
     else:
         raise RuntimeError(f"unknown os.name: {os.name}")
+
+
+def list_profiles(args):
+    profile_to_settings = create_profile_to_settings_from_toml_path(args.toml)
+    for profile, settings in profile_to_settings.items():
+        if args.profile and profile != args.profile:
+            continue
+        print(f"{settings}")
+
+
+def create(args):
+    profile_to_settings = create_profile_to_settings_from_toml_path(args.toml)
+    rumar = Rumar(profile_to_settings)
+    if args.all:
+        rumar.create_for_all_profiles()
+    elif args.profile:
+        rumar.create_for_profile(args.profile)
+
+
+def extract(args):
+    print('** extract not implemented')
+
+
+def sweep(args):
+    profile_to_settings = create_profile_to_settings_from_toml_path(args.toml)
+    broom = Broom(profile_to_settings)
+    if args.all:
+        broom.sweep_all_profiles()
+    elif args.profile:
+        broom.sweep_profile(args.profile)
 
 
 class RumarFormat(Enum):
@@ -614,7 +628,7 @@ class Broom:
         for profile in self._profile_to_settings:
             self.sweep_profile(profile)
 
-    def sweep_profile(self, profile):
+    def sweep_profile(self, profile, is_dry_run=False):
         logger.log(METHOD_17, f"{profile=}")
         s = self._profile_to_settings[profile]
         archive_format = RumarFormat(s.archive_format).value
@@ -627,12 +641,13 @@ class Broom:
                     if mdate < date_older_than_x_days:
                         self._db.insert(path, mdate)
                 else:
-                    logger.warning(f"non-archive file found {path.as_posix()}")
+                    logger.warning(f":! {path.as_posix()}  is not an archive")
         self._db.update_counts(s)
         for dirname, basename, d, w, m, d_rm, w_rm, m_rm in self._db.iter_marked_for_removal():
             path = Path(dirname, basename)
             logger.info(f"-- {path.as_posix()}  is removed because it's #{d_rm} in {d}, #{w_rm} in week {w}, #{m_rm} in month {m}")
-            path.unlink()
+            if not is_dry_run:
+                path.unlink()
 
     @staticmethod
     def is_archive(name: str, archive_format: str) -> bool:
