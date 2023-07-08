@@ -213,24 +213,43 @@ class Settings:
       DoubleCmd fails to correctly display mtime when PAX is used – GNU is recommended
     source_dir: str
       path to the root directory that is to be archived
-    source_files: Optional[list[str]]
-      if present, only these files are considered
-      can be relative to source_dir or absolute (but under source_dir)
+    included_dirs_as_glob: list[str]
+      a list of glob patterns, also known as shell-style wildcards, i.e. * ? [seq] [!seq]
+      if present, only matching directories will be considered
+      the paths/globs can be relative to source_dir or absolute (but under source_dir)
       on Windows, if absolute, must use the source_dir-drive-letter case (upper or lower)
-    excluded_files_as_regex, excluded_dirs_as_regex: Optional[list[str]]
-      regex defining files or dirs (recursively) to be excluded, relative to source_dir
-      must use / also on Windows
+      see also https://docs.python.org/3/library/fnmatch.html and https://en.wikipedia.org/wiki/Glob_(programming)
+    included_files_as_glob: list[str]
+      like included_dirs_as_glob, but for files
+    excluded_dirs_as_glob: list[str]
+      like included_dirs_as_glob, but to exclude
+    excluded_files_as_glob: list[str]
+      like included_files_as_glob, but to exclude
+    included_dirs_as_regex: list[str]
+      a list of regex patterns
+      if present, only matching directories will be included
+      must use / as the path separator, also on Windows
+      the patterns are matched against a path relative to source_dir
       the first segment in the relative path (to match against) also starts with a slash
-      e.g. ['/B$',] will exclude any basename equal to B, at any level
+      e.g. ['/B$',] will match any basename equal to B, at any level
+      see also https://docs.python.org/3/library/re.html
+    included_files_as_regex: list[str]
+      like included_dirs_as_regex but for files
+    excluded_dirs_as_regex: list[str]
+      like included_dirs_as_regex, but to exclude
+    excluded_files_as_regex: list[str]
+      like included_files_as_regex, but to exclude
     sha256_comparison_if_same_size: bool = False
       when False, a file is considered changed if its mtime is later than the latest backup's mtime and its size changed
       when True, SHA256 checksum is compared to determine if the file changed despite having the same size
+    file_duplication_discovery: bool = False
+      when True, an attempt is made to find and skip duplicates
     age_threshold_of_backups_to_sweep: int = 2
-      when `sweep` is used, consider for removal only such backups which are older than X days
+      when `sweep` is executed, only backups which are older than X days are considered for removal
     number_of_daily_backups_to_keep: int = 2
     number_of_weekly_backups_to_keep: int = 14
     number_of_monthly_backups_to_keep: int = 60
-      when `sweep` is used, remove backups if their number per file is above the setting per day and week and month
+      when `sweep` is executed, the specified numbers of backups are kept, at the minimum, per day and week and month
     """
     profile: str
     backup_base_dir: Union[str, Path]
@@ -254,7 +273,7 @@ class Settings:
     no_compression_suffixes: str = ''
     tar_format: Literal[0, 1, 2] = tarfile.GNU_FORMAT
     sha256_comparison_if_same_size: bool = False
-    skip_duplicate_files: bool = False
+    file_duplication_discovery: bool = False
     age_threshold_of_backups_to_sweep: int = 2
     number_of_daily_backups_to_keep: int = 2
     number_of_weekly_backups_to_keep: int = 14
@@ -615,18 +634,17 @@ class Rumar:
     def create_optionally_deduped_list_of_matching_files(self, top_path: Path, s: Settings):
         matching_files = []
         for file_path in iter_matching_files(top_path, s):
-            if s.skip_duplicate_files and (duplicate := self.find_duplicate(file_path)):
+            if s.file_duplication_discovery and (duplicate := self.find_duplicate(file_path)):
                 logger.info(f"{make_relative_p(file_path, top_path)!r} -- skipping: duplicate of {make_relative_p(duplicate, top_path)!r}")
                 continue
-            yield file_path
+            matching_files.append(file_path)
         # sort by stem then suffix, i.e. 'abc.txt' before 'abc(2).txt'; ignore case
         matching_files.sort(key=lambda x: (x.stem.lower(), x.suffix.lower()))
         return matching_files
 
     def find_duplicate(self, file_path: Path) -> Optional[Path]:
         """
-        If same suffix and same size and same part of name
-        ignoring case (suffix, name)
+        Finds a file with the same suffix and size and part of name, case-insensitive (suffix, name)
         """
         stem, suffix = os.path.splitext(file_path.name.lower())
         size = self.cached_lstat(file_path).st_size
@@ -637,6 +655,7 @@ class Rumar:
                     for index, s in enumerate(stems):
                         if stem in s or s in stem:
                             return stems_and_paths[self.PATHS][index]
+        # no record; create one
         stems_and_paths = self._suffix_size_stems_and_paths.setdefault(suffix, {}).setdefault(size, {})
         stems_and_paths.setdefault(self.STEMS, []).append(stem)
         stems_and_paths.setdefault(self.PATHS, []).append(file_path)
