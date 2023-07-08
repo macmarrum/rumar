@@ -16,10 +16,17 @@ from textwrap import dedent
 from types import TracebackType
 from typing import Iterator, Union, Optional, Literal, Pattern, Any
 
-import tomli
-
 vi = sys.version_info
 assert (vi.major, vi.minor) >= (3, 9), 'expected Python 3.9 or higher'
+
+try:
+    import tomllib
+except ImportError:
+    try:
+        import tomli as tomllib
+    except ImportError:
+        print('use Python version >= 3.11 or install the module "tomli"')
+        raise
 
 me = Path(__file__)
 
@@ -228,10 +235,15 @@ class Settings:
     profile: str
     backup_base_dir: Union[str, Path]
     source_dir: Union[str, Path]
-    backup_base_dir_for_profile: Optional[Union[str, Path]] = None
-    source_files: Optional[Union[list[str], list[Path]]] = None
-    excluded_dirs_as_regex: Optional[Union[list[str], list[Pattern]]] = None
-    excluded_files_as_regex: Optional[Union[list[str], list[Pattern]]] = None
+    backup_base_dir_for_profile: Union[str, Path] = None
+    included_dirs_as_glob: list[str] = ()
+    included_files_as_glob: list[str] = ()
+    excluded_dirs_as_glob: list[str] = ()
+    excluded_files_as_glob: list[str] = ()
+    included_dirs_as_regex: Union[list[str], list[Pattern]] = ()
+    included_files_as_regex: Union[list[str], list[Pattern]] = ()
+    excluded_dirs_as_regex: Union[list[str], list[Pattern]] = ()
+    excluded_files_as_regex: Union[list[str], list[Pattern]] = ()
     archive_format: Union[str, RumarFormat] = RumarFormat.TGZ
     compression_level: int = 3
     no_compression_suffixes_default: str = (
@@ -254,34 +266,44 @@ class Settings:
         return all(isinstance(elem, typ) for elem in lst)
 
     def __post_init__(self):
-        if not isinstance(self.backup_base_dir, Path):
-            self.backup_base_dir = Path(self.backup_base_dir)
+        self._pathlify('source_dir')
+        self._pathlify('backup_base_dir')
         if self.backup_base_dir_for_profile:
-            if not isinstance(self.backup_base_dir_for_profile, Path):
-                self.backup_base_dir_for_profile = Path(self.backup_base_dir_for_profile)
+            self._pathlify('backup_base_dir_for_profile')
         else:
             self.backup_base_dir_for_profile = self.backup_base_dir / self.profile
-        if not isinstance(self.source_dir, Path):
-            self.source_dir = Path(self.source_dir)
-        if self.source_files and not self.is_each_elem_of_type(self.source_files, Path):
-            self.source_files = [Path(elem) for elem in self.source_files]
-        if self.excluded_files_as_regex and not self.is_each_elem_of_type(self.excluded_files_as_regex, re.Pattern):
-            self.excluded_files_as_regex = [re.compile(elem) for elem in self.excluded_files_as_regex]
-        if self.excluded_dirs_as_regex and not self.is_each_elem_of_type(self.excluded_dirs_as_regex, re.Pattern):
-            self.excluded_dirs_as_regex = [re.compile(elem) for elem in self.excluded_dirs_as_regex]
+        self._patternify('excluded_dirs_as_regex')
+        self._patternify('excluded_files_as_regex')
         self.suffixes_without_compression = {f".{s}" for s in self.COMMA.join([self.no_compression_suffixes_default, self.no_compression_suffixes]).split(self.COMMA) if s}
         # https://stackoverflow.com/questions/71846054/-cast-a-string-to-an-enum-during-instantiation-of-a-dataclass-
         if self.archive_format is None:
             self.archive_format = RumarFormat.TGZ
         self.archive_format = RumarFormat(self.archive_format)
 
+    def _pathlify(self, attribute_name: str):
+        attr = getattr(self, attribute_name)
+        if not attr:
+            return attr
+        if isinstance(attr, list):
+            if not self.is_each_elem_of_type(attr, Path):
+                setattr(self, attribute_name, [Path(elem) for elem in attr])
+        else:
+            if not isinstance(attr, Path):
+                setattr(self, attribute_name, Path(attr))
+
+    def _patternify(self, attribute_name: str):
+        attr = getattr(self, attribute_name)
+        if not attr:
+            return attr
+        if not isinstance(attr, list):
+            raise AttributeError(f"expected a list of values, got {attr!r}")
+        setattr(self, attribute_name, [re.compile(elem) for elem in attr])
+
     def __str__(self):
-        source_files = f", source_files: {[f.as_posix() if isinstance(f, Path) else f for f in self.source_files]!r}" if self.source_files else ''
         return ("{"
                 f"profile: {self.profile!r}, "
                 f"backup_base_dir_for_profile: {self.backup_base_dir_for_profile.as_posix()!r}, "
                 f"source_dir: {self.source_dir.as_posix()!r}"
-                f"{source_files}"
                 "}")
 
 
@@ -296,7 +318,7 @@ def create_profile_to_settings_from_toml_path(toml_file: Path) -> ProfileToSetti
 
 def create_profile_to_settings_from_toml_text(toml_str) -> ProfileToSettings:
     profile_to_settings: ProfileToSettings = {}
-    toml_dict = tomli.loads(toml_str)
+    toml_dict = tomllib.loads(toml_str)
     common_kwargs_for_settings = {}
     profile_to_dict = {}
     for key, value in toml_dict.items():
@@ -316,6 +338,61 @@ def create_profile_to_settings_from_toml_text(toml_str) -> ProfileToSettings:
 class CreateReason(Enum):
     NEW = '+>'
     CHANGED = '~>'
+
+
+def iter_matching_files(top_path: Path, s: Settings):
+    inc_dirs = s.included_dirs_as_glob
+    inc_files = s.included_files_as_glob
+    exc_dirs = s.excluded_dirs_as_glob
+    exc_files = s.excluded_files_as_glob
+    inc_dirs_rx = s.included_dirs_as_regex
+    inc_files_rx = s.included_files_as_regex
+    exc_dirs_rx = s.excluded_dirs_as_regex
+    exc_files_rx = s.excluded_files_as_regex
+    for root, dirs, files in os.walk(top_path):
+        for d in dirs:
+            dir_path = Path(root, d)
+            if (
+                    (any(dir_path.match(dir_as_glob) for dir_as_glob in inc_dirs) if inc_dirs else True)
+                    and not any(dir_path.match(dir_as_glob) for dir_as_glob in exc_dirs)
+            ):  # matches glob, now check regex
+                relative_p = make_relative_p(dir_path, top_path)
+                if inc_dirs_rx:  # only included paths must be considered
+                    if not find_matching_pattern(relative_p, inc_dirs_rx):
+                        dirs.remove(d)
+                        logger.debug(f"|| ...{relative_p}  -- skipping dir: none of included_dirs_as_regex matches")
+                if exc_rx := find_matching_pattern(relative_p, exc_dirs_rx):
+                    dirs.remove(d)
+                    logger.debug(f"|| ...{relative_p}  -- skipping dir: matches '{exc_rx}'")
+            else:  # doesn't match glob
+                dirs.remove(d)
+        for f in files:
+            file_path = Path(root, f)
+            if (
+                    (any(file_path.match(file_as_glob) for file_as_glob in inc_files) if inc_files else True)
+                    and not any(file_path.match(file_as_glob) for file_as_glob in exc_files)
+            ):  # matches glob, now check regex
+                relative_p = make_relative_p(file_path, top_path)
+                if inc_files_rx:  # only included paths must be considered
+                    if not find_matching_pattern(relative_p, inc_files_rx):
+                        logger.debug(f"-- ...{relative_p}  -- skipping: none of included_files_as_regex matches")
+                else:  # no incl filtering; checking exc_files_rx
+                    if exc_rx := find_matching_pattern(relative_p, exc_files_rx):
+                        logger.debug(f"|| ...{relative_p}  -- skipping: matches {exc_rx!r}")
+                    else:
+                        yield file_path
+            else:  # doesn't match glob
+                pass
+
+
+def make_relative_p(path: Path, base_dir: Path = None) -> str:
+    return path.as_posix().removeprefix(base_dir.as_posix()).removeprefix('/')
+
+
+def find_matching_pattern(relative_p: str, patterns: list[Pattern]):
+    for rx in patterns:
+        if rx.search(relative_p):
+            return rx.pattern
 
 
 class Rumar:
@@ -379,7 +456,7 @@ class Rumar:
         """
         self._profile = profile  # for self.s to work
         for p in self.source_files:
-            relative_p = self._make_relative(p)
+            relative_p = make_relative_p(p, self.s.source_dir)
             lstat = self.cached_lstat(p)  # don't follow symlinks - pathlib calls stat for each is_*()
             if self.should_ignore_for_archive(lstat):
                 logger.info(f"-| {p}  -- ignoring file for archiving: socket/door")
@@ -426,9 +503,6 @@ class Rumar:
                     logger.info(f":= {relative_p}  {latest_mtime_str}  {latest_size} =: last backup")
                     self._create(CreateReason.CHANGED, p, relative_p, archive_container_dir, mtime_str, size)
         self._profile = None  # safeguard so that self.s will complain
-
-    def _make_relative(self, path: Path) -> str:
-        return path.as_posix().removeprefix(self.s.source_dir.as_posix()).removeprefix('/')
 
     @staticmethod
     def should_ignore_for_archive(lstat: os.stat_result) -> bool:
@@ -515,7 +589,7 @@ class Rumar:
     def compile_archive_container_dir(self, *, relative_p: Optional[str] = None, path: Optional[Path] = None) -> Path:
         assert relative_p or path, '** either relative_p or path must be provided'
         if not relative_p:
-            relative_p = self._make_relative(path)
+            relative_p = make_relative_p(path, self.s.source_dir)
         return self.s.backup_base_dir_for_profile / relative_p
 
     def get_archive_format_and_compresslevel_kwargs(self, path: Path) -> tuple[RumarFormat, dict]:
@@ -531,48 +605,19 @@ class Rumar:
             return self.s.archive_format, {key: self.s.compression_level}
 
     @property
-    def source_files(self) -> Iterator[Path]:
-        """if source_files are present, use those
-        otherwise walk the source_dir
-        """
-        if self.s.source_files:
-            for file_path in self.s.source_files:
-                yield self.s.source_dir / self._make_relative(Path(file_path))
-        else:
-            for p in self._walk(self.s.source_dir):
-                yield p
+    def source_files(self):
+        return self.create_optionally_deduped_list_of_matching_files(self.s.source_dir, self.s)
 
-    def _walk(self, root: Path) -> Iterator[Path]:
-        """
-        iterator of files to be backed up
-        any logic to exclude some files goes here
-        """
-        files = []
-        directories = []
-        for basename in os.listdir(root):
-            dir_path = root / basename
-            mode = self.cached_lstat(dir_path).st_mode
-            is_dir = stat.S_ISDIR(mode)
-            if is_dir:
-                excluded_relative_p, rx = self._get_relative_if_excluded(dir_path, self.s.excluded_dirs_as_regex)
-            else:
-                excluded_relative_p, rx = self._get_relative_if_excluded(dir_path, self.s.excluded_files_as_regex)
-            if excluded_relative_p:
-                logger.info(f"|| ...{excluded_relative_p}  -- skipping: matches '{rx}'")
-                continue
-            if is_dir and not stat.S_ISLNK(mode):
-                directories.append(dir_path)
-            else:
-                files.append(dir_path)
-        # yield files first, only then recurse into sub-dirs; sort by stem then suffix, i.e. 'abc.txt' before 'abc(2).txt'
-        for file_path in sorted(files, key=lambda x: (x.stem.lower(), x.suffix.lower())):
-            if self.s.skip_duplicate_files and (duplicate := self.find_duplicate(file_path)):
-                logger.info(f"{self._make_relative(file_path)!r} -- skipping: duplicate of {self._make_relative(duplicate)!r}")
+    def create_optionally_deduped_list_of_matching_files(self, top_path: Path, s: Settings):
+        matching_files = []
+        for file_path in iter_matching_files(top_path, s):
+            if s.skip_duplicate_files and (duplicate := self.find_duplicate(file_path)):
+                logger.info(f"{make_relative_p(file_path, top_path)!r} -- skipping: duplicate of {make_relative_p(duplicate, top_path)!r}")
                 continue
             yield file_path
-        for dir_path in sorted(directories, key=lambda x: x.name.lower()):
-            for file_path in self._walk(dir_path):
-                yield file_path
+        # sort by stem then suffix, i.e. 'abc.txt' before 'abc(2).txt'; ignore case
+        matching_files.sort(key=lambda x: (x.stem.lower(), x.suffix.lower()))
+        return matching_files
 
     def find_duplicate(self, file_path: Path) -> Optional[Path]:
         """
@@ -591,15 +636,6 @@ class Rumar:
         stems_and_paths = self._suffix_size_stems_and_paths.setdefault(suffix, {}).setdefault(size, {})
         stems_and_paths.setdefault(self.STEMS, []).append(stem)
         stems_and_paths.setdefault(self.PATHS, []).append(file_path)
-
-    def _get_relative_if_excluded(self, path: Path, excluded: list[Pattern]) -> tuple[str, Pattern]:
-        if excluded:
-            # make sure the first segment in the relative path (to match against) also starts with a slash
-            relative_p = self.SLASH + self._make_relative(path)
-            for rx in excluded:
-                if rx.search(relative_p):
-                    return relative_p, rx.pattern
-        return self.BLANK, self.RX_NONE
 
     def extract_all(self, extract_root: Path):
         raise RuntimeError('not implemented')
