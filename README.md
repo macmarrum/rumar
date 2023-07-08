@@ -78,3 +78,9 @@ excluded_dirs_as_regex = ['^/(My Music|My Pictures|My Videos)$']
 * `sha256_comparison_if_same_size`: bool = False\
   when False, a file is considered changed if its mtime is later than the latest backup's mtime and its size changed\
   when True, SHA256 checksum is compared to determine if the file changed despite having the same size
+* `age_threshold_of_backups_to_sweep`: int = 2\
+  when `sweep` is used, consider for removal only such backups which are older than X days
+* `number_of_daily_backups_to_keep:` int = 2
+* `number_of_weekly_backups_to_keep:` int = 14
+* `number_of_monthly_backups_to_keep:` int = 60\
+  when `sweep` is used, remove backups if their number per file is above the setting per day and week and month
