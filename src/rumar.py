@@ -655,18 +655,6 @@ class Broom:
                 name.endswith(RumarFormat.TAR.value))
 
 
-class BroomTable:
-    dirname = 'dirname'
-    basename = 'basename'
-    d = 'd'
-    w = 'w'
-    m = 'm'
-    d_keep = 'd_keep'
-    w_keep = 'w_keep'
-    m_keep = 'm_keep'
-    rm = 'rm'
-
-
 PeriodColType = Literal['d', 'w', 'm']
 col_to_setting = {
     'd': 'number_of_daily_backups_to_keep',
