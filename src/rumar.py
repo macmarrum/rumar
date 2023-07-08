@@ -664,9 +664,9 @@ col_to_setting = {
 
 
 class BroomDB:
+    DATABASE = ':memory:'
     TABLE_PREFIX = 'broom_'
-    # DATABASE = ':memory:'
-    DATABASE = me.with_suffix('.sqlite')
+    TABLE_DT_FRMT = '%Y%m%d_%H%M%S'
     DATE_FORMAT = '%Y-%m-%d'
     WEEK_FORMAT = '%Y-%W'  # Monday as the first day of the week
     WEEK_ONLY_FORMAT = '%W'
@@ -675,8 +675,7 @@ class BroomDB:
 
     def __init__(self):
         self._db = sqlite3.connect(self.DATABASE)
-        # self._db.set_trace_callback(print)
-        self._table = f"{self.TABLE_PREFIX}{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        self._table = f"{self.TABLE_PREFIX}{datetime.now().strftime(self.TABLE_DT_FRMT)}"
         self.create_table()
 
     def create_table(self):
