@@ -340,6 +340,9 @@ class CreateReason(Enum):
     CHANGED = '~>'
 
 
+SLASH = '/'
+
+
 def iter_matching_files(top_path: Path, s: Settings):
     inc_dirs = s.included_dirs_as_glob
     inc_files = s.included_files_as_glob
@@ -350,18 +353,18 @@ def iter_matching_files(top_path: Path, s: Settings):
     exc_dirs_rx = s.excluded_dirs_as_regex
     exc_files_rx = s.excluded_files_as_regex
     for root, dirs, files in os.walk(top_path):
-        for d in dirs:
+        for d in dirs.copy():
             dir_path = Path(root, d)
             if (
                     (any(dir_path.match(dir_as_glob) for dir_as_glob in inc_dirs) if inc_dirs else True)
                     and not any(dir_path.match(dir_as_glob) for dir_as_glob in exc_dirs)
             ):  # matches glob, now check regex
-                relative_p = make_relative_p(dir_path, top_path)
+                relative_p = make_relative_p(dir_path, top_path, with_leading_slash=True)
                 if inc_dirs_rx:  # only included paths must be considered
                     if not find_matching_pattern(relative_p, inc_dirs_rx):
                         dirs.remove(d)
                         logger.debug(f"|| ...{relative_p}  -- skipping dir: none of included_dirs_as_regex matches")
-                if exc_rx := find_matching_pattern(relative_p, exc_dirs_rx):
+                if d in dirs and (exc_rx := find_matching_pattern(relative_p, exc_dirs_rx)):
                     dirs.remove(d)
                     logger.debug(f"|| ...{relative_p}  -- skipping dir: matches '{exc_rx}'")
             else:  # doesn't match glob
@@ -372,7 +375,7 @@ def iter_matching_files(top_path: Path, s: Settings):
                     (any(file_path.match(file_as_glob) for file_as_glob in inc_files) if inc_files else True)
                     and not any(file_path.match(file_as_glob) for file_as_glob in exc_files)
             ):  # matches glob, now check regex
-                relative_p = make_relative_p(file_path, top_path)
+                relative_p = make_relative_p(file_path, top_path, with_leading_slash=True)
                 if inc_files_rx:  # only included paths must be considered
                     if not find_matching_pattern(relative_p, inc_files_rx):
                         logger.debug(f"-- ...{relative_p}  -- skipping: none of included_files_as_regex matches")
@@ -385,11 +388,13 @@ def iter_matching_files(top_path: Path, s: Settings):
                 pass
 
 
-def make_relative_p(path: Path, base_dir: Path = None) -> str:
-    return path.as_posix().removeprefix(base_dir.as_posix()).removeprefix('/')
+def make_relative_p(path: Path, base_dir: Path, with_leading_slash=False) -> str:
+    relative_p = path.as_posix().removeprefix(base_dir.as_posix())
+    return relative_p.removeprefix(SLASH) if not with_leading_slash else relative_p
 
 
 def find_matching_pattern(relative_p: str, patterns: list[Pattern]):
+    # logger.debug(f"{relative_p}, {[p.pattern for p in patterns]}")
     for rx in patterns:
         if rx.search(relative_p):
             return rx.pattern
@@ -403,7 +408,6 @@ class Rumar:
     """
     BLANK = ''
     RX_NONE = re.compile('')
-    SLASH = '/'
     MTIME_SEP = '~'
     COLON = ':'
     COMMA = ','
