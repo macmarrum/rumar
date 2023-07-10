@@ -545,9 +545,9 @@ class Rumar:
             mtime_dt = datetime.fromtimestamp(mtime).astimezone()
             mtime_str = self.to_mtime_str(mtime_dt)
             size = lstat.st_size
-            latest_archive = self.get_latest_archive(relative_p)
+            latest_archive = self._find_latest_archive(relative_p)
             latest = self.extract_mtime_size(latest_archive)
-            archive_container_dir = self.compile_archive_container_dir(relative_p=relative_p)
+            archive_container_dir = self.calc_archive_container_dir(relative_p=relative_p)
             if latest is None:
                 # no previous backup found
                 self._create(CreateReason.NEW, p, relative_p, archive_container_dir, mtime_str, size)
@@ -562,7 +562,7 @@ class Rumar:
                     else:
                         is_changed = False
                         if self.s.sha256_comparison_if_same_size:
-                            checksum_file = self.get_checksum_file_path(latest_archive)
+                            checksum_file = self.calc_checksum_file_path(latest_archive)
                             if not checksum_file.exists():
                                 latest_checksum = self.compute_checksum_of_file_in_archive(latest_archive)
                                 logger.info(f':- {relative_p}  {latest_mtime_str}  {latest_checksum}')
@@ -585,12 +585,12 @@ class Rumar:
         self._profile = None  # safeguard so that self.s will complain
 
     @staticmethod
-    def should_ignore_for_archive(lstat: os.stat_result) -> bool:
+    def can_ignore_for_archive(lstat: os.stat_result) -> bool:
         mode = lstat.st_mode
         return stat.S_ISSOCK(mode) or stat.S_ISDOOR(mode)
 
     @classmethod
-    def get_checksum_file_path(cls, archive_path: Path) -> Path:
+    def calc_checksum_file_path(cls, archive_path: Path) -> Path:
         core = cls.extract_core(archive_path.name)
         return archive_path.with_name(f"{core}{cls.CHECKSUM_SUFFIX}")
 
@@ -600,11 +600,11 @@ class Rumar:
             member = tf.getmembers()[0]
             return sha256(tf.extractfile(member).read()).hexdigest()
 
-    def get_latest_archive(self, relative_p: str) -> Optional[Path]:
-        archive_container_dir = self.compile_archive_container_dir(relative_p=relative_p)
+    def _find_latest_archive(self, relative_p: str) -> Optional[Path]:
+        archive_container_dir = self.calc_archive_container_dir(relative_p=relative_p)
         if not archive_container_dir.exists():
             return None
-        latest_dir_entry = self.get_last_file_in_dir(archive_container_dir, self.RX_TAR)
+        latest_dir_entry = self.find_last_file_in_dir(archive_container_dir, self.RX_TAR)
         return Path(latest_dir_entry) if latest_dir_entry else None
 
     @classmethod
@@ -643,7 +643,7 @@ class Rumar:
         return mtime_str, size
 
     @staticmethod
-    def get_last_file_in_dir(archive_container_dir: Path, pattern: Pattern = None) -> Optional[os.DirEntry]:
+    def find_last_file_in_dir(archive_container_dir: Path, pattern: Pattern = None) -> Optional[os.DirEntry]:
         for dir_entry in sorted(os.scandir(archive_container_dir), key=lambda x: x.name, reverse=True):
             if dir_entry.is_file():
                 if pattern is None:
@@ -655,24 +655,24 @@ class Rumar:
         archive_container_dir.mkdir(parents=True, exist_ok=True)
         sign = create_reason.value
         logger.info(f"{sign} {relative_p}  {mtime_str}  {size} {sign} {archive_container_dir}")
-        archive_format, compresslevel_kwargs = self.get_archive_format_and_compresslevel_kwargs(path)
+        archive_format, compresslevel_kwargs = self.calc_archive_format_and_compresslevel_kwargs(path)
         mode = self.ARCHIVE_FORMAT_TO_MODE[archive_format]
         is_lnk = stat.S_ISLNK(self.cached_lstat(path).st_mode)
-        archive_path = self.make_archive_path(archive_container_dir, archive_format, mtime_str, size, self.LNK if is_lnk else self.BLANK)
+        archive_path = self.calc_archive_path(archive_container_dir, archive_format, mtime_str, size, self.LNK if is_lnk else self.BLANK)
         with tarfile.open(archive_path, mode, format=self.s.tar_format, **compresslevel_kwargs) as tf:
             tf.add(path, arcname=path.name)
 
     @classmethod
-    def make_archive_path(cls, archive_container_dir: Path, archive_format: RumarFormat, mtime_str: str, size: int, comment: str = None) -> Path:
+    def calc_archive_path(cls, archive_container_dir: Path, archive_format: RumarFormat, mtime_str: str, size: int, comment: str = None) -> Path:
         return archive_container_dir / f"{mtime_str}{cls.MTIME_SEP}{size}{cls.MTIME_SEP + comment if comment else cls.BLANK}.{archive_format.value}"
 
-    def compile_archive_container_dir(self, *, relative_p: Optional[str] = None, path: Optional[Path] = None) -> Path:
+    def calc_archive_container_dir(self, *, relative_p: Optional[str] = None, path: Optional[Path] = None) -> Path:
         assert relative_p or path, '** either relative_p or path must be provided'
         if not relative_p:
             relative_p = make_relative_p(path, self.s.source_dir)
         return self.s.backup_base_dir_for_profile / relative_p
 
-    def get_archive_format_and_compresslevel_kwargs(self, path: Path) -> tuple[RumarFormat, dict]:
+    def calc_archive_format_and_compresslevel_kwargs(self, path: Path) -> tuple[RumarFormat, dict]:
         if (
                 path.is_absolute() and  # for gardner.repack, which has only arc_name
                 stat.S_ISLNK(self.cached_lstat(path).st_mode)
@@ -699,7 +699,7 @@ class Rumar:
             logger.debug(f"{s.filter_usage=} => iter_all_files")
         for file_path in iterator:
             lstat = self.cached_lstat(file_path)
-            if self.should_ignore_for_archive(lstat):
+            if self.can_ignore_for_archive(lstat):
                 logger.info(f"-| {p}  -- ignoring file for archiving: socket/door")
                 continue
             if s.file_deduplication and (duplicate := self.find_duplicate(file_path)):
@@ -730,7 +730,7 @@ class Rumar:
         raise RuntimeError('not implemented')
 
     @staticmethod
-    def _set_mtime(target_path: Path, mtime_dt: datetime):
+    def set_mtime(target_path: Path, mtime_dt: datetime):
         try:
             os.utime(target_path, (0, mtime_dt.timestamp()))
         except:
@@ -835,7 +835,7 @@ class BroomDB:
             path.parent.as_posix(),
             path.name,
             mdate.strftime(self.DATE_FORMAT),
-            self.compute_week(mdate),
+            self.calc_week(mdate),
             mdate.strftime(self.MONTH_FORMAT),
         )
         ins_stmt = f"INSERT INTO {self._table} (dirname, basename, d, w, m) VALUES (?,?,?,?,?)"
@@ -843,7 +843,7 @@ class BroomDB:
         self._db.commit()
 
     @classmethod
-    def compute_week(cls, mdate: date) -> str:
+    def calc_week(cls, mdate: date) -> str:
         """
         consider week 0 as previous year's last week
         """
