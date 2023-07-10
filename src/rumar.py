@@ -474,7 +474,7 @@ def find_matching_pattern(relative_p: str, patterns: list[Pattern]):
             return rx.pattern
 
 
-def sorted_files_by_stem_then_suffix_ignoring_case(matching_files):
+def sorted_files_by_stem_then_suffix_ignoring_case(matching_files: list[Path]):
     """sort by stem then suffix, i.e. 'abc.txt' before 'abc(2).txt'; ignore case"""
     return sorted(matching_files, key=lambda x: (x.stem.lower(), x.suffix.lower()))
 
