@@ -411,6 +411,12 @@ class CreateReason(Enum):
 SLASH = '/'
 
 
+def iter_all_files(top_path: Path):
+    for root, dirs, files in os.walk(top_path):
+        for file in files:
+            yield Path(root, file)
+
+
 def iter_matching_files(top_path: Path, s: Settings):
     inc_dirs = s.included_dirs_as_glob
     inc_files = s.included_files_as_glob
@@ -466,6 +472,11 @@ def find_matching_pattern(relative_p: str, patterns: list[Pattern]):
     for rx in patterns:
         if rx.search(relative_p):
             return rx.pattern
+
+
+def sorted_files_by_stem_then_suffix_ignoring_case(matching_files):
+    """sort by stem then suffix, i.e. 'abc.txt' before 'abc(2).txt'; ignore case"""
+    return sorted(matching_files, key=lambda x: (x.stem.lower(), x.suffix.lower()))
 
 
 class Rumar:
@@ -687,16 +698,14 @@ class Rumar:
             iterator = iter_matching_files(top_path, s)
             logger.debug(f"{s.filter_usage=} => iter_matching_files")
         else:
-            iterator = os.walk(top_path)
-            logger.debug(f"{s.filter_usage=} => os.walk")
+            iterator = iter_all_files(top_path)
+            logger.debug(f"{s.filter_usage=} => iter_all_files")
         for file_path in iterator:
             if s.file_deduplication and (duplicate := self.find_duplicate(file_path)):
                 logger.info(f"{make_relative_p(file_path, top_path)!r} -- skipping: duplicate of {make_relative_p(duplicate, top_path)!r}")
                 continue
             matching_files.append(file_path)
-        # sort by stem then suffix, i.e. 'abc.txt' before 'abc(2).txt'; ignore case
-        matching_files.sort(key=lambda x: (x.stem.lower(), x.suffix.lower()))
-        return matching_files
+        return sorted_files_by_stem_then_suffix_ignoring_case(matching_files)
 
     def find_duplicate(self, file_path: Path) -> Optional[Path]:
         """
@@ -755,15 +764,18 @@ class Broom:
         else:
             iterator = os.walk(s.backup_base_dir_for_profile)
             logger.debug(f"{s.filter_usage=} => os.walk")
+        old_enough_file_to_mdate = {}
         for root, dirs, files in iterator:
             for file in files:
                 path = Path(root, file)
                 if self.is_archive(file, archive_format):
                     mdate = self.extract_date_from_name(file)
                     if mdate < date_older_than_x_days:
-                        self._db.insert(path, mdate)
+                        old_enough_file_to_mdate[path] = mdate
                 else:
                     logger.warning(f":! {path.as_posix()}  is not an archive")
+        for path in sorted_files_by_stem_then_suffix_ignoring_case(old_enough_file_to_mdate):
+            self._db.insert(path, mdate=old_enough_file_to_mdate[path])
         self._db.update_counts(s)
         for dirname, basename, d, w, m, d_rm, w_rm, m_rm in self._db.iter_marked_for_removal():
             path = Path(dirname, basename)
@@ -940,6 +952,7 @@ class BroomDB:
             SELECT dirname, basename, d, w, m, d_rm, w_rm, m_rm
             FROM {self._table}
             WHERE m_rm IS NOT NULL
+            ORDER BY id
             """)
         for row in self._db.execute(stmt):
             yield row
