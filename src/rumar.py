@@ -752,7 +752,8 @@ class Broom:
     @classmethod
     def extract_date_from_name(cls, name: str) -> date:
         iso_date_string = name[:10]
-        return date.fromisocalendar(*iso_date_string.split(cls.DASH))
+        y, m, d = iso_date_string.split(cls.DASH)
+        return date(int(y), int(m), int(d))
 
     def sweep_all_profiles(self):
         for profile in self._profile_to_settings:
@@ -761,6 +762,10 @@ class Broom:
     def sweep_profile(self, profile, is_dry_run=False):
         logger.log(METHOD_17, f"{profile=}")
         s = self._profile_to_settings[profile]
+        self.gather_info(s)
+        self.delete_files(is_dry_run)
+
+    def gather_info(self, s: Settings):
         archive_format = RumarFormat(s.archive_format).value
         date_older_than_x_days = date.today() - timedelta(days=s.age_threshold_of_backups_to_sweep)
         # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
@@ -783,6 +788,8 @@ class Broom:
         for path in sorted_files_by_stem_then_suffix_ignoring_case(old_enough_file_to_mdate):
             self._db.insert(path, mdate=old_enough_file_to_mdate[path])
         self._db.update_counts(s)
+
+    def delete_files(self, is_dry_run):
         for dirname, basename, d, w, m, d_rm, w_rm, m_rm in self._db.iter_marked_for_removal():
             path = Path(dirname, basename)
             logger.info(f"-- {path.as_posix()}  is removed because it's #{d_rm} in {d}, #{w_rm} in week {w}, #{m_rm} in month {m}")
