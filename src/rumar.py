@@ -532,9 +532,9 @@ class Rumar:
             return sha256(tf.extractfile(member).read()).hexdigest()
 
     @staticmethod
-    def set_mtime(target_path: Path, mtime_dt: datetime):
+    def set_mtime(target_path: Path, mtime: datetime):
         try:
-            os.utime(target_path, (0, mtime_dt.timestamp()))
+            os.utime(target_path, (0, mtime.timestamp()))
         except:
             logger.error(f">> error setting mtime -> {sys.exc_info()}")
 
