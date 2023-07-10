@@ -541,9 +541,6 @@ class Rumar:
         for p in self.source_files:
             relative_p = make_relative_p(p, self.s.source_dir)
             lstat = self.cached_lstat(p)  # don't follow symlinks - pathlib calls stat for each is_*()
-            if self.should_ignore_for_archive(lstat):
-                logger.info(f"-| {p}  -- ignoring file for archiving: socket/door")
-                continue
             mtime = lstat.st_mtime
             mtime_dt = datetime.fromtimestamp(mtime).astimezone()
             mtime_str = self.to_mtime_str(mtime_dt)
@@ -701,6 +698,10 @@ class Rumar:
             iterator = iter_all_files(top_path)
             logger.debug(f"{s.filter_usage=} => iter_all_files")
         for file_path in iterator:
+            lstat = self.cached_lstat(file_path)
+            if self.should_ignore_for_archive(lstat):
+                logger.info(f"-| {p}  -- ignoring file for archiving: socket/door")
+                continue
             if s.file_deduplication and (duplicate := self.find_duplicate(file_path)):
                 logger.info(f"{make_relative_p(file_path, top_path)!r} -- skipping: duplicate of {make_relative_p(duplicate, top_path)!r}")
                 continue
