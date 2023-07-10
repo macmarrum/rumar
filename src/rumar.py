@@ -191,65 +191,113 @@ class RumarFormat(Enum):
     TXZ = 'tar.xz'
 
 
+class FilterUsage:
+    create = 1
+    sweep = 2
+    extract = 4
+
+
+FilterUsageType = Literal[1, 2, 3]
+
+
 @dataclass
 class Settings:
     """
     profile: str
       name of the profile
     backup_base_dir: str
+      used by: create, sweep
       path to the base directory used for backup; usually set in the global space, common for all profiles
       backup dir for each profile is constructed as backup_base_dir + profile, unless backup_base_dir_for_profile is set, which takes precedence
-    backup_base_dir_for_profile: str = None
+    backup_base_dir_for_profile: str
+      used by: create, sweep
       path to the base dir used for the profile; usually left unset; see backup_base_dir
-    archive_format: Literal[tar, tar.gz, tar.bz2, tar.xz] = 'tar.gz'
-        archive file to be created
+    archive_format: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz'] = 'tar.gz'
+      used by: create, sweep
+      archive file to be created
     compression_level: int = 3
-        for formats tgz, tbz, txz: compression level from 0 to 9
-    no_compression_suffixes_default: str = '7z,zip,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,png,jpg,mp4,mov,mp3,m4a,aac,ogg,ogv,kdbx'
-        comma-separated string of lower-case suffixes for which to use uncompressed tar
+      used by: create
+      for the formats 'tar.gz', 'tar.bz2', 'tar.xz': compression level from 0 to 9
+    no_compression_suffixes_default: str = '7z,zip,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,kdbx'
+      used by: create
+      comma-separated string of lower-case suffixes for which to use uncompressed tar
     no_compression_suffixes: str = ''
-        extra lower-case suffixes in addition to no_compression_suffixes_default
+      used by: create
+      extra lower-case suffixes in addition to no_compression_suffixes_default
     tar_format: Literal[0, 1, 2] = tarfile.GNU_FORMAT
-      DoubleCmd fails to correctly display mtime when PAX is used – GNU is recommended
+      used by: create
+      Double Commander fails to correctly display mtime when PAX is used, therefore GNU is the default
     source_dir: str
-      path to the root directory that is to be archived
+      used by: create
+      path to the directory which is to be archived
     included_dirs_as_glob: list[str]
-      a list of glob patterns, also known as shell-style wildcards, i.e. * ? [seq] [!seq]
+      used by: create, sweep
+      a list of glob patterns, also known as shell-style wildcards, i.e. `* ? [seq] [!seq]`
       if present, only matching directories will be considered
       the paths/globs can be relative to source_dir or absolute (but under source_dir)
-      on Windows, if absolute, must use the source_dir-drive-letter case (upper or lower)
+      on Windows, if a drive letter is used, must be in the same case (upper or lower) as in source_dir
       see also https://docs.python.org/3/library/fnmatch.html and https://en.wikipedia.org/wiki/Glob_(programming)
     included_files_as_glob: list[str]
+      used by: create, sweep
       like included_dirs_as_glob, but for files
     excluded_dirs_as_glob: list[str]
+      used by: create, sweep
       like included_dirs_as_glob, but to exclude
     excluded_files_as_glob: list[str]
+      used by: create, sweep
       like included_files_as_glob, but to exclude
     included_dirs_as_regex: list[str]
+      used by: create, sweep
       a list of regex patterns
       if present, only matching directories will be included
-      must use / as the path separator, also on Windows
+      `/` must be used as the path separator, also on Windows
       the patterns are matched against a path relative to source_dir
       the first segment in the relative path (to match against) also starts with a slash
-      e.g. ['/B$',] will match any basename equal to B, at any level
+      e.g. `['/B$',]` will match any basename equal to `B`, at any level
       see also https://docs.python.org/3/library/re.html
     included_files_as_regex: list[str]
+      used by: create, sweep
       like included_dirs_as_regex but for files
     excluded_dirs_as_regex: list[str]
+      used by: create, sweep
       like included_dirs_as_regex, but to exclude
     excluded_files_as_regex: list[str]
+      used by: create, sweep
       like included_files_as_regex, but to exclude
     sha256_comparison_if_same_size: bool = False
+      used by: create
       when False, a file is considered changed if its mtime is later than the latest backup's mtime and its size changed
       when True, SHA256 checksum is compared to determine if the file changed despite having the same size
-    file_duplication_discovery: bool = False
+    file_deduplication: bool = False
+      used by: create
       when True, an attempt is made to find and skip duplicates
+      a duplicate file has the same suffix and size and part of its name, case-insensitive (suffix, name)
     age_threshold_of_backups_to_sweep: int = 2
-      when `sweep` is executed, only backups which are older than X days are considered for removal
+      used by: sweep
+      only the backups which are older than the specified number of days are considered for removal
     number_of_daily_backups_to_keep: int = 2
+      used by: sweep
+      the specified number of backups per day is kept, if available, or more, to make weekly and/or monthly numbers
+      oldest backups are removed first
     number_of_weekly_backups_to_keep: int = 14
+      used by: sweep
+      the specified number of backups per week is kept, if available, or more, to make monthly numbers
+      oldest backups are removed first
     number_of_monthly_backups_to_keep: int = 60
-      when `sweep` is executed, the specified numbers of backups are kept, at the minimum, per day and week and month
+      used by: sweep
+      the specified number of backups per month is kept, if available
+      oldest backups are removed first
+    filter_usage: Literal[1, 2, 3] = 1
+      used by: create, sweep
+      determines which command can use the included_* and excluded_* settings
+      1: create
+      2: sweep
+      3: create and sweep
+      by default only used by create, i.e. sweep considers all created backups (no filter is applied)
+      a filter for sweep could be used to e.g. never remove backups from the first day of a month:
+      `excluded_files_as_regex = '/\d\d\d\d-\d\d-01_\d\d,\d\d,\d\d(+|-)\d\d,\d\d\.tar(\.(gz|bz2|xz))?$'`
+      it's best when the setting is part of a separate profile, i.e. a copy made for sweep,
+      otherwise create will also seek such files to be excluded
     """
     profile: str
     backup_base_dir: Union[str, Path]
@@ -268,16 +316,17 @@ class Settings:
     no_compression_suffixes_default: str = (
         '7z,zip,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,'
         'xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,'
-        'png,jpg,mp4,mov,mp3,m4a,aac,ogg,ogv,kdbx'
+        'png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,kdbx'
     )
     no_compression_suffixes: str = ''
     tar_format: Literal[0, 1, 2] = tarfile.GNU_FORMAT
     sha256_comparison_if_same_size: bool = False
-    file_duplication_discovery: bool = False
+    file_deduplication: bool = False
     age_threshold_of_backups_to_sweep: int = 2
     number_of_daily_backups_to_keep: int = 2
     number_of_weekly_backups_to_keep: int = 14
     number_of_monthly_backups_to_keep: int = 60
+    filter_usage: FilterUsageType = FilterUsage.create
     COMMA = ','
 
     @staticmethod
@@ -633,8 +682,15 @@ class Rumar:
 
     def create_optionally_deduped_list_of_matching_files(self, top_path: Path, s: Settings):
         matching_files = []
-        for file_path in iter_matching_files(top_path, s):
-            if s.file_duplication_discovery and (duplicate := self.find_duplicate(file_path)):
+        # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
+        if s.filter_usage & FilterUsage.create == FilterUsage.create:
+            iterator = iter_matching_files(top_path, s)
+            logger.debug(f"{s.filter_usage=} => iter_matching_files")
+        else:
+            iterator = os.walk(top_path)
+            logger.debug(f"{s.filter_usage=} => os.walk")
+        for file_path in iterator:
+            if s.file_deduplication and (duplicate := self.find_duplicate(file_path)):
                 logger.info(f"{make_relative_p(file_path, top_path)!r} -- skipping: duplicate of {make_relative_p(duplicate, top_path)!r}")
                 continue
             matching_files.append(file_path)
@@ -644,7 +700,7 @@ class Rumar:
 
     def find_duplicate(self, file_path: Path) -> Optional[Path]:
         """
-        Finds a file with the same suffix and size and part of name, case-insensitive (suffix, name)
+        a duplicate file has the same suffix and size and part of its name, case-insensitive (suffix, name)
         """
         stem, suffix = os.path.splitext(file_path.name.lower())
         size = self.cached_lstat(file_path).st_size
@@ -692,7 +748,14 @@ class Broom:
         s = self._profile_to_settings[profile]
         archive_format = RumarFormat(s.archive_format).value
         date_older_than_x_days = date.today() - timedelta(days=s.age_threshold_of_backups_to_sweep)
-        for root, dirs, files in os.walk(s.backup_base_dir_for_profile):
+        # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
+        if s.filter_usage & FilterUsage.sweep == FilterUsage.sweep:
+            iterator = iter_matching_files(s.backup_base_dir_for_profile, s)
+            logger.debug(f"{s.filter_usage=} => iter_matching_files")
+        else:
+            iterator = os.walk(s.backup_base_dir_for_profile)
+            logger.debug(f"{s.filter_usage=} => os.walk")
+        for root, dirs, files in iterator:
             for file in files:
                 path = Path(root, file)
                 if self.is_archive(file, archive_format):
