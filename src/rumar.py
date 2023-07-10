@@ -14,7 +14,7 @@ from hashlib import sha256
 from pathlib import Path
 from textwrap import dedent
 from types import TracebackType
-from typing import Iterator, Union, Optional, Literal, Pattern, Any
+from typing import Iterator, Union, Optional, Literal, Pattern, Any, Iterable
 
 vi = sys.version_info
 assert (vi.major, vi.minor) >= (3, 9), 'expected Python 3.9 or higher'
@@ -474,7 +474,7 @@ def find_matching_pattern(relative_p: str, patterns: list[Pattern]):
             return rx.pattern
 
 
-def sorted_files_by_stem_then_suffix_ignoring_case(matching_files: list[Path]):
+def sorted_files_by_stem_then_suffix_ignoring_case(matching_files: Iterable[Path]):
     """sort by stem then suffix, i.e. 'abc.txt' before 'abc(2).txt'; ignore case"""
     return sorted(matching_files, key=lambda x: (x.stem.lower(), x.suffix.lower()))
 
@@ -511,6 +511,33 @@ class Rumar:
         self._profile: Optional[str] = None
         self._suffix_size_stems_and_paths: dict[str, dict[int, dict]] = {}
 
+    @staticmethod
+    def can_ignore_for_archive(lstat: os.stat_result) -> bool:
+        mode = lstat.st_mode
+        return stat.S_ISSOCK(mode) or stat.S_ISDOOR(mode)
+
+    @staticmethod
+    def find_last_file_in_dir(archive_container_dir: Path, pattern: Pattern = None) -> Optional[os.DirEntry]:
+        for dir_entry in sorted(os.scandir(archive_container_dir), key=lambda x: x.name, reverse=True):
+            if dir_entry.is_file():
+                if pattern is None:
+                    return dir_entry
+                elif pattern.search(dir_entry.name):
+                    return dir_entry
+
+    @staticmethod
+    def compute_checksum_of_file_in_archive(archive: Union[os.DirEntry, Path]) -> Optional[str]:
+        with tarfile.open(archive) as tf:
+            member = tf.getmembers()[0]
+            return sha256(tf.extractfile(member).read()).hexdigest()
+
+    @staticmethod
+    def set_mtime(target_path: Path, mtime_dt: datetime):
+        try:
+            os.utime(target_path, (0, mtime_dt.timestamp()))
+        except:
+            logger.error(f">> error setting mtime -> {sys.exc_info()}")
+
     @classmethod
     def cached_lstat(cls, path: Path):
         return cls._path_to_lstat.setdefault(path, path.lstat())
@@ -525,6 +552,50 @@ class Rumar:
     @classmethod
     def from_mtime_str(cls, s: str) -> datetime:
         return datetime.fromisoformat(s.replace(cls.UNDERSCORE, cls.T).replace(cls.COMMA, cls.COLON))
+
+    @classmethod
+    def calc_checksum_file_path(cls, archive_path: Path) -> Path:
+        core = cls.extract_core(archive_path.name)
+        return archive_path.with_name(f"{core}{cls.CHECKSUM_SUFFIX}")
+
+    @classmethod
+    def extract_mtime_size(cls, archive_path: Optional[Path]) -> Optional[tuple[str, int]]:
+        if archive_path is None:
+            return None
+        core = cls.extract_core(archive_path.name)
+        return cls.split_mtime_size(core)
+
+    @classmethod
+    def extract_core(cls, basename: str) -> str:
+        """Example: 2023-04-30_09,48,20.872144+02,00~123#a7b6de.tar.gz => 2023-04-30_09,48,20+02,00~123#a7b6de"""
+        try:
+            core, _ = basename.rsplit(cls.DOT_TAR, 1)
+        except ValueError:
+            print(basename)
+            raise
+        return core
+
+    @classmethod
+    def split_ext(cls, basename: str) -> tuple[str, str]:
+        """Example: 2023-04-30_09,48,20.872144+02,00~123.tar.gz => 2023-04-30_09,48,20+02,00~123 .gz"""
+        try:
+            core, post_tar_ext = basename.rsplit(cls.DOT_TAR, 1)
+        except ValueError:
+            print(basename)
+            raise
+        return core, f"{cls.DOT_TAR}{post_tar_ext}"
+
+    @classmethod
+    def split_mtime_size(cls, core: str) -> tuple[str, int]:
+        """Example: 2023-04-30_09,48,20.872144+02,00~123~ab12~LNK => 2023-04-30_09,48,20.872144+02,00 123 ab12 LNK"""
+        split_result = core.split(cls.MTIME_SEP)
+        mtime_str = split_result[0]
+        size = int(split_result[1])
+        return mtime_str, size
+
+    @classmethod
+    def calc_archive_path(cls, archive_container_dir: Path, archive_format: RumarFormat, mtime_str: str, size: int, comment: str = None) -> Path:
+        return archive_container_dir / f"{mtime_str}{cls.MTIME_SEP}{size}{cls.MTIME_SEP + comment if comment else cls.BLANK}.{archive_format.value}"
 
     @property
     def s(self) -> Settings:
@@ -584,72 +655,12 @@ class Rumar:
                     self._create(CreateReason.CHANGED, p, relative_p, archive_container_dir, mtime_str, size)
         self._profile = None  # safeguard so that self.s will complain
 
-    @staticmethod
-    def can_ignore_for_archive(lstat: os.stat_result) -> bool:
-        mode = lstat.st_mode
-        return stat.S_ISSOCK(mode) or stat.S_ISDOOR(mode)
-
-    @classmethod
-    def calc_checksum_file_path(cls, archive_path: Path) -> Path:
-        core = cls.extract_core(archive_path.name)
-        return archive_path.with_name(f"{core}{cls.CHECKSUM_SUFFIX}")
-
-    @staticmethod
-    def compute_checksum_of_file_in_archive(archive: Union[os.DirEntry, Path]) -> Optional[str]:
-        with tarfile.open(archive) as tf:
-            member = tf.getmembers()[0]
-            return sha256(tf.extractfile(member).read()).hexdigest()
-
     def _find_latest_archive(self, relative_p: str) -> Optional[Path]:
         archive_container_dir = self.calc_archive_container_dir(relative_p=relative_p)
         if not archive_container_dir.exists():
             return None
         latest_dir_entry = self.find_last_file_in_dir(archive_container_dir, self.RX_TAR)
         return Path(latest_dir_entry) if latest_dir_entry else None
-
-    @classmethod
-    def extract_mtime_size(cls, archive_path: Optional[Path]) -> Optional[tuple[str, int]]:
-        if archive_path is None:
-            return None
-        core = cls.extract_core(archive_path.name)
-        return cls.split_mtime_size(core)
-
-    @classmethod
-    def extract_core(cls, basename: str) -> str:
-        """Example: 2023-04-30_09,48,20.872144+02,00~123#a7b6de.tar.gz => 2023-04-30_09,48,20+02,00~123#a7b6de"""
-        try:
-            core, _ = basename.rsplit(cls.DOT_TAR, 1)
-        except ValueError:
-            print(basename)
-            raise
-        return core
-
-    @classmethod
-    def split_ext(cls, basename: str) -> tuple[str, str]:
-        """Example: 2023-04-30_09,48,20.872144+02,00~123.tar.gz => 2023-04-30_09,48,20+02,00~123 .gz"""
-        try:
-            core, post_tar_ext = basename.rsplit(cls.DOT_TAR, 1)
-        except ValueError:
-            print(basename)
-            raise
-        return core, f"{cls.DOT_TAR}{post_tar_ext}"
-
-    @classmethod
-    def split_mtime_size(cls, core: str) -> tuple[str, int]:
-        """Example: 2023-04-30_09,48,20.872144+02,00~123~ab12~LNK => 2023-04-30_09,48,20.872144+02,00 123 ab12 LNK"""
-        split_result = core.split(cls.MTIME_SEP)
-        mtime_str = split_result[0]
-        size = int(split_result[1])
-        return mtime_str, size
-
-    @staticmethod
-    def find_last_file_in_dir(archive_container_dir: Path, pattern: Pattern = None) -> Optional[os.DirEntry]:
-        for dir_entry in sorted(os.scandir(archive_container_dir), key=lambda x: x.name, reverse=True):
-            if dir_entry.is_file():
-                if pattern is None:
-                    return dir_entry
-                elif pattern.search(dir_entry.name):
-                    return dir_entry
 
     def _create(self, create_reason: CreateReason, path: Path, relative_p: str, archive_container_dir: Path, mtime_str: str, size: int):
         archive_container_dir.mkdir(parents=True, exist_ok=True)
@@ -661,10 +672,6 @@ class Rumar:
         archive_path = self.calc_archive_path(archive_container_dir, archive_format, mtime_str, size, self.LNK if is_lnk else self.BLANK)
         with tarfile.open(archive_path, mode, format=self.s.tar_format, **compresslevel_kwargs) as tf:
             tf.add(path, arcname=path.name)
-
-    @classmethod
-    def calc_archive_path(cls, archive_container_dir: Path, archive_format: RumarFormat, mtime_str: str, size: int, comment: str = None) -> Path:
-        return archive_container_dir / f"{mtime_str}{cls.MTIME_SEP}{size}{cls.MTIME_SEP + comment if comment else cls.BLANK}.{archive_format.value}"
 
     def calc_archive_container_dir(self, *, relative_p: Optional[str] = None, path: Optional[Path] = None) -> Path:
         assert relative_p or path, '** either relative_p or path must be provided'
@@ -700,7 +707,7 @@ class Rumar:
         for file_path in iterator:
             lstat = self.cached_lstat(file_path)
             if self.can_ignore_for_archive(lstat):
-                logger.info(f"-| {p}  -- ignoring file for archiving: socket/door")
+                logger.info(f"-| {file_path}  -- ignoring file for archiving: socket/door")
                 continue
             if s.file_deduplication and (duplicate := self.find_duplicate(file_path)):
                 logger.info(f"{make_relative_p(file_path, top_path)!r} -- skipping: duplicate of {make_relative_p(duplicate, top_path)!r}")
@@ -729,13 +736,6 @@ class Rumar:
     def extract_all(self, extract_root: Path):
         raise RuntimeError('not implemented')
 
-    @staticmethod
-    def set_mtime(target_path: Path, mtime_dt: datetime):
-        try:
-            os.utime(target_path, (0, mtime_dt.timestamp()))
-        except:
-            logger.error(f">> error setting mtime -> {sys.exc_info()}")
-
 
 class Broom:
     DASH = '-'
@@ -743,6 +743,11 @@ class Broom:
     def __init__(self, profile_to_settings: ProfileToSettings):
         self._profile_to_settings = profile_to_settings
         self._db = BroomDB()
+
+    @staticmethod
+    def is_archive(name: str, archive_format: str) -> bool:
+        return (name.endswith(archive_format) or
+                name.endswith(RumarFormat.TAR.value))
 
     @classmethod
     def extract_date_from_name(cls, name: str) -> date:
@@ -784,11 +789,6 @@ class Broom:
             if not is_dry_run:
                 path.unlink()
 
-    @staticmethod
-    def is_archive(name: str, archive_format: str) -> bool:
-        return (name.endswith(archive_format) or
-                name.endswith(RumarFormat.TAR.value))
-
 
 PeriodColType = Literal['d', 'w', 'm']
 col_to_setting = {
@@ -812,6 +812,15 @@ class BroomDB:
         self._db = sqlite3.connect(self.DATABASE)
         self._table = f"{self.TABLE_PREFIX}{datetime.now().strftime(self.TABLE_DT_FRMT)}"
         self.create_table()
+
+    @classmethod
+    def calc_week(cls, mdate: date) -> str:
+        """
+        consider week 0 as previous year's last week
+        """
+        if int(mdate.strftime(cls.WEEK_ONLY_FORMAT)) == 0:
+            mdate = mdate.replace(day=1) - timedelta(days=1)
+        return mdate.strftime(cls.WEEK_FORMAT)
 
     def create_table(self):
         ddl = dedent(f"""\
@@ -841,15 +850,6 @@ class BroomDB:
         ins_stmt = f"INSERT INTO {self._table} (dirname, basename, d, w, m) VALUES (?,?,?,?,?)"
         self._db.execute(ins_stmt, params)
         self._db.commit()
-
-    @classmethod
-    def calc_week(cls, mdate: date) -> str:
-        """
-        consider week 0 as previous year's last week
-        """
-        if int(mdate.strftime(cls.WEEK_ONLY_FORMAT)) == 0:
-            mdate = mdate.replace(day=1) - timedelta(days=1)
-        return mdate.strftime(cls.WEEK_FORMAT)
 
     def update_counts(self, s: Settings):
         self._update_d_rm(s)
