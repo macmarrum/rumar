@@ -792,7 +792,7 @@ class Broom:
     def delete_files(self, is_dry_run):
         for dirname, basename, d, w, m, d_rm, w_rm, m_rm in self._db.iter_marked_for_removal():
             path = Path(dirname, basename)
-            logger.info(f"-- {path.as_posix()}  is removed because it's #{d_rm} in {d}, #{w_rm} in week {w}, #{m_rm} in month {m}")
+            logger.info(f"-- {path.as_posix()}  is removed because it's #{m_rm} in month {m}, #{w_rm} in week {w}, #{d_rm} in {d}")
             if not is_dry_run:
                 path.unlink()
 
@@ -807,8 +807,8 @@ col_to_setting = {
 
 class BroomDB:
     DATABASE = ':memory:'
-    TABLE_PREFIX = 'broom_'
-    TABLE_DT_FRMT = '%Y%m%d_%H%M%S'
+    TABLE_PREFIX = 'broom'
+    TABLE_DT_FRMT = '_%Y%m%d_%H%M%S'
     DATE_FORMAT = '%Y-%m-%d'
     WEEK_FORMAT = '%Y-%W'  # Monday as the first day of the week
     WEEK_ONLY_FORMAT = '%W'
@@ -818,7 +818,7 @@ class BroomDB:
     def __init__(self):
         self._db = sqlite3.connect(self.DATABASE)
         self._table = f"{self.TABLE_PREFIX}{datetime.now().strftime(self.TABLE_DT_FRMT)}"
-        self.create_table()
+        self.create_table_if_not_exists()
 
     @classmethod
     def calc_week(cls, mdate: date) -> str:
@@ -829,9 +829,9 @@ class BroomDB:
             mdate = mdate.replace(day=1) - timedelta(days=1)
         return mdate.strftime(cls.WEEK_FORMAT)
 
-    def create_table(self):
+    def create_table_if_not_exists(self):
         ddl = dedent(f"""\
-            CREATE TABLE {self._table} (
+            CREATE TABLE IF NOT EXISTS {self._table} (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 dirname TEXT NOT NULL,
                 basename TEXT NOT NULL,
@@ -864,95 +864,131 @@ class BroomDB:
         self._update_m_rm(s)
 
     def _update_d_rm(self, s: Settings):
-        x = 'd'
-        number_of_backups_to_keep = getattr(s, col_to_setting[x])
+        """Sets d_rm, putting the information about 
+        file number in a day, 
+        count of files in a day,
+        files to keep per day.
+        To find the files, the SQL query looks for 
+        months with the files count bigger than monthly backups to keep,
+        weeks with the files count bigger than weekly backups to keep,
+        days with the files count bigger than daily backups to keep.
+        """
         stmt = dedent(f"""\
-        SELECT b.dirname, b.{x}, b.id, agg.cnt, row_number() OVER win1 AS num
-        FROM {self._table} b
-        JOIN (
-            SELECT dirname, {x}, count(*) cnt
-            FROM {self._table} 
-            GROUP BY dirname, {x}
-            HAVING count(*) > {number_of_backups_to_keep}
-        ) agg ON b.dirname = agg.dirname AND b.{x} = agg.{x}
-        WINDOW win1 AS (PARTITION BY b.dirname, b.{x} ORDER BY b.dirname, b.{x}, b.id)
-        ORDER BY b.dirname, b.{x}, b.id
+        SELECT * FROM (
+            SELECT br.dirname, br.d, br.id, dd.cnt, row_number() OVER win1 AS num
+            FROM {self._table} br
+            JOIN (
+                SELECT dirname, m, count(*) cnt
+                FROM {self._table} 
+                GROUP BY dirname, m
+                HAVING count(*) > {s.number_of_monthly_backups_to_keep}
+            ) mm ON br.dirname = mm.dirname AND br.m = mm.m
+            JOIN (
+                SELECT dirname, w, count(*) cnt
+                FROM {self._table} 
+                GROUP BY dirname, w
+                HAVING count(*) > {s.number_of_weekly_backups_to_keep}
+            ) ww ON br.dirname = ww.dirname AND br.w = ww.w
+            JOIN (
+                SELECT dirname, d, count(*) cnt
+                FROM {self._table} 
+                GROUP BY dirname, d
+                HAVING count(*) > {s.number_of_daily_backups_to_keep}
+            ) dd ON br.dirname = dd.dirname AND br.d = dd.d
+            WINDOW win1 AS (PARTITION BY br.dirname, br.d ORDER BY br.dirname, br.d, br.id)
+        )
+        WHERE num <= cnt - {s.number_of_daily_backups_to_keep}
+        ORDER BY dirname, d, id
         """)
         db = self._db
         cur = db.cursor()
         for row in db.execute(stmt):
-            dirname, x_val, broom_id, x_cnt, x_num = row
-            x_rm_target = x_cnt - number_of_backups_to_keep
-            if x_rm_target > 0:
-                if x_num <= x_rm_target:
-                    updt_stmt = dedent(f"""\
-                        UPDATE {self._table}
-                        SET {x}_rm = '{x_num} of ({x_cnt} - {number_of_backups_to_keep})'
-                        WHERE id = ?
-                        """)
-                    cur.execute(updt_stmt, (broom_id,))
+            dirname, d, broom_id, cnt, num = row
+            updt_stmt = dedent(f"""\
+                UPDATE {self._table}
+                SET d_rm = '{num} of ({cnt} - {s.number_of_daily_backups_to_keep})'
+                WHERE id = ?
+                """)
+            cur.execute(updt_stmt, (broom_id,))
         db.commit()
 
     def _update_w_rm(self, s: Settings):
-        x = 'w'
-        number_of_backups_to_keep = getattr(s, col_to_setting[x])
+        """Sets w_rm, putting the information about 
+        file number in a week, 
+        count of files in a week,
+        files to keep per week.
+        To find the files, the SQL query looks for 
+        months with the files count bigger than monthly backups to keep,
+        weeks with the files count bigger than weekly backups to keep.
+        """
         stmt = dedent(f"""\
-        SELECT b.dirname, b.{x}, b.id, agg.cnt, row_number() OVER win1 AS num
-        FROM {self._table} b
-        JOIN (
-            SELECT dirname, {x}, count(*) cnt
-            FROM {self._table} 
-            GROUP BY dirname, {x}
-            HAVING count(*) > {number_of_backups_to_keep}
-        ) agg ON b.dirname = agg.dirname AND b.{x} = agg.{x}
-        WHERE b.d_rm IS NOT NULL
-        WINDOW win1 AS (PARTITION BY b.dirname, b.{x} ORDER BY b.dirname, b.{x}, b.id)
-        ORDER BY b.dirname, b.{x}, b.id
+        SELECT * FROM (
+            SELECT br.dirname, br.w, br.id, ww.cnt, row_number() OVER win1 AS num
+            FROM {self._table} br
+            JOIN (
+                SELECT dirname, m, count(*) cnt
+                FROM {self._table} 
+                GROUP BY dirname, m
+                HAVING count(*) > {s.number_of_monthly_backups_to_keep}
+            ) mm ON br.dirname = mm.dirname AND br.m = mm.m
+            JOIN (
+                SELECT dirname, w, count(*) cnt
+                FROM {self._table} 
+                GROUP BY dirname, w
+                HAVING count(*) > {s.number_of_weekly_backups_to_keep}
+            ) ww ON br.dirname = ww.dirname AND br.w = ww.w
+            WHERE br.d_rm IS NOT NULL
+            WINDOW win1 AS (PARTITION BY br.dirname, br.w ORDER BY br.dirname, br.w, br.id)
+        )
+        WHERE num <= cnt - {s.number_of_weekly_backups_to_keep}
+        ORDER BY dirname, w, id
         """)
         db = self._db
         cur = db.cursor()
         for row in db.execute(stmt):
-            dirname, x_val, broom_id, x_cnt, x_num = row
-            x_rm_target = x_cnt - number_of_backups_to_keep
-            if x_rm_target > 0:
-                if x_num <= x_rm_target:
-                    updt_stmt = dedent(f"""\
-                        UPDATE {self._table}
-                        SET {x}_rm = '{x_num} of ({x_cnt} - {number_of_backups_to_keep})'
-                        WHERE id = ?
-                        """)
-                    cur.execute(updt_stmt, (broom_id,))
+            dirname, w, broom_id, cnt, num = row
+            updt_stmt = dedent(f"""\
+                UPDATE {self._table}
+                SET w_rm = '{num} of ({cnt} - {s.number_of_weekly_backups_to_keep})'
+                WHERE id = ?
+                """)
+            cur.execute(updt_stmt, (broom_id,))
         db.commit()
 
     def _update_m_rm(self, s: Settings):
-        x = 'm'
-        number_of_backups_to_keep = getattr(s, col_to_setting[x])
+        """Sets m_rm, putting the information about 
+        file number in a month, 
+        count of files in a month,
+        files to keep per month.
+        To find the files, the SQL query looks for 
+        months with the files count bigger than monthly backups to keep.
+        """
         stmt = dedent(f"""\
-        SELECT b.dirname, b.{x}, b.id, agg.cnt, row_number() OVER win1 AS num
-        FROM {self._table} b
-        JOIN (
-            SELECT dirname, {x}, count(*) cnt
-            FROM {self._table} 
-            GROUP BY dirname, {x}
-            HAVING count(*) > {number_of_backups_to_keep}
-        ) agg ON b.dirname = agg.dirname AND b.{x} = agg.{x}
-        WHERE b.w_rm IS NOT NULL
-        WINDOW win1 AS (PARTITION BY b.dirname, b.{x} ORDER BY b.dirname, b.{x}, b.id)
-        ORDER BY b.dirname, b.{x}, b.id
+        SELECT * FROM (
+            SELECT br.dirname, br.m, br.id, mm.cnt, row_number() OVER win1 AS num
+            FROM {self._table} br
+            JOIN (
+                SELECT dirname, m, count(*) cnt
+                FROM {self._table} 
+                GROUP BY dirname, m
+                HAVING count(*) > {s.number_of_monthly_backups_to_keep}
+            ) mm ON br.dirname = mm.dirname AND br.m = mm.m
+            WHERE br.w_rm IS NOT NULL
+            WINDOW win1 AS (PARTITION BY br.dirname, br.m ORDER BY br.dirname, br.m, br.id)
+        )
+        WHERE num <= cnt - {s.number_of_monthly_backups_to_keep}
+        ORDER BY dirname, m, id
         """)
         db = self._db
         cur = db.cursor()
         for row in db.execute(stmt):
-            dirname, x_val, broom_id, x_cnt, x_num = row
-            x_rm_target = x_cnt - number_of_backups_to_keep
-            if x_rm_target > 0:
-                if x_num <= x_rm_target:
-                    updt_stmt = dedent(f"""\
-                        UPDATE {self._table}
-                        SET {x}_rm = '{x_num} of ({x_cnt} - {number_of_backups_to_keep})'
-                        WHERE id = ?
-                        """)
-                    cur.execute(updt_stmt, (broom_id,))
+            dirname, m, broom_id, cnt, num = row
+            updt_stmt = dedent(f"""\
+                UPDATE {self._table}
+                SET m_rm = '{num} of ({cnt} - {s.number_of_monthly_backups_to_keep})'
+                WHERE id = ?
+                """)
+            cur.execute(updt_stmt, (broom_id,))
         db.commit()
 
     def iter_marked_for_removal(self) -> Iterator[tuple[str, str, str, str, str, str, str, str]]:
@@ -960,7 +996,7 @@ class BroomDB:
             SELECT dirname, basename, d, w, m, d_rm, w_rm, m_rm
             FROM {self._table}
             WHERE m_rm IS NOT NULL
-            ORDER BY id
+            ORDER BY dirname, basename
             """)
         for row in self._db.execute(stmt):
             yield row
