@@ -750,6 +750,10 @@ class Broom:
         return (name.endswith(archive_format) or
                 name.endswith(RumarFormat.TAR.value))
 
+    @staticmethod
+    def is_checksum(name: str) -> bool:
+        return name.endswith(Rumar.CHECKSUM_SUFFIX)
+
     @classmethod
     def extract_date_from_name(cls, name: str) -> date:
         iso_date_string = name[:10]
@@ -784,13 +788,14 @@ class Broom:
                     mdate = self.extract_date_from_name(file)
                     if mdate < date_older_than_x_days:
                         old_enough_file_to_mdate[path] = mdate
-                else:
-                    logger.warning(f":! {path.as_posix()}  is not an archive")
+                elif not self.is_checksum(file):
+                    logger.warning(f":! {path.as_posix()}  is unexpected (not an archive)")
         for path in sorted_files_by_stem_then_suffix_ignoring_case(old_enough_file_to_mdate):
             self._db.insert(path, mdate=old_enough_file_to_mdate[path])
         self._db.update_counts(s)
 
     def delete_files(self, is_dry_run):
+        logger.log(METHOD_17, f"{is_dry_run=}")
         for dirname, basename, d, w, m, d_rm, w_rm, m_rm in self._db.iter_marked_for_removal():
             path = Path(dirname, basename)
             logger.info(f"-- {path.as_posix()}  is removed because it's #{m_rm} in month {m}, #{w_rm} in week {w}, #{d_rm} in {d}")
