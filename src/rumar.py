@@ -180,9 +180,9 @@ def sweep(args):
     broom = Broom(profile_to_settings)
     is_dry_run = args.dry_run or False
     if args.all:
-        broom.sweep_all_profiles(is_dry_run)
+        broom.sweep_all_profiles(is_dry_run=is_dry_run)
     elif args.profile:
-        broom.sweep_profile(args.profile, is_dry_run)
+        broom.sweep_profile(args.profile, is_dry_run=is_dry_run)
 
 
 class RumarFormat(Enum):
@@ -760,11 +760,11 @@ class Broom:
         y, m, d = iso_date_string.split(cls.DASH)
         return date(int(y), int(m), int(d))
 
-    def sweep_all_profiles(self, is_dry_run: bool):
+    def sweep_all_profiles(self, *, is_dry_run: bool):
         for profile in self._profile_to_settings:
-            self.sweep_profile(profile, is_dry_run)
+            self.sweep_profile(profile, is_dry_run=is_dry_run)
 
-    def sweep_profile(self, profile, is_dry_run: bool):
+    def sweep_profile(self, profile, *, is_dry_run: bool):
         logger.log(METHOD_17, f"{profile=}")
         s = self._profile_to_settings[profile]
         self.gather_info(s)
@@ -796,9 +796,10 @@ class Broom:
 
     def delete_files(self, is_dry_run):
         logger.log(METHOD_17, f"{is_dry_run=}")
+        rm_action_info = 'would be removed' if is_dry_run else '-- removing'
         for dirname, basename, d, w, m, d_rm, w_rm, m_rm in self._db.iter_marked_for_removal():
             path = Path(dirname, basename)
-            logger.info(f"-- {path.as_posix()}  is removed because it's #{m_rm} in month {m}, #{w_rm} in week {w}, #{d_rm} in {d}")
+            logger.info(f"-- {path.as_posix()}  {rm_action_info} because it's #{m_rm} in month {m}, #{w_rm} in week {w}, #{d_rm} in day {d}")
             if not is_dry_run:
                 path.unlink()
 
