@@ -29,8 +29,11 @@ Each backup is a separate **tar** file.
 
 ### To sweep old backups
 
-1. Run `python rumar.py sweep --profile "My Documents"`
-2. Add this command to Task Scheduler or cron, to be run at an interval or each day/night
+1. Run `python rumar.py sweep --profile "My Documents" --dry-run` and verify the files to be removed
+2. Run `python rumar.py sweep --profile "My Documents"`
+3. Add this command to Task Scheduler or cron, to be run at an interval or each day/night
+
+Note: when --dry-run is used, file selection is run to count and select files to be removed but no files are actually deleted.
 
 ## Settings
 

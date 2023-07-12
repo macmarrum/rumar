@@ -178,10 +178,11 @@ def extract(args):
 def sweep(args):
     profile_to_settings = create_profile_to_settings_from_toml_path(args.toml)
     broom = Broom(profile_to_settings)
+    is_dry_run = args.dry_run or False
     if args.all:
-        broom.sweep_all_profiles()
+        broom.sweep_all_profiles(is_dry_run)
     elif args.profile:
-        broom.sweep_profile(args.profile)
+        broom.sweep_profile(args.profile, is_dry_run)
 
 
 class RumarFormat(Enum):
@@ -755,11 +756,11 @@ class Broom:
         y, m, d = iso_date_string.split(cls.DASH)
         return date(int(y), int(m), int(d))
 
-    def sweep_all_profiles(self):
+    def sweep_all_profiles(self, is_dry_run: bool):
         for profile in self._profile_to_settings:
-            self.sweep_profile(profile)
+            self.sweep_profile(profile, is_dry_run)
 
-    def sweep_profile(self, profile, is_dry_run=False):
+    def sweep_profile(self, profile, is_dry_run: bool):
         logger.log(METHOD_17, f"{profile=}")
         s = self._profile_to_settings[profile]
         self.gather_info(s)
@@ -795,14 +796,6 @@ class Broom:
             logger.info(f"-- {path.as_posix()}  is removed because it's #{m_rm} in month {m}, #{w_rm} in week {w}, #{d_rm} in {d}")
             if not is_dry_run:
                 path.unlink()
-
-
-PeriodColType = Literal['d', 'w', 'm']
-col_to_setting = {
-    'd': 'number_of_daily_backups_to_keep',
-    'w': 'number_of_weekly_backups_to_keep',
-    'm': 'number_of_monthly_backups_to_keep',
-}
 
 
 class BroomDB:
