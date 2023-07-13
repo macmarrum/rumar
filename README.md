@@ -107,13 +107,13 @@ excluded_files_as_regex = ['/(desktop\.ini|thumbs\.db)$']
   a duplicate file has the same suffix and size and part of its name, case-insensitive (suffix, name)
 * **age_threshold_of_backups_to_sweep**: int = 2 &nbsp; &nbsp; _used by: sweep_\
   only the backups which are older than the specified number of days are considered for removal
-* **number_of_daily_backups_to_keep**: int = 2 &nbsp; &nbsp; _used by: sweep_\
+* **number_of_backups_per_day_to_keep**: int = 2 &nbsp; &nbsp; _used by: sweep_\
   the specified number of backups per day is kept, if available, or more, to make weekly and/or monthly numbers\
   oldest backups are removed first
-* **number_of_weekly_backups_to_keep**: int = 14 &nbsp; &nbsp; _used by: sweep_\
+* **number_of_backups_per_week_to_keep**: int = 14 &nbsp; &nbsp; _used by: sweep_\
   the specified number of backups per week is kept, if available, or more, to make monthly numbers\
   oldest backups are removed first
-* **number_of_monthly_backups_to_keep**: int = 60 &nbsp; &nbsp; _used by: sweep_\
+* **number_of_backups_per_month_to_keep**: int = 60 &nbsp; &nbsp; _used by: sweep_\
   the specified number of backups per month is kept, if available\
   oldest backups are removed first
 * **filter_usage**: Literal[1, 2, 3] = 1 &nbsp; &nbsp; _used by: create, sweep_\

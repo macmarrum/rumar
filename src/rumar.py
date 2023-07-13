@@ -276,15 +276,15 @@ class Settings:
     age_threshold_of_backups_to_sweep: int = 2
       used by: sweep
       only the backups which are older than the specified number of days are considered for removal
-    number_of_daily_backups_to_keep: int = 2
+    number_of_backups_per_day_to_keep: int = 2
       used by: sweep
       the specified number of backups per day is kept, if available, or more, to make weekly and/or monthly numbers
       oldest backups are removed first
-    number_of_weekly_backups_to_keep: int = 14
+    number_of_backups_per_week_to_keep: int = 14
       used by: sweep
       the specified number of backups per week is kept, if available, or more, to make monthly numbers
       oldest backups are removed first
-    number_of_monthly_backups_to_keep: int = 60
+    number_of_backups_per_month_to_keep: int = 60
       used by: sweep
       the specified number of backups per month is kept, if available
       oldest backups are removed first
@@ -324,9 +324,9 @@ class Settings:
     sha256_comparison_if_same_size: bool = False
     file_deduplication: bool = False
     age_threshold_of_backups_to_sweep: int = 2
-    number_of_daily_backups_to_keep: int = 2
-    number_of_weekly_backups_to_keep: int = 14
-    number_of_monthly_backups_to_keep: int = 60
+    number_of_backups_per_day_to_keep: int = 2
+    number_of_backups_per_week_to_keep: int = 14
+    number_of_backups_per_month_to_keep: int = 60
     filter_usage: FilterUsageType = FilterUsage.create
     COMMA = ','
 
@@ -816,7 +816,7 @@ class BroomDB:
     def __init__(self):
         self._db = sqlite3.connect(self.DATABASE)
         self._table = f"{self.TABLE_PREFIX}{datetime.now().strftime(self.TABLE_DT_FRMT)}"
-        logger.log(METHOD_17, f"{self.DATABASE} | {self._table}")
+        logger.debug(f"{self.DATABASE} | {self._table}")
         self._create_table_if_not_exists()
 
     @classmethod
@@ -895,23 +895,23 @@ class BroomDB:
                 SELECT dirname, m, count(*) cnt
                 FROM {self._table} 
                 GROUP BY dirname, m
-                HAVING count(*) > {s.number_of_monthly_backups_to_keep}
+                HAVING count(*) > {s.number_of_backups_per_month_to_keep}
             ) mm ON br.dirname = mm.dirname AND br.m = mm.m
             JOIN (
                 SELECT dirname, w, count(*) cnt
                 FROM {self._table} 
                 GROUP BY dirname, w
-                HAVING count(*) > {s.number_of_weekly_backups_to_keep}
+                HAVING count(*) > {s.number_of_backups_per_week_to_keep}
             ) ww ON br.dirname = ww.dirname AND br.w = ww.w
             JOIN (
                 SELECT dirname, d, count(*) cnt
                 FROM {self._table} 
                 GROUP BY dirname, d
-                HAVING count(*) > {s.number_of_daily_backups_to_keep}
+                HAVING count(*) > {s.number_of_backups_per_day_to_keep}
             ) dd ON br.dirname = dd.dirname AND br.d = dd.d
             WINDOW win1 AS (PARTITION BY br.dirname, br.d ORDER BY br.dirname, br.d, br.id)
         )
-        WHERE num <= cnt - {s.number_of_daily_backups_to_keep}
+        WHERE num <= cnt - {s.number_of_backups_per_day_to_keep}
         ORDER BY dirname, d, id
         """)
         db = self._db
@@ -922,7 +922,7 @@ class BroomDB:
             max_num = max(row[4] for row in rows if row[0] == dirname and row[1] == d)
             updt_stmt = dedent(f"""\
                 UPDATE {self._table}
-                SET d_rm = '{num} of {max_num} (max {cnt} - {s.number_of_daily_backups_to_keep})'
+                SET d_rm = '{num} of {max_num} (max {cnt} - {s.number_of_backups_per_day_to_keep})'
                 WHERE id = ?
                 """)
             cur.execute(updt_stmt, (broom_id,))
@@ -948,12 +948,12 @@ class BroomDB:
                 SELECT dirname, w, count(*) cnt
                 FROM {self._table} 
                 GROUP BY dirname, w
-                HAVING count(*) > {s.number_of_weekly_backups_to_keep}
+                HAVING count(*) > {s.number_of_backups_per_week_to_keep}
             ) ww ON br.dirname = ww.dirname AND br.w = ww.w
             WHERE br.d_rm IS NOT NULL
             WINDOW win1 AS (PARTITION BY br.dirname, br.w ORDER BY br.dirname, br.w, br.id)
         )
-        WHERE num <= cnt - {s.number_of_weekly_backups_to_keep}
+        WHERE num <= cnt - {s.number_of_backups_per_week_to_keep}
         ORDER BY dirname, w, id
         """)
         db = self._db
@@ -964,7 +964,7 @@ class BroomDB:
             max_num = max(row[4] for row in rows if row[0] == dirname and row[1] == w)
             updt_stmt = dedent(f"""\
                 UPDATE {self._table}
-                SET w_rm = '{num} of {max_num} (max {cnt} - {s.number_of_weekly_backups_to_keep})'
+                SET w_rm = '{num} of {max_num} (max {cnt} - {s.number_of_backups_per_week_to_keep})'
                 WHERE id = ?
                 """)
             cur.execute(updt_stmt, (broom_id,))
@@ -990,12 +990,12 @@ class BroomDB:
                 SELECT dirname, m, count(*) cnt
                 FROM {self._table} 
                 GROUP BY dirname, m
-                HAVING count(*) > {s.number_of_monthly_backups_to_keep}
+                HAVING count(*) > {s.number_of_backups_per_month_to_keep}
             ) mm ON br.dirname = mm.dirname AND br.m = mm.m
             WHERE br.w_rm IS NOT NULL
             WINDOW win1 AS (PARTITION BY br.dirname, br.m ORDER BY br.dirname, br.m, br.id)
         )
-        WHERE num <= cnt - {s.number_of_monthly_backups_to_keep}
+        WHERE num <= cnt - {s.number_of_backups_per_month_to_keep}
         ORDER BY dirname, m, id
         """)
         db = self._db
@@ -1006,7 +1006,7 @@ class BroomDB:
             max_num = max(row[4] for row in rows if row[0] == dirname and row[1] == m)
             updt_stmt = dedent(f"""\
                 UPDATE {self._table}
-                SET m_rm = '{num} of {max_num} (max {cnt} - {s.number_of_monthly_backups_to_keep})'
+                SET m_rm = '{num} of {max_num} (max {cnt} - {s.number_of_backups_per_month_to_keep})'
                 WHERE id = ?
                 """)
             cur.execute(updt_stmt, (broom_id,))
