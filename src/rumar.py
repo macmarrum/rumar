@@ -778,20 +778,19 @@ class Broom:
             iterator = iter_matching_files(s.backup_base_dir_for_profile, s)
             logger.debug(f"{s.filter_usage=} => iter_matching_files")
         else:
-            iterator = os.walk(s.backup_base_dir_for_profile)
-            logger.debug(f"{s.filter_usage=} => os.walk")
+            iterator = iter_all_files(s.backup_base_dir_for_profile)
+            logger.debug(f"{s.filter_usage=} => iter_all_files")
         old_enough_file_to_mdate = {}
-        for root, dirs, files in iterator:
-            for file in files:
-                path = Path(root, file)
-                if self.is_archive(file, archive_format):
-                    mdate = self.extract_date_from_name(file)
-                    if mdate < date_older_than_x_days:
-                        old_enough_file_to_mdate[path] = mdate
-                elif not self.is_checksum(file):
-                    logger.warning(f":! {path.as_posix()}  is unexpected (not an archive)")
+        for path in iterator:
+            if self.is_archive(path.name, archive_format):
+                mdate = self.extract_date_from_name(path.name)
+                if mdate < date_older_than_x_days:
+                    old_enough_file_to_mdate[path] = mdate
+            elif not self.is_checksum(path.name):
+                logger.warning(f":! {path.as_posix()}  is unexpected (not an archive)")
         for path in sorted_files_by_stem_then_suffix_ignoring_case(old_enough_file_to_mdate):
             self._db.insert(path, mdate=old_enough_file_to_mdate[path])
+        self._db.commit()
         self._db.update_counts(s)
 
     def delete_files(self, is_dry_run):
@@ -805,11 +804,11 @@ class Broom:
 
 
 class BroomDB:
-    DATABASE = ':memory:'
+    DATABASE = me.with_suffix('.sqlite') if logger.level <= logging.DEBUG else ':memory:'
     TABLE_PREFIX = 'broom'
     TABLE_DT_FRMT = '_%Y%m%d_%H%M%S'
     DATE_FORMAT = '%Y-%m-%d'
-    WEEK_FORMAT = '%Y-%W'  # Monday as the first day of the week
+    WEEK_FORMAT = '%Y-%W'  # Monday as the first day of the week, zero-padded
     WEEK_ONLY_FORMAT = '%W'
     MONTH_FORMAT = '%Y-%m'
     DUNDER = '__'
@@ -817,18 +816,21 @@ class BroomDB:
     def __init__(self):
         self._db = sqlite3.connect(self.DATABASE)
         self._table = f"{self.TABLE_PREFIX}{datetime.now().strftime(self.TABLE_DT_FRMT)}"
-        self.create_table_if_not_exists()
+        logger.log(METHOD_17, f"{self.DATABASE} | {self._table}")
+        self._create_table_if_not_exists()
 
     @classmethod
     def calc_week(cls, mdate: date) -> str:
         """
         consider week 0 as previous year's last week
         """
-        if int(mdate.strftime(cls.WEEK_ONLY_FORMAT)) == 0:
+        m = mdate.month
+        d = mdate.day
+        if m == 1 and d < 7 and mdate.strftime(cls.WEEK_ONLY_FORMAT) == '00':
             mdate = mdate.replace(day=1) - timedelta(days=1)
         return mdate.strftime(cls.WEEK_FORMAT)
 
-    def create_table_if_not_exists(self):
+    def _create_table_if_not_exists(self):
         ddl = dedent(f"""\
             CREATE TABLE IF NOT EXISTS {self._table} (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -844,7 +846,14 @@ class BroomDB:
             """)
         self._db.execute(ddl)
 
-    def insert(self, path: Path, mdate: date):
+    def _create_indexes_if_not_exist(self):
+        index_ddls = (f"CREATE INDEX IF NOT EXISTS idx_dirname_d ON {self._table} (dirname, d)",
+                      f"CREATE INDEX IF NOT EXISTS idx_dirname_w ON {self._table} (dirname, w)",
+                      f"CREATE INDEX IF NOT EXISTS idx_dirname_m ON {self._table} (dirname, m)")
+        for ddl in index_ddls:
+            self._db.execute(ddl)
+
+    def insert(self, path: Path, mdate: date, should_commit=False):
         # logger.log(METHOD_17, f"{path.as_posix()}")
         params = (
             path.parent.as_posix(),
@@ -855,18 +864,24 @@ class BroomDB:
         )
         ins_stmt = f"INSERT INTO {self._table} (dirname, basename, d, w, m) VALUES (?,?,?,?,?)"
         self._db.execute(ins_stmt, params)
+        if should_commit:
+            self._db.commit()
+
+    def commit(self):
         self._db.commit()
 
     def update_counts(self, s: Settings):
+        self._create_indexes_if_not_exist()
         self._update_d_rm(s)
         self._update_w_rm(s)
         self._update_m_rm(s)
 
     def _update_d_rm(self, s: Settings):
         """Sets d_rm, putting the information about 
-        file number in a day, 
-        count of files in a day,
-        files to keep per day.
+        backup-file number in a day to be removed,
+        maximal backup-file number in a day to be removed,
+        count of backups pef files in a day,
+        backups to keep per file in a day.
         To find the files, the SQL query looks for 
         months with the files count bigger than monthly backups to keep,
         weeks with the files count bigger than weekly backups to keep,
@@ -915,23 +930,20 @@ class BroomDB:
 
     def _update_w_rm(self, s: Settings):
         """Sets w_rm, putting the information about 
-        file number in a week, 
-        count of files in a week,
-        files to keep per week.
-        To find the files, the SQL query looks for 
+        backup-file number in a week to be removed,
+        maximal backup-file number in a week to be removed,
+        count of all backups per file in a week,
+        backups to keep per file in a week.
+        To find the files, the SQL query looks for
+        days marked for removal, calculated based on
         months with the files count bigger than monthly backups to keep,
-        weeks with the files count bigger than weekly backups to keep.
+        weeks with the files count bigger than weekly backups to keep,
+        days with the files count bigger than daily backups to keep.
         """
         stmt = dedent(f"""\
         SELECT * FROM (
             SELECT br.dirname, br.w, br.id, ww.cnt, row_number() OVER win1 AS num
             FROM {self._table} br
-            JOIN (
-                SELECT dirname, m, count(*) cnt
-                FROM {self._table} 
-                GROUP BY dirname, m
-                HAVING count(*) > {s.number_of_monthly_backups_to_keep}
-            ) mm ON br.dirname = mm.dirname AND br.m = mm.m
             JOIN (
                 SELECT dirname, w, count(*) cnt
                 FROM {self._table} 
@@ -960,11 +972,15 @@ class BroomDB:
 
     def _update_m_rm(self, s: Settings):
         """Sets m_rm, putting the information about 
-        file number in a month, 
-        count of files in a month,
-        files to keep per month.
+        backup-file number in a month to be removed,
+        maximal backup-file number in a month to be removed,
+        count of all backups per file in a month,
+        backups to keep per file in a month.
         To find the files, the SQL query looks for 
-        months with the files count bigger than monthly backups to keep.
+        weeks marked for removal, calculated based on
+        months with the files count bigger than monthly backups to keep,
+        weeks with the files count bigger than weekly backups to keep,
+        days with the files count bigger than daily backups to keep.
         """
         stmt = dedent(f"""\
         SELECT * FROM (
