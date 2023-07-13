@@ -900,12 +900,14 @@ class BroomDB:
         ORDER BY dirname, d, id
         """)
         db = self._db
+        rows = db.execute(stmt).fetchall()
         cur = db.cursor()
-        for row in db.execute(stmt):
+        for row in rows:
             dirname, d, broom_id, cnt, num = row
+            max_num = max(row[4] for row in rows if row[0] == dirname and row[1] == d)
             updt_stmt = dedent(f"""\
                 UPDATE {self._table}
-                SET d_rm = '{num} of ({cnt} - {s.number_of_daily_backups_to_keep})'
+                SET d_rm = '{num} of {max_num} (max {cnt} - {s.number_of_daily_backups_to_keep})'
                 WHERE id = ?
                 """)
             cur.execute(updt_stmt, (broom_id,))
@@ -943,12 +945,14 @@ class BroomDB:
         ORDER BY dirname, w, id
         """)
         db = self._db
+        rows = db.execute(stmt).fetchall()
         cur = db.cursor()
-        for row in db.execute(stmt):
+        for row in rows:
             dirname, w, broom_id, cnt, num = row
+            max_num = max(row[4] for row in rows if row[0] == dirname and row[1] == w)
             updt_stmt = dedent(f"""\
                 UPDATE {self._table}
-                SET w_rm = '{num} of ({cnt} - {s.number_of_weekly_backups_to_keep})'
+                SET w_rm = '{num} of {max_num} (max {cnt} - {s.number_of_weekly_backups_to_keep})'
                 WHERE id = ?
                 """)
             cur.execute(updt_stmt, (broom_id,))
@@ -979,12 +983,14 @@ class BroomDB:
         ORDER BY dirname, m, id
         """)
         db = self._db
+        rows = db.execute(stmt).fetchall()
         cur = db.cursor()
-        for row in db.execute(stmt):
+        for row in rows:
             dirname, m, broom_id, cnt, num = row
+            max_num = max(row[4] for row in rows if row[0] == dirname and row[1] == m)
             updt_stmt = dedent(f"""\
                 UPDATE {self._table}
-                SET m_rm = '{num} of ({cnt} - {s.number_of_monthly_backups_to_keep})'
+                SET m_rm = '{num} of {max_num} (max {cnt} - {s.number_of_monthly_backups_to_keep})'
                 WHERE id = ?
                 """)
             cur.execute(updt_stmt, (broom_id,))
