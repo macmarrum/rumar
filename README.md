@@ -110,10 +110,10 @@ excluded_files_as_regex = ['/(desktop\.ini|thumbs\.db)$']
   for each file, the specified number of backups per day is kept, if available, or more, to make weekly and/or monthly numbers\
   oldest backups are removed first
 * **number_of_backups_per_week_to_keep**: int = 14 &nbsp; &nbsp; _used by: sweep_\
-  for each file, the specified number of backups per week is kept, if available, or more, to make monthly numbers\
+  for each file, the specified number of backups per week is kept, if available, or more, to make daily and/or monthly numbers\
   oldest backups are removed first
 * **number_of_backups_per_month_to_keep**: int = 60 &nbsp; &nbsp; _used by: sweep_\
-  for each file, the specified number of backups per month is kept, if available\
+  for each file, the specified number of backups per month is kept, if available, or more, to make daily and/or weekly numbers\
   oldest backups are removed first
 * **filter_usage**: Literal[1, 2, 3] = 1 &nbsp; &nbsp; _used by: create, sweep_\
   determines which command can use the included_* and excluded_* settings\
