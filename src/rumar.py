@@ -235,8 +235,7 @@ class Settings:
       used by: create, sweep
       a list of glob patterns, also known as shell-style wildcards, i.e. `* ? [seq] [!seq]`
       if present, only matching directories will be considered
-      the paths/globs can be relative to source_dir or absolute (but under source_dir)
-      on Windows, if a drive letter is used, must be in the same case (upper or lower) as in source_dir
+      the paths/globs can be absolute or partial paths, but always under source_dir
       see also https://docs.python.org/3/library/fnmatch.html and https://en.wikipedia.org/wiki/Glob_(programming)
     included_files_as_glob: list[str]
       used by: create, sweep
@@ -261,10 +260,10 @@ class Settings:
       like included_dirs_as_regex but for files
     excluded_dirs_as_regex: list[str]
       used by: create, sweep
-      like included_dirs_as_regex, but to exclude
+      like included_dirs_as_regex, but for exclusion
     excluded_files_as_regex: list[str]
       used by: create, sweep
-      like included_files_as_regex, but to exclude
+      like included_files_as_regex, but for exclusion
     sha256_comparison_if_same_size: bool = False
       used by: create
       when False, a file is considered changed if its mtime is later than the latest backup's mtime and its size changed
@@ -278,15 +277,15 @@ class Settings:
       only the backups which are older than the specified number of days are considered for removal
     number_of_backups_per_day_to_keep: int = 2
       used by: sweep
-      the specified number of backups per day is kept, if available, or more, to make weekly and/or monthly numbers
+      for each file, the specified number of backups per day is kept, if available, or more, to make weekly and/or monthly numbers
       oldest backups are removed first
     number_of_backups_per_week_to_keep: int = 14
       used by: sweep
-      the specified number of backups per week is kept, if available, or more, to make monthly numbers
+      for each file, the specified number of backups per week is kept, if available, or more, to make monthly numbers
       oldest backups are removed first
     number_of_backups_per_month_to_keep: int = 60
       used by: sweep
-      the specified number of backups per month is kept, if available
+      for each file, the specified number of backups per month is kept, if available
       oldest backups are removed first
     filter_usage: Literal[1, 2, 3] = 1
       used by: create, sweep
@@ -341,6 +340,8 @@ class Settings:
             self._pathlify('backup_base_dir_for_profile')
         else:
             self.backup_base_dir_for_profile = self.backup_base_dir / self.profile
+        self._patternify('included_dirs_as_regex')
+        self._patternify('included_files_as_regex')
         self._patternify('excluded_dirs_as_regex')
         self._patternify('excluded_files_as_regex')
         self.suffixes_without_compression = {f".{s}" for s in self.COMMA.join([self.no_compression_suffixes_default, self.no_compression_suffixes]).split(self.COMMA) if s}
