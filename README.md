@@ -100,26 +100,30 @@ excluded_files_as_regex = ['/(desktop\.ini|thumbs\.db)$']
   like included_files_as_regex, but for exclusion
 * **sha256_comparison_if_same_size**: bool = False &nbsp; &nbsp; _used by: create_\
   when False, a file is considered changed if its mtime is later than the latest backup's mtime and its size changed\
-  when True, SHA256 checksum is compared to determine if the file changed despite having the same size
+  when True, SHA256 checksum is compared to determine if the file changed despite having the same size\
+  _mtime := time of last modification_
 * **file_deduplication**: bool = False &nbsp; &nbsp; _used by: create_\
   when True, an attempt is made to find and skip duplicates\
   a duplicate file has the same suffix and size and part of its name, case-insensitive (suffix, name)
 * **age_threshold_of_backups_to_sweep**: int = 2 &nbsp; &nbsp; _used by: sweep_\
   only the backups which are older than the specified number of days are considered for removal
 * **number_of_backups_per_day_to_keep**: int = 2 &nbsp; &nbsp; _used by: sweep_\
-  for each file, the specified number of backups per day is kept, if available, or more, to make weekly and/or monthly numbers\
+  for each file, the specified number of backups per day is kept, if available\
+  more backups per day might be kept to satisfy _number_of_backups_per_week_to_keep_ and/or _number_of_backups_per_month_to_keep_\
   oldest backups are removed first
 * **number_of_backups_per_week_to_keep**: int = 14 &nbsp; &nbsp; _used by: sweep_\
-  for each file, the specified number of backups per week is kept, if available, or more, to make daily and/or monthly numbers\
+  for each file, the specified number of backups per week is kept, if available\
+  more backups per week might be kept to satisfy _number_of_backups_per_day_to_keep_ and/or _number_of_backups_per_month_to_keep_\
   oldest backups are removed first
 * **number_of_backups_per_month_to_keep**: int = 60 &nbsp; &nbsp; _used by: sweep_\
-  for each file, the specified number of backups per month is kept, if available, or more, to make daily and/or weekly numbers\
+  for each file, the specified number of backups per month is kept, if available\
+  more backups per month might be kept to satisfy _number_of_backups_per_day_to_keep_ and/or _number_of_backups_per_week_to_keep_\
   oldest backups are removed first
 * **commands_using_filters**: list[str] = ['create'] &nbsp; &nbsp; _used by: create, sweep_\
   determines which commands can use the filters specified in the included_* and excluded_* settings\
   by default, filters are used only by _create_, i.e. _sweep_ considers all created backups (no filter is applied)\
   a filter for _sweep_ could be used to e.g. never remove backups from the first day of a month:\
-  `excluded_files_as_regex = '/\d\d\d\d-\d\d-01_\d\d,\d\d,\d\d(+|-)\d\d,\d\d\.tar(\.(gz|bz2|xz))?$'`\
+  `excluded_files_as_regex = '/\d\d\d\d-\d\d-01_\d\d,\d\d,\d\d(+|-)\d\d,\d\d\~\d+.tar(\.(gz|bz2|xz))?$'`\
   it's best when the setting is part of a separate profile, i.e. a copy made for _sweep_,\
   otherwise _create_ will also seek such files to be excluded
 <!-- settings pydoc end -->
