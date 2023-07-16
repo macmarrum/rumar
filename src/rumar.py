@@ -232,7 +232,8 @@ class Settings:
       used by: create, sweep
       a list of glob patterns, also known as shell-style wildcards, i.e. `* ? [seq] [!seq]`
       if present, only matching directories will be considered
-      the paths/globs can be absolute or partial paths, but always under source_dir
+      the paths/globs can be absolute or partial (in particular a single directory), but always under source_dir
+      on MS Windows, global-pattern matching is case-insensitive
       see also https://docs.python.org/3/library/fnmatch.html and https://en.wikipedia.org/wiki/Glob_(programming)
     included_files_as_glob: list[str]
       used by: create, sweep
@@ -251,6 +252,7 @@ class Settings:
       the patterns are matched against a path relative to source_dir
       the first segment in the relative path (to match against) also starts with a slash
       e.g. `['/B$',]` will match any basename equal to `B`, at any level
+      regex-pattern matching is case-sensitive – use `(?i)` at each pattern's beginning for case-insensitive
       see also https://docs.python.org/3/library/re.html
     included_files_as_regex: list[str]
       used by: create, sweep
@@ -270,7 +272,7 @@ class Settings:
       used by: create
       when True, an attempt is made to find and skip duplicates
       a duplicate file has the same suffix and size and part of its name, case-insensitive (suffix, name)
-    age_threshold_of_backups_to_sweep: int = 2
+    min_age_in_days_of_backups_to_sweep: int = 2
       used by: sweep
       only the backups which are older than the specified number of days are considered for removal
     number_of_backups_per_day_to_keep: int = 2
@@ -320,7 +322,7 @@ class Settings:
     tar_format: Literal[0, 1, 2] = tarfile.GNU_FORMAT
     sha256_comparison_if_same_size: bool = False
     file_deduplication: bool = False
-    age_threshold_of_backups_to_sweep: int = 2
+    min_age_in_days_of_backups_to_sweep: int = 2
     number_of_backups_per_day_to_keep: int = 2
     number_of_backups_per_week_to_keep: int = 14
     number_of_backups_per_month_to_keep: int = 60
@@ -740,15 +742,16 @@ class Rumar:
 
 class Broom:
     DASH = '-'
+    DOT = '.'
 
     def __init__(self, profile_to_settings: ProfileToSettings):
         self._profile_to_settings = profile_to_settings
         self._db = BroomDB()
 
-    @staticmethod
-    def is_archive(name: str, archive_format: str) -> bool:
-        return (name.endswith(archive_format) or
-                name.endswith(RumarFormat.TAR.value))
+    @classmethod
+    def is_archive(cls, name: str, archive_format: str) -> bool:
+        return (name.endswith(cls.DOT + archive_format) or
+                name.endswith(cls.DOT + RumarFormat.TAR.value))
 
     @staticmethod
     def is_checksum(name: str) -> bool:
@@ -772,7 +775,7 @@ class Broom:
 
     def gather_info(self, s: Settings):
         archive_format = RumarFormat(s.archive_format).value
-        date_older_than_x_days = date.today() - timedelta(days=s.age_threshold_of_backups_to_sweep)
+        date_older_than_x_days = date.today() - timedelta(days=s.min_age_in_days_of_backups_to_sweep)
         # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
         if Command.SWEEP in s.commands_using_filters:
             iterator = iter_matching_files(s.backup_base_dir_for_profile, s)
@@ -784,7 +787,7 @@ class Broom:
         for path in iterator:
             if self.is_archive(path.name, archive_format):
                 mdate = self.extract_date_from_name(path.name)
-                if mdate < date_older_than_x_days:
+                if mdate <= date_older_than_x_days:
                     old_enough_file_to_mdate[path] = mdate
             elif not self.is_checksum(path.name):
                 logger.warning(f":! {path.as_posix()}  is unexpected (not an archive)")

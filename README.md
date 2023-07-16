@@ -76,7 +76,8 @@ excluded_files_as_regex = ['/(desktop\.ini|thumbs\.db)$']
 * **included_dirs_as_glob**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
   a list of glob patterns, also known as shell-style wildcards, i.e. `* ? [seq] [!seq]`\
   if present, only matching directories will be considered\
-  the paths/globs can be absolute or partial paths, but always under source_dir\
+  the paths/globs can be absolute or partial (in particular a single directory), but always under source_dir\
+  on MS Windows, global-pattern matching is case-insensitive\
   see also https://docs.python.org/3/library/fnmatch.html and https://en.wikipedia.org/wiki/Glob_(programming)
 * **included_files_as_glob**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
   like included_dirs_as_glob, but for files
@@ -91,6 +92,7 @@ excluded_files_as_regex = ['/(desktop\.ini|thumbs\.db)$']
   the patterns are matched against a path relative to source_dir\
   the first segment in the relative path (to match against) also starts with a slash\
   e.g. `['/B$',]` will match any basename equal to `B`, at any level\
+  regex-pattern matching is case-sensitive – use `(?i)` at each pattern's beginning for case-insensitive\
   see also https://docs.python.org/3/library/re.html
 * **included_files_as_regex**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
   like included_dirs_as_regex but for files
@@ -105,7 +107,7 @@ excluded_files_as_regex = ['/(desktop\.ini|thumbs\.db)$']
 * **file_deduplication**: bool = False &nbsp; &nbsp; _used by: create_\
   when True, an attempt is made to find and skip duplicates\
   a duplicate file has the same suffix and size and part of its name, case-insensitive (suffix, name)
-* **age_threshold_of_backups_to_sweep**: int = 2 &nbsp; &nbsp; _used by: sweep_\
+* **min_age_in_days_of_backups_to_sweep**: int = 2 &nbsp; &nbsp; _used by: sweep_\
   only the backups which are older than the specified number of days are considered for removal
 * **number_of_backups_per_day_to_keep**: int = 2 &nbsp; &nbsp; _used by: sweep_\
   for each file, the specified number of backups per day is kept, if available\
