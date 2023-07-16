@@ -115,14 +115,11 @@ excluded_files_as_regex = ['/(desktop\.ini|thumbs\.db)$']
 * **number_of_backups_per_month_to_keep**: int = 60 &nbsp; &nbsp; _used by: sweep_\
   for each file, the specified number of backups per month is kept, if available, or more, to make daily and/or weekly numbers\
   oldest backups are removed first
-* **filter_usage**: Literal[1, 2, 3] = 1 &nbsp; &nbsp; _used by: create, sweep_\
-  determines which command can use the included_* and excluded_* settings\
-  1: create\
-  2: sweep\
-  3: create and sweep\
-  by default only used by create, i.e. sweep considers all created backups (no filter is applied)\
-  a filter for sweep could be used to e.g. never remove backups from the first day of a month:\
+* **commands_using_filters**: list[str] = ['create'] &nbsp; &nbsp; _used by: create, sweep_\
+  determines which commands can use the filters specified in the included_* and excluded_* settings\
+  by default, filters are used only by _create_, i.e. _sweep_ considers all created backups (no filter is applied)\
+  a filter for _sweep_ could be used to e.g. never remove backups from the first day of a month:\
   `excluded_files_as_regex = '/\d\d\d\d-\d\d-01_\d\d,\d\d,\d\d(+|-)\d\d,\d\d\.tar(\.(gz|bz2|xz))?$'`\
-  it's best when the setting is part of a separate profile, i.e. a copy made for sweep,\
-  otherwise create will also seek such files to be excluded
+  it's best when the setting is part of a separate profile, i.e. a copy made for _sweep_,\
+  otherwise _create_ will also seek such files to be excluded
 <!-- settings pydoc end -->

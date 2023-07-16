@@ -103,14 +103,14 @@ def main():
     parser_list = subparsers.add_parser('list-profiles', aliases=['l'])
     parser_list.set_defaults(func=list_profiles)
     add_profile_args_to_parser(parser_list, required=False)
-    parser_create = subparsers.add_parser('create', aliases=['c'])
+    parser_create = subparsers.add_parser(Command.CREATE.value, aliases=['c'])
     parser_create.set_defaults(func=create)
     add_profile_args_to_parser(parser_create, required=True)
-    parser_extract = subparsers.add_parser('extract', aliases=['x'])
+    parser_extract = subparsers.add_parser(Command.EXTRACT.value, aliases=['x'])
     parser_extract.set_defaults(func=extract)
     add_profile_args_to_parser(parser_extract, required=True)
     parser_extract.add_argument('-e', '--extract-root', type=make_path, required=True)
-    parser_sweep = subparsers.add_parser('sweep')
+    parser_sweep = subparsers.add_parser(Command.SWEEP.value, aliases=['s'])
     parser_sweep.set_defaults(func=sweep)
     parser_sweep.add_argument('-d', '--dry-run', action=store_true)
     add_profile_args_to_parser(parser_sweep, required=True)
@@ -192,13 +192,10 @@ class RumarFormat(Enum):
     TXZ = 'tar.xz'
 
 
-class FilterUsage:
-    create = 1
-    sweep = 2
-    extract = 4
-
-
-FilterUsageType = Literal[1, 2, 3]
+class Command(Enum):
+    CREATE = 'create'
+    EXTRACT = 'extract'
+    SWEEP = 'sweep'
 
 
 @dataclass
@@ -287,17 +284,14 @@ class Settings:
       used by: sweep
       for each file, the specified number of backups per month is kept, if available, or more, to make daily and/or weekly numbers
       oldest backups are removed first
-    filter_usage: Literal[1, 2, 3] = 1
+    commands_using_filters: list[str] = ['create']
       used by: create, sweep
-      determines which command can use the included_* and excluded_* settings
-      1: create
-      2: sweep
-      3: create and sweep
-      by default only used by create, i.e. sweep considers all created backups (no filter is applied)
-      a filter for sweep could be used to e.g. never remove backups from the first day of a month:
+      determines which commands can use the filters specified in the included_* and excluded_* settings
+      by default, filters are used only by _create_, i.e. _sweep_ considers all created backups (no filter is applied)
+      a filter for _sweep_ could be used to e.g. never remove backups from the first day of a month:
       `excluded_files_as_regex = '/\d\d\d\d-\d\d-01_\d\d,\d\d,\d\d(+|-)\d\d,\d\d\.tar(\.(gz|bz2|xz))?$'`
-      it's best when the setting is part of a separate profile, i.e. a copy made for sweep,
-      otherwise create will also seek such files to be excluded
+      it's best when the setting is part of a separate profile, i.e. a copy made for _sweep_,
+      otherwise _create_ will also seek such files to be excluded
     """
     profile: str
     backup_base_dir: Union[str, Path]
@@ -326,7 +320,7 @@ class Settings:
     number_of_backups_per_day_to_keep: int = 2
     number_of_backups_per_week_to_keep: int = 14
     number_of_backups_per_month_to_keep: int = 60
-    filter_usage: FilterUsageType = FilterUsage.create
+    commands_using_filters: Union[list[str], list[Command]] = (Command.CREATE,)
     COMMA = ','
 
     @staticmethod
@@ -349,6 +343,7 @@ class Settings:
         if self.archive_format is None:
             self.archive_format = RumarFormat.TGZ
         self.archive_format = RumarFormat(self.archive_format)
+        self.commands_using_filters = [Command(cmd) for cmd in self.commands_using_filters]
 
     def _pathlify(self, attribute_name: str):
         attr = getattr(self, attribute_name)
@@ -700,12 +695,12 @@ class Rumar:
     def create_optionally_deduped_list_of_matching_files(self, top_path: Path, s: Settings):
         matching_files = []
         # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
-        if s.filter_usage & FilterUsage.create == FilterUsage.create:
+        if Command.CREATE in s.commands_using_filters:
             iterator = iter_matching_files(top_path, s)
-            logger.debug(f"{s.filter_usage=} => iter_matching_files")
+            logger.debug(f"{s.commands_using_filters=} => iter_matching_files")
         else:
             iterator = iter_all_files(top_path)
-            logger.debug(f"{s.filter_usage=} => iter_all_files")
+            logger.debug(f"{s.commands_using_filters=} => iter_all_files")
         for file_path in iterator:
             lstat = self.cached_lstat(file_path)
             if self.can_ignore_for_archive(lstat):
@@ -775,12 +770,12 @@ class Broom:
         archive_format = RumarFormat(s.archive_format).value
         date_older_than_x_days = date.today() - timedelta(days=s.age_threshold_of_backups_to_sweep)
         # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
-        if s.filter_usage & FilterUsage.sweep == FilterUsage.sweep:
+        if Command.SWEEP in s.commands_using_filters:
             iterator = iter_matching_files(s.backup_base_dir_for_profile, s)
-            logger.debug(f"{s.filter_usage=} => iter_matching_files")
+            logger.debug(f"{s.commands_using_filters=} => iter_matching_files")
         else:
             iterator = iter_all_files(s.backup_base_dir_for_profile)
-            logger.debug(f"{s.filter_usage=} => iter_all_files")
+            logger.debug(f"{s.commands_using_filters=} => iter_all_files")
         old_enough_file_to_mdate = {}
         for path in iterator:
             if self.is_archive(path.name, archive_format):
