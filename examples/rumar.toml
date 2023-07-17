@@ -1,0 +1,13 @@
+# settings common for all profiles
+backup_base_dir = 'C:\Users\Mac\Backup'
+
+# setting for individual profiles - override any common ones
+
+["My Documents"]
+source_dir = 'C:\Users\Mac\Documents'
+excluded_dirs_as_glob = ['My Music', 'My Pictures', 'My Videos']
+excluded_files_as_regex = ['/(desktop\.ini|thumbs\.db)$']
+
+[Desktop]
+source_dir = 'C:\Users\Mac\Desktop'
+excluded_files_as_glob = ['desktop.ini', '*.exe', '*.msi']

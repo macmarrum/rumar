@@ -200,16 +200,16 @@ class Command(Enum):
 
 @dataclass
 class Settings:
-    """
+    r"""
     profile: str
       name of the profile
     backup_base_dir: str
       used by: create, sweep
       path to the base directory used for backup; usually set in the global space, common for all profiles
-      backup dir for each profile is constructed as backup_base_dir + profile, unless backup_base_dir_for_profile is set, which takes precedence
+      backup dir for each profile is constructed as _**backup_base_dir**_ + _**profile**_, unless _**backup_base_dir_for_profile**_ is set, which takes precedence
     backup_base_dir_for_profile: str
       used by: create, sweep
-      path to the base dir used for the profile; usually left unset; see backup_base_dir
+      path to the base dir used for the profile; usually left unset; see _**backup_base_dir**_
     archive_format: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz'] = 'tar.gz'
       used by: create, sweep
       archive file to be created
@@ -221,7 +221,7 @@ class Settings:
       comma-separated string of lower-case suffixes for which to use uncompressed tar
     no_compression_suffixes: str = ''
       used by: create
-      extra lower-case suffixes in addition to no_compression_suffixes_default
+      extra lower-case suffixes in addition to _**no_compression_suffixes_default**_
     tar_format: Literal[0, 1, 2] = tarfile.GNU_FORMAT
       used by: create
       Double Commander fails to correctly display mtime when PAX is used, therefore GNU is the default
@@ -234,6 +234,8 @@ class Settings:
       if present, only matching directories will be considered
       the paths/globs can be absolute or partial (in particular a single directory), but always under source_dir
       on MS Windows, global-pattern matching is case-insensitive
+      caution: a leading path separator in a path/glob indicates a root directory, e.g. `['\My Music']`
+      will match `C:\My Music` or `D:\My Music` but not `C:\Users\Mac\Documents\My Music`
       see also https://docs.python.org/3/library/fnmatch.html and https://en.wikipedia.org/wiki/Glob_(programming)
     included_files_as_glob: list[str]
       used by: create, sweep
@@ -248,11 +250,11 @@ class Settings:
       used by: create, sweep
       a list of regex patterns
       if present, only matching directories will be included
-      `/` must be used as the path separator, also on Windows
-      the patterns are matched against a path relative to source_dir
+      `/` must be used as the path separator, also on MS Windows
+      the patterns are matched against a path relative to _**source_dir**_
       the first segment in the relative path (to match against) also starts with a slash
       e.g. `['/B$',]` will match any basename equal to `B`, at any level
-      regex-pattern matching is case-sensitive – use `(?i)` at each pattern's beginning for case-insensitive
+      regex-pattern matching is case-sensitive – use `(?i)` at each pattern's beginning for case-insensitive matching
       see also https://docs.python.org/3/library/re.html
     included_files_as_regex: list[str]
       used by: create, sweep
@@ -278,26 +280,26 @@ class Settings:
     number_of_backups_per_day_to_keep: int = 2
       used by: sweep
       for each file, the specified number of backups per day is kept, if available
-      more backups per day might be kept to satisfy _number_of_backups_per_week_to_keep_ and/or _number_of_backups_per_month_to_keep_
+      more backups per day might be kept to satisfy _**number_of_backups_per_week_to_keep**_ and/or _**number_of_backups_per_month_to_keep**_
       oldest backups are removed first
     number_of_backups_per_week_to_keep: int = 14
       used by: sweep
       for each file, the specified number of backups per week is kept, if available
-      more backups per week might be kept to satisfy _number_of_backups_per_day_to_keep_ and/or _number_of_backups_per_month_to_keep_
+      more backups per week might be kept to satisfy _**number_of_backups_per_day_to_keep**_ and/or _**number_of_backups_per_month_to_keep**_
       oldest backups are removed first
     number_of_backups_per_month_to_keep: int = 60
       used by: sweep
       for each file, the specified number of backups per month is kept, if available
-      more backups per month might be kept to satisfy _number_of_backups_per_day_to_keep_ and/or _number_of_backups_per_week_to_keep_
+      more backups per month might be kept to satisfy _**number_of_backups_per_day_to_keep**_ and/or _**number_of_backups_per_week_to_keep**_
       oldest backups are removed first
     commands_using_filters: list[str] = ['create']
       used by: create, sweep
       determines which commands can use the filters specified in the included_* and excluded_* settings
-      by default, filters are used only by _create_, i.e. _sweep_ considers all created backups (no filter is applied)
-      a filter for _sweep_ could be used to e.g. never remove backups from the first day of a month:
+      by default, filters are used only by _**create**_, i.e. _**sweep**_ considers all created backups (no filter is applied)
+      a filter for _**sweep**_ could be used to e.g. never remove backups from the first day of a month:
       `excluded_files_as_regex = '/\d\d\d\d-\d\d-01_\d\d,\d\d,\d\d(+|-)\d\d,\d\d\~\d+.tar(\.(gz|bz2|xz))?$'`
-      it's best when the setting is part of a separate profile, i.e. a copy made for _sweep_,
-      otherwise _create_ will also seek such files to be excluded
+      it's best when the setting is part of a separate profile, i.e. a copy made for _**sweep**_,
+      otherwise _**create**_ will also seek such files to be excluded
     """
     profile: str
     backup_base_dir: Union[str, Path]
