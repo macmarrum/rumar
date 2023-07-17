@@ -297,7 +297,7 @@ class Settings:
       determines which commands can use the filters specified in the included_* and excluded_* settings
       by default, filters are used only by _**create**_, i.e. _**sweep**_ considers all created backups (no filter is applied)
       a filter for _**sweep**_ could be used to e.g. never remove backups from the first day of a month:
-      `excluded_files_as_regex = '/\d\d\d\d-\d\d-01_\d\d,\d\d,\d\d(+|-)\d\d,\d\d\~\d+.tar(\.(gz|bz2|xz))?$'`
+      `excluded_files_as_regex = ['/\d\d\d\d-\d\d-01_\d\d,\d\d,\d\d\.\d{6}(\+|-)\d\d,\d\d\~\d+.tar(\.(gz|bz2|xz))?$']`
       it's best when the setting is part of a separate profile, i.e. a copy made for _**sweep**_,
       otherwise _**create**_ will also seek such files to be excluded
     """
@@ -486,9 +486,9 @@ def sorted_files_by_stem_then_suffix_ignoring_case(matching_files: Iterable[Path
 
 class Rumar:
     """
-    Creates a directory named as the original file, containing a tarred copy of the file, optionally compressed.
-    Files are added to the tar archive only if they were changed (mtime, size), as compared to the last archive.
-    The archive-container directory is placed in a mirrored directory hierarchy.
+    Creates a directory named as the original file, containing a TARred copy of the file, optionally compressed.
+    Files are added to the TAR archive only if they were changed (mtime, size), as compared to the last archive.
+    The directory containing TAR files is placed in a mirrored directory hierarchy.
     """
     BLANK = ''
     RX_NONE = re.compile('')
