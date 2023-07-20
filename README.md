@@ -6,7 +6,6 @@ Creates a directory named as the original file, containing a **tar**red copy of 
 
 Files are added to the **tar** archive only if they were changed, as compared to the last archive.
 
-\
 The directory containing **tar** files is placed in a mirrored directory hierarchy.
 
 ![](images/original-and-backup-directories.png)
@@ -22,10 +21,10 @@ Each backup is a separate **tar** file.
 2. Download [rumar.py](https://raw.githubusercontent.com/macmarrum/rumar/main/src/rumar.py)
 3. Download [rumar.toml](https://raw.githubusercontent.com/macmarrum/rumar/main/examples/rumar.toml) to the same directory as `rumar.py`
 4. Edit `rumar.toml` and adapt it to your needs – see [settings details](#settings-details)
-5. Open a terminal (e.g. Windows PowerShell) and change to the directory containing `rumar.py`
-6. If your installed Python version is below 3.11, run `python -m pip install tomli` to install the module [tomli](https://pypi.org/project/tomli/), if not yet installed
-7. Run `python rumar.py list-profiles`; you should see your profile name printed in the console
-8. Run `python rumar.py create --profile "My Documents"` to create a backup of the profile "My Documents"
+5. Open a console/terminal (e.g. Windows PowerShell) and change to the directory containing `rumar.py`
+6. If your installed Python version is below 3.11, run `python -m pip install tomli` to install the module [tomli](https://pypi.org/project/tomli/), if not yet done
+7. Run `python rumar.py list-profiles` → you should see your profile name(s) printed in the console
+8. Run `python rumar.py create --profile "My Documents"` to create a backup using the profile "My Documents"
 9. Add this command to Task Scheduler or cron, to be run at an interval or each day/night
 
 ### How to sweep old backups
