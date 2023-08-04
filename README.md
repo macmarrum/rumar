@@ -1,6 +1,6 @@
 # Rumar
 
-**A backup utility**
+**A file-backup utility**
 
 Creates a directory named as the original file, containing a **tar**red copy of the file, optionally compressed.
 
@@ -80,22 +80,14 @@ excluded_files_as_glob = ['desktop.ini', '*.exe', '*.msi']
   Double Commander fails to correctly display mtime when PAX is used, therefore GNU is the default
 * **source_dir**: str &nbsp; &nbsp; _used by: create_\
   path to the directory which is to be archived
-* **included_dirs_as_glob**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
-  a list of glob patterns, also known as shell-style wildcards, i.e. `* ? [seq] [!seq]`\
-  if present, only matching directories will be considered\
-  the paths/globs can be absolute or partial (in particular a single directory), but always under source_dir\
-  on MS Windows, global-pattern matching is case-insensitive\
-  caution: a leading path separator in a path/glob indicates a root directory, e.g. `['\My Music']`\
-  will match `C:\My Music` or `D:\My Music` but not `C:\Users\Mac\Documents\My Music`\
-  see also https://docs.python.org/3/library/fnmatch.html and https://en.wikipedia.org/wiki/Glob_(programming)
-* **included_files_as_glob**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
-  like included_dirs_as_glob, but for files
-* **excluded_dirs_as_glob**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
-  like included_dirs_as_glob, but to exclude
-* **excluded_files_as_glob**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
-  like included_files_as_glob, but to exclude
+* **included_top_dirs**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
+  a list of paths\
+  if present, only files from those dirs and their descendant subdirs will be considered, together with _**included_files_as_glob**_\
+  the paths can be relative to _**source_dir**_ or absolute, but always under _**source_dir**_
+* **excluded_top_dirs**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
+  like _**included_top_dirs**_, but for exclusion
 * **included_dirs_as_regex**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
-  a list of regex patterns\
+  a list of regex patterns, applied after _**..._top_dirs**_ and dirnames of _**..._files_as_glob**_\
   if present, only matching directories will be included\
   `/` must be used as the path separator, also on MS Windows\
   the patterns are matched against a path relative to _**source_dir**_\
@@ -103,12 +95,24 @@ excluded_files_as_glob = ['desktop.ini', '*.exe', '*.msi']
   e.g. `['/B$',]` will match any basename equal to `B`, at any level\
   regex-pattern matching is case-sensitive – use `(?i)` at each pattern's beginning for case-insensitive matching\
   see also https://docs.python.org/3/library/re.html
-* **included_files_as_regex**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
-  like included_dirs_as_regex but for files
 * **excluded_dirs_as_regex**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
-  like included_dirs_as_regex, but for exclusion
+  like _**included_dirs_as_regex**_, but for exclusion
+* **included_files_as_glob**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
+  a list of glob patterns, also known as shell-style wildcards, i.e. `* ? [seq] [!seq]`\
+  if present, only matching files will be considered, together with files from _**included_top_dirs**_\
+  the paths/globs can be partial, relative to _**source_dir**_ or absolute, but always under _**source_dir**_\
+  e.g. `["My Music\*.m3u"]`\
+  on MS Windows, global-pattern matching is case-insensitive\
+  caution: a leading path separator in a path/glob indicates a root directory, e.g. `["\My Music\*"]`\
+  means "C:\My Music\*" or "D:\My Music\*" but not "C:\Users\Mac\Documents\My Music\*"\
+  see also https://docs.python.org/3/library/fnmatch.html and https://en.wikipedia.org/wiki/Glob_(programming)
+* **excluded_files_as_glob**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
+  like _**included_files_as_glob**_, but for exclusion
+* **included_files_as_regex**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
+  like _**included_dirs_as_regex**_, but for files\
+  applied after _**..._top_dirs**_ and _**..._dirs_as_regex**_ and _**..._files_as_glob**_
 * **excluded_files_as_regex**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
-  like included_files_as_regex, but for exclusion
+  like _**included_files_as_regex**_, but for exclusion
 * **sha256_comparison_if_same_size**: bool = False &nbsp; &nbsp; _used by: create_\
   when False, a file is considered changed if its mtime is later than the latest backup's mtime and its size changed\
   when True, SHA256 checksum is compared to determine if the file changed despite having the same size\

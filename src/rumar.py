@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# rumar – a backup utility
+# rumar – a file-backup utility
 # Copyright (C) 2023  macmarrum
 #
 # This program is free software: you can redistribute it and/or modify
@@ -243,27 +243,17 @@ class Settings:
     source_dir: str
       used by: create
       path to the directory which is to be archived
-    included_dirs_as_glob: list[str]
+    included_top_dirs: list[str]
       used by: create, sweep
-      a list of glob patterns, also known as shell-style wildcards, i.e. `* ? [seq] [!seq]`
-      if present, only matching directories will be considered
-      the paths/globs can be absolute or partial (in particular a single directory), but always under source_dir
-      on MS Windows, global-pattern matching is case-insensitive
-      caution: a leading path separator in a path/glob indicates a root directory, e.g. `['\My Music']`
-      will match `C:\My Music` or `D:\My Music` but not `C:\Users\Mac\Documents\My Music`
-      see also https://docs.python.org/3/library/fnmatch.html and https://en.wikipedia.org/wiki/Glob_(programming)
-    included_files_as_glob: list[str]
+      a list of paths
+      if present, only files from those dirs and their descendant subdirs will be considered, together with _**included_files_as_glob**_
+      the paths can be relative to _**source_dir**_ or absolute, but always under _**source_dir**_
+    excluded_top_dirs: list[str]
       used by: create, sweep
-      like included_dirs_as_glob, but for files
-    excluded_dirs_as_glob: list[str]
-      used by: create, sweep
-      like included_dirs_as_glob, but to exclude
-    excluded_files_as_glob: list[str]
-      used by: create, sweep
-      like included_files_as_glob, but to exclude
+      like _**included_top_dirs**_, but for exclusion
     included_dirs_as_regex: list[str]
       used by: create, sweep
-      a list of regex patterns
+      a list of regex patterns, applied after _**..._top_dirs**_ and dirnames of _**..._files_as_glob**_
       if present, only matching directories will be included
       `/` must be used as the path separator, also on MS Windows
       the patterns are matched against a path relative to _**source_dir**_
@@ -271,15 +261,29 @@ class Settings:
       e.g. `['/B$',]` will match any basename equal to `B`, at any level
       regex-pattern matching is case-sensitive – use `(?i)` at each pattern's beginning for case-insensitive matching
       see also https://docs.python.org/3/library/re.html
-    included_files_as_regex: list[str]
-      used by: create, sweep
-      like included_dirs_as_regex but for files
     excluded_dirs_as_regex: list[str]
       used by: create, sweep
-      like included_dirs_as_regex, but for exclusion
+      like _**included_dirs_as_regex**_, but for exclusion
+    included_files_as_glob: list[str]
+      used by: create, sweep
+      a list of glob patterns, also known as shell-style wildcards, i.e. `* ? [seq] [!seq]`
+      if present, only matching files will be considered, together with files from _**included_top_dirs**_
+      the paths/globs can be partial, relative to _**source_dir**_ or absolute, but always under _**source_dir**_
+      e.g. `["My Music\*.m3u"]`
+      on MS Windows, global-pattern matching is case-insensitive
+      caution: a leading path separator in a path/glob indicates a root directory, e.g. `["\My Music\*"]`
+      means "C:\My Music\*" or "D:\My Music\*" but not "C:\Users\Mac\Documents\My Music\*"
+      see also https://docs.python.org/3/library/fnmatch.html and https://en.wikipedia.org/wiki/Glob_(programming)
+    excluded_files_as_glob: list[str]
+      used by: create, sweep
+      like _**included_files_as_glob**_, but for exclusion
+    included_files_as_regex: list[str]
+      used by: create, sweep
+      like _**included_dirs_as_regex**_, but for files
+      applied after _**..._top_dirs**_ and _**..._dirs_as_regex**_ and _**..._files_as_glob**_
     excluded_files_as_regex: list[str]
       used by: create, sweep
-      like included_files_as_regex, but for exclusion
+      like _**included_files_as_regex**_, but for exclusion
     sha256_comparison_if_same_size: bool = False
       used by: create
       when False, a file is considered changed if its mtime is later than the latest backup's mtime and its size changed
@@ -320,10 +324,10 @@ class Settings:
     backup_base_dir: Union[str, Path]
     source_dir: Union[str, Path]
     backup_base_dir_for_profile: Union[str, Path] = None
-    included_dirs_as_glob: list[str] = ()
-    included_files_as_glob: list[str] = ()
-    excluded_dirs_as_glob: list[str] = ()
-    excluded_files_as_glob: list[str] = ()
+    included_top_dirs: Union[list[str], set[str], list[Path], set[Path]] = ()
+    included_files_as_glob: Union[list[str], set[str]] = ()
+    excluded_top_dirs: Union[list[str], set[str], list[Path], set[Path]] = ()
+    excluded_files_as_glob: Union[list[str], set[str]] = ()
     included_dirs_as_regex: Union[list[str], list[Pattern]] = ()
     included_files_as_regex: Union[list[str], list[Pattern]] = ()
     excluded_dirs_as_regex: Union[list[str], list[Pattern]] = ()
@@ -357,6 +361,10 @@ class Settings:
             self._pathlify('backup_base_dir_for_profile')
         else:
             self.backup_base_dir_for_profile = self.backup_base_dir / self.profile
+        self._absolutopathosetify('included_top_dirs')
+        self._setify('included_files_as_glob')
+        self._absolutopathosetify('excluded_top_dirs')
+        self._setify('excluded_files_as_glob')
         self._patternify('included_dirs_as_regex')
         self._patternify('included_files_as_regex')
         self._patternify('excluded_dirs_as_regex')
@@ -367,6 +375,26 @@ class Settings:
             self.archive_format = RumarFormat.TGZ
         self.archive_format = RumarFormat(self.archive_format)
         self.commands_using_filters = [Command(cmd) for cmd in self.commands_using_filters]
+
+    def _setify(self, attribute_name: str):
+        attr = getattr(self, attribute_name)
+        if attr is None:
+            return set()
+        return set(attr)
+
+    def _absolutopathosetify(self, attribute_name: str):
+        attr = getattr(self, attribute_name)
+        if attr is None:
+            return set()
+        lst = []
+        for elem in attr:
+            p = Path(elem)
+            if not p.is_absolute():
+                lst.append(self.source_dir / p)
+            else:
+                assert p.as_posix().startswith(self.source_dir.as_posix())
+                lst.append(p)
+        return set(lst)
 
     def _pathlify(self, attribute_name: str):
         attr = getattr(self, attribute_name)
@@ -429,6 +457,7 @@ class CreateReason(Enum):
 
 
 SLASH = '/'
+BACKSLASH = '\\'
 
 
 def iter_all_files(top_path: Path):
@@ -438,9 +467,11 @@ def iter_all_files(top_path: Path):
 
 
 def iter_matching_files(top_path: Path, s: Settings):
-    inc_dirs = s.included_dirs_as_glob
+    inc_dirs_psx = [p.as_posix() for p in s.included_top_dirs]
+    exc_dirs_psx = [p.as_posix() for p in s.excluded_top_dirs]
     inc_files = s.included_files_as_glob
-    exc_dirs = s.excluded_dirs_as_glob
+    # remove the file part by splitting at the rightmost sep, making sure not to split at the root sep
+    inc_dirnames_as_glob = [f.rsplit(sep, 1)[0] for f in inc_files if (sep := find_sep(f)) and sep in f.lstrip(sep)]
     exc_files = s.excluded_files_as_glob
     inc_dirs_rx = s.included_dirs_as_regex
     inc_files_rx = s.included_files_as_regex
@@ -449,10 +480,12 @@ def iter_matching_files(top_path: Path, s: Settings):
     for root, dirs, files in os.walk(top_path):
         for d in dirs.copy():
             dir_path = Path(root, d)
+            dir_path_psx = dir_path.as_posix()
             if (
-                    (any(dir_path.match(dir_as_glob) for dir_as_glob in inc_dirs) if inc_dirs else True)
-                    and not any(dir_path.match(dir_as_glob) for dir_as_glob in exc_dirs)
-            ):  # matches glob, now check regex
+                    (any(dir_path.match(dirname_glob) for dirname_glob in inc_dirnames_as_glob) if inc_dirnames_as_glob else True or (
+                            any(dir_path_psx.startswith(top_dir) for top_dir in inc_dirs_psx) if inc_dirs_psx else True
+                    )) and not any(dir_path_psx.startswith(top_dir) for top_dir in exc_dirs_psx)
+            ):  # matches dirnames and/or top_dirs, now check regex
                 relative_p = make_relative_p(dir_path, top_path, with_leading_slash=True)
                 if inc_dirs_rx:  # only included paths must be considered
                     if not find_matching_pattern(relative_p, inc_dirs_rx):
@@ -461,7 +494,7 @@ def iter_matching_files(top_path: Path, s: Settings):
                 if d in dirs and (exc_rx := find_matching_pattern(relative_p, exc_dirs_rx)):
                     dirs.remove(d)
                     logger.debug(f"|| ...{relative_p}  -- skipping dir: matches '{exc_rx}'")
-            else:  # doesn't match glob
+            else:  # doesn't match dirnames and/or top_dirs
                 dirs.remove(d)
         for f in files:
             file_path = Path(root, f)
@@ -480,6 +513,23 @@ def iter_matching_files(top_path: Path, s: Settings):
                         yield file_path
             else:  # doesn't match glob
                 pass
+
+
+def find_sep(g: str) -> str:
+    """
+    included_files_as_glob can use a slash or a backslash as a path separator
+    :return the path separator which is used
+    :raise ValueError if both backslash and slash are found in the glob
+    """
+    msg = 'Found both a backslash and a slash in `{}` - expected either one or the other'
+    sep = None
+    if SLASH in g:
+        sep = SLASH
+        if BACKSLASH in g:
+            raise ValueError(msg.format(g))
+    elif BACKSLASH in g:
+        sep = BACKSLASH
+    return sep
 
 
 def make_relative_p(path: Path, base_dir: Path, with_leading_slash=False) -> str:
