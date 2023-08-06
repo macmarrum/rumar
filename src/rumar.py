@@ -467,6 +467,7 @@ def iter_all_files(top_path: Path):
 
 
 def iter_matching_files(top_path: Path, s: Settings):
+    inc_top_dirs_psx = [p.as_posix() for p in s.included_top_dirs]
     inc_dirs_rx = s.included_dirs_as_regex
     exc_dirs_rx = s.excluded_dirs_as_regex
     inc_files = s.included_files_as_glob
@@ -493,7 +494,7 @@ def iter_matching_files(top_path: Path, s: Settings):
             file_path_psx = file_path.as_posix()
             if (
                     (any(file_path.match(file_as_glob) for file_as_glob in inc_files) if inc_files else True or (
-                            any(file_path_psx.startswith(top_dir) for top_dir in inc_dirs_psx) if inc_dirs_psx else True
+                            any(file_path_psx.startswith(top_dir) for top_dir in inc_top_dirs_psx) if inc_top_dirs_psx else True
                     )) and not any(file_path.match(file_as_glob) for file_as_glob in exc_files)
             ):  # matches glob, now check regex
                 relative_p = make_relative_p(file_path, top_path, with_leading_slash=True)
