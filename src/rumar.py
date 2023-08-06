@@ -478,7 +478,7 @@ def iter_matching_files(top_path: Path, s: Settings):
         for d in dirs.copy():
             dir_path = Path(root, d)
             relative_p = make_relative_p(dir_path, top_path, with_leading_slash=True)
-            if is_dir_matching(dir_path, s):  # matches dirnames and/or top_dirs, now check regex
+            if is_dir_matching(dir_path, relative_p, s):  # matches dirnames and/or top_dirs, now check regex
                 if inc_dirs_rx:  # only included paths must be considered
                     if not find_matching_pattern(relative_p, inc_dirs_rx):
                         dirs.remove(d)
@@ -487,7 +487,6 @@ def iter_matching_files(top_path: Path, s: Settings):
                     dirs.remove(d)
                     logger.debug(f"|| ...{relative_p}  -- skipping dir: matches '{exc_rx}'")
             else:  # doesn't match dirnames and/or top_dirs
-                logger.debug(f"|| ...{relative_p}  -- skipping dir: doesn't match dirnames and/or top_dirs")
                 dirs.remove(d)
         for f in files:
             file_path = Path(root, f)
@@ -500,7 +499,7 @@ def iter_matching_files(top_path: Path, s: Settings):
                 relative_p = make_relative_p(file_path, top_path, with_leading_slash=True)
                 if inc_files_rx:  # only included paths must be considered
                     if not find_matching_pattern(relative_p, inc_files_rx):
-                        logger.debug(f"-- ...{relative_p}  -- skipping: none of included_files_as_regex matches")
+                        logger.debug(f"|| ...{relative_p}  -- skipping: none of included_files_as_regex matches")
                 else:  # no incl filtering; checking exc_files_rx
                     if exc_rx := find_matching_pattern(relative_p, exc_files_rx):
                         logger.debug(f"|| ...{relative_p}  -- skipping: matches {exc_rx!r}")
@@ -510,17 +509,28 @@ def iter_matching_files(top_path: Path, s: Settings):
                 pass
 
 
-def is_dir_matching(dir_path: Path, s: Settings) -> bool:
+def is_dir_matching(dir_path: Path, relative_p: str, s: Settings) -> bool:
     # remove the file part by splitting at the rightmost sep, making sure not to split at the root sep
-    inc_dirnames_as_glob = {f.rsplit(sep, 1)[0] for f in s.included_files_as_glob if (sep := find_sep(f)) and sep in f.lstrip(sep)}
-    inc_dirs_psx = [p.as_posix() for p in s.included_top_dirs]
-    # print(f"{sorted(inc_dirs_psx)=}")
-    exc_dirs_psx = [p.as_posix() for p in s.excluded_top_dirs]
-    # print(f"{sorted(exc_dirs_psx)=}")
+    inc_file_dirnames_as_glob = {f.rsplit(sep, 1)[0] for f in s.included_files_as_glob if (sep := find_sep(f)) and sep in f.lstrip(sep)}
+    inc_top_dirs_psx = [p.as_posix() for p in s.included_top_dirs]
+    exc_top_dirs_psx = [p.as_posix() for p in s.excluded_top_dirs]
     dir_path_psx = dir_path.as_posix()
-    (any(dir_path.match(dirname_glob) for dirname_glob in inc_dirnames_as_glob) if inc_dirnames_as_glob else True or (
-        any(dir_path_psx.startswith(top_dir) or top_dir.startswith(dir_path_psx) for top_dir in inc_dirs_psx) if inc_dirs_psx else True
-    )) and not any(dir_path_psx.startswith(top_dir) for top_dir in exc_dirs_psx)
+    for exc_top_psx in exc_top_dirs_psx:
+        if dir_path_psx.startswith(exc_top_psx):
+            logger.debug(f"|| ...{relative_p}  -- skipping: matches excluded_top_dirs")
+            return False
+    if inc_file_dirnames_as_glob:
+        for dirname_glob in inc_file_dirnames_as_glob:
+            if dir_path.match(dirname_glob):
+                logger.debug(f"== ...{relative_p}  -- matches included_file_as_glob's dirname")
+                return True
+    if inc_top_dirs_psx:
+        for inc_top_psx in inc_top_dirs_psx:
+            if dir_path_psx.startswith(inc_top_psx) or inc_top_psx.startswith(dir_path_psx):
+                logger.debug(f"== ...{relative_p}  -- matches included_top_dirs")
+                return True
+    logger.debug(f"|| ...{relative_p}  -- skipping dir: doesn't match dirnames and/or top_dirs")
+    return False
 
 
 def find_sep(g: str) -> str:
