@@ -530,9 +530,25 @@ def is_file_matching(file_path: Path, relative_p: str, s: Settings) -> bool:
     inc_files = s.included_files_as_glob
     exc_files = s.excluded_files_as_glob
     file_path_psx = file_path.as_posix()
-    return (any(file_path.match(file_as_glob) for file_as_glob in inc_files) if inc_files else True or (
-        any(file_path_psx.startswith(top_dir) for top_dir in inc_top_dirs_psx) if inc_top_dirs_psx else True
-    )) and not any(file_path.match(file_as_glob) for file_as_glob in exc_files)
+    # interestingly, the following expression doesn't have the same effect as the below for-loops - why?
+    # not any(file_path.match(file_as_glob) for file_as_glob in exc_files) and (
+    #         any(file_path.match(file_as_glob) for file_as_glob in inc_files)
+    #         or any(file_path_psx.startswith(top_dir) for top_dir in inc_top_dirs_psx)
+    # )
+    for file_as_glob in exc_files:
+        if file_path.match(file_as_glob):
+            logger.debug(f"|F ...{relative_p}  -- skipping: matches excluded_files_as_glob {file_as_glob!r}")
+            return False
+    for file_as_glob in inc_files:
+        if file_path.match(file_as_glob):
+            logger.debug(f"=F ...{relative_p}  -- matches included_files_as_glob {file_as_glob!r}")
+            return True
+    for inc_top_psx in inc_top_dirs_psx:
+        if file_path_psx.startswith(inc_top_psx):
+            logger.debug(f"=F ...{relative_p}  -- matches included_top_dirs {inc_top_psx!r}")
+            return True
+    logger.debug(f"|F ...{relative_p}  -- skipping file: doesn't match top dir or file glob")
+    return False
 
 
 def find_sep(g: str) -> str:
