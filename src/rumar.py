@@ -311,7 +311,7 @@ class Settings:
       for each file, the specified number of backups per month is kept, if available
       more backups per month might be kept to satisfy _**number_of_backups_per_day_to_keep**_ and/or _**number_of_backups_per_week_to_keep**_
       oldest backups are removed first
-    commands_using_filters: list[str] = ['create']
+    commands_which_use_filters: list[str] = ['create']
       used by: create, sweep
       determines which commands can use the filters specified in the included_* and excluded_* settings
       by default, filters are used only by _**create**_, i.e. _**sweep**_ considers all created backups (no filter is applied)
@@ -347,7 +347,7 @@ class Settings:
     number_of_backups_per_day_to_keep: int = 2
     number_of_backups_per_week_to_keep: int = 14
     number_of_backups_per_month_to_keep: int = 60
-    commands_using_filters: Union[list[str], list[Command]] = (Command.CREATE,)
+    commands_which_use_filters: Union[list[str], list[Command]] = (Command.CREATE,)
     COMMA = ','
 
     @staticmethod
@@ -374,7 +374,7 @@ class Settings:
         if self.archive_format is None:
             self.archive_format = RumarFormat.TGZ
         self.archive_format = RumarFormat(self.archive_format)
-        self.commands_using_filters = [Command(cmd) for cmd in self.commands_using_filters]
+        self.commands_which_use_filters = [Command(cmd) for cmd in self.commands_which_use_filters]
 
     def _setify(self, attribute_name: str):
         attr = getattr(self, attribute_name)
@@ -802,12 +802,12 @@ class Rumar:
     def create_optionally_deduped_list_of_matching_files(self, top_path: Path, s: Settings):
         matching_files = []
         # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
-        if Command.CREATE in s.commands_using_filters:
+        if Command.CREATE in s.commands_which_use_filters:
             iterator = iter_matching_files(top_path, s)
-            logger.debug(f"{s.commands_using_filters=} => iter_matching_files")
+            logger.debug(f"{s.commands_which_use_filters=} => iter_matching_files")
         else:
             iterator = iter_all_files(top_path)
-            logger.debug(f"{s.commands_using_filters=} => iter_all_files")
+            logger.debug(f"{s.commands_which_use_filters=} => iter_all_files")
         for file_path in iterator:
             lstat = self.cached_lstat(file_path)
             if self.can_ignore_for_archive(lstat):
@@ -878,12 +878,12 @@ class Broom:
         archive_format = RumarFormat(s.archive_format).value
         date_older_than_x_days = date.today() - timedelta(days=s.min_age_in_days_of_backups_to_sweep)
         # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
-        if Command.SWEEP in s.commands_using_filters:
+        if Command.SWEEP in s.commands_which_use_filters:
             iterator = iter_matching_files(s.backup_base_dir_for_profile, s)
-            logger.debug(f"{s.commands_using_filters=} => iter_matching_files")
+            logger.debug(f"{s.commands_which_use_filters=} => iter_matching_files")
         else:
             iterator = iter_all_files(s.backup_base_dir_for_profile)
-            logger.debug(f"{s.commands_using_filters=} => iter_all_files")
+            logger.debug(f"{s.commands_which_use_filters=} => iter_all_files")
         old_enough_file_to_mdate = {}
         for path in iterator:
             if self.is_archive(path.name, archive_format):
