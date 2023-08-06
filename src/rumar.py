@@ -325,12 +325,12 @@ class Settings:
     source_dir: Union[str, Path]
     backup_base_dir_for_profile: Union[str, Path] = None
     included_top_dirs: Union[list[str], set[str], list[Path], set[Path]] = ()
-    included_files_as_glob: Union[list[str], set[str]] = ()
     excluded_top_dirs: Union[list[str], set[str], list[Path], set[Path]] = ()
-    excluded_files_as_glob: Union[list[str], set[str]] = ()
     included_dirs_as_regex: Union[list[str], list[Pattern]] = ()
-    included_files_as_regex: Union[list[str], list[Pattern]] = ()
     excluded_dirs_as_regex: Union[list[str], list[Pattern]] = ()
+    included_files_as_glob: Union[list[str], set[str]] = ()
+    excluded_files_as_glob: Union[list[str], set[str]] = ()
+    included_files_as_regex: Union[list[str], list[Pattern]] = ()
     excluded_files_as_regex: Union[list[str], list[Pattern]] = ()
     archive_format: Union[str, RumarFormat] = RumarFormat.TGZ
     compression_level: int = 3
@@ -380,7 +380,7 @@ class Settings:
         attr = getattr(self, attribute_name)
         if attr is None:
             return set()
-        return set(attr)
+        setattr(self, attribute_name, set(attr))
 
     def _absolutopathosetify(self, attribute_name: str):
         attr = getattr(self, attribute_name)
@@ -394,7 +394,7 @@ class Settings:
             else:
                 assert p.as_posix().startswith(self.source_dir.as_posix())
                 lst.append(p)
-        return set(lst)
+        setattr(self, attribute_name, set(lst))
 
     def _pathlify(self, attribute_name: str):
         attr = getattr(self, attribute_name)
@@ -468,10 +468,13 @@ def iter_all_files(top_path: Path):
 
 def iter_matching_files(top_path: Path, s: Settings):
     inc_dirs_psx = [p.as_posix() for p in s.included_top_dirs]
+    # print(f"{sorted(inc_dirs_psx)=}")
     exc_dirs_psx = [p.as_posix() for p in s.excluded_top_dirs]
+    # print(f"{sorted(exc_dirs_psx)=}")
     inc_files = s.included_files_as_glob
     # remove the file part by splitting at the rightmost sep, making sure not to split at the root sep
-    inc_dirnames_as_glob = [f.rsplit(sep, 1)[0] for f in inc_files if (sep := find_sep(f)) and sep in f.lstrip(sep)]
+    inc_dirnames_as_glob = {f.rsplit(sep, 1)[0] for f in inc_files if (sep := find_sep(f)) and sep in f.lstrip(sep)}
+    # print(f"{inc_dirnames_as_glob=}")
     exc_files = s.excluded_files_as_glob
     inc_dirs_rx = s.included_dirs_as_regex
     inc_files_rx = s.included_files_as_regex
@@ -481,12 +484,12 @@ def iter_matching_files(top_path: Path, s: Settings):
         for d in dirs.copy():
             dir_path = Path(root, d)
             dir_path_psx = dir_path.as_posix()
+            relative_p = make_relative_p(dir_path, top_path, with_leading_slash=True)
             if (
                     (any(dir_path.match(dirname_glob) for dirname_glob in inc_dirnames_as_glob) if inc_dirnames_as_glob else True or (
-                            any(dir_path_psx.startswith(top_dir) for top_dir in inc_dirs_psx) if inc_dirs_psx else True
+                            any(dir_path_psx.startswith(top_dir) or top_dir.startswith(dir_path_psx) for top_dir in inc_dirs_psx) if inc_dirs_psx else True
                     )) and not any(dir_path_psx.startswith(top_dir) for top_dir in exc_dirs_psx)
             ):  # matches dirnames and/or top_dirs, now check regex
-                relative_p = make_relative_p(dir_path, top_path, with_leading_slash=True)
                 if inc_dirs_rx:  # only included paths must be considered
                     if not find_matching_pattern(relative_p, inc_dirs_rx):
                         dirs.remove(d)
@@ -495,12 +498,15 @@ def iter_matching_files(top_path: Path, s: Settings):
                     dirs.remove(d)
                     logger.debug(f"|| ...{relative_p}  -- skipping dir: matches '{exc_rx}'")
             else:  # doesn't match dirnames and/or top_dirs
+                logger.debug(f"|| ...{relative_p}  -- skipping dir: doesn't match dirnames and/or top_dirs")
                 dirs.remove(d)
         for f in files:
             file_path = Path(root, f)
+            file_path_psx = file_path.as_posix()
             if (
-                    (any(file_path.match(file_as_glob) for file_as_glob in inc_files) if inc_files else True)
-                    and not any(file_path.match(file_as_glob) for file_as_glob in exc_files)
+                    (any(file_path.match(file_as_glob) for file_as_glob in inc_files) if inc_files else True or (
+                            any(file_path_psx.startswith(top_dir) for top_dir in inc_dirs_psx) if inc_dirs_psx else True
+                    )) and not any(file_path.match(file_as_glob) for file_as_glob in exc_files)
             ):  # matches glob, now check regex
                 relative_p = make_relative_p(file_path, top_path, with_leading_slash=True)
                 if inc_files_rx:  # only included paths must be considered
