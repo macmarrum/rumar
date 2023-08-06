@@ -467,29 +467,18 @@ def iter_all_files(top_path: Path):
 
 
 def iter_matching_files(top_path: Path, s: Settings):
-    inc_dirs_psx = [p.as_posix() for p in s.included_top_dirs]
-    # print(f"{sorted(inc_dirs_psx)=}")
-    exc_dirs_psx = [p.as_posix() for p in s.excluded_top_dirs]
-    # print(f"{sorted(exc_dirs_psx)=}")
+    inc_dirs_rx = s.included_dirs_as_regex
+    exc_dirs_rx = s.excluded_dirs_as_regex
     inc_files = s.included_files_as_glob
-    # remove the file part by splitting at the rightmost sep, making sure not to split at the root sep
-    inc_dirnames_as_glob = {f.rsplit(sep, 1)[0] for f in inc_files if (sep := find_sep(f)) and sep in f.lstrip(sep)}
     # print(f"{inc_dirnames_as_glob=}")
     exc_files = s.excluded_files_as_glob
-    inc_dirs_rx = s.included_dirs_as_regex
     inc_files_rx = s.included_files_as_regex
-    exc_dirs_rx = s.excluded_dirs_as_regex
     exc_files_rx = s.excluded_files_as_regex
     for root, dirs, files in os.walk(top_path):
         for d in dirs.copy():
             dir_path = Path(root, d)
-            dir_path_psx = dir_path.as_posix()
             relative_p = make_relative_p(dir_path, top_path, with_leading_slash=True)
-            if (
-                    (any(dir_path.match(dirname_glob) for dirname_glob in inc_dirnames_as_glob) if inc_dirnames_as_glob else True or (
-                            any(dir_path_psx.startswith(top_dir) or top_dir.startswith(dir_path_psx) for top_dir in inc_dirs_psx) if inc_dirs_psx else True
-                    )) and not any(dir_path_psx.startswith(top_dir) for top_dir in exc_dirs_psx)
-            ):  # matches dirnames and/or top_dirs, now check regex
+            if is_dir_matching(dir_path, s):  # matches dirnames and/or top_dirs, now check regex
                 if inc_dirs_rx:  # only included paths must be considered
                     if not find_matching_pattern(relative_p, inc_dirs_rx):
                         dirs.remove(d)
@@ -519,6 +508,19 @@ def iter_matching_files(top_path: Path, s: Settings):
                         yield file_path
             else:  # doesn't match glob
                 pass
+
+
+def is_dir_matching(dir_path: Path, s: Settings) -> bool:
+    # remove the file part by splitting at the rightmost sep, making sure not to split at the root sep
+    inc_dirnames_as_glob = {f.rsplit(sep, 1)[0] for f in s.included_files_as_glob if (sep := find_sep(f)) and sep in f.lstrip(sep)}
+    inc_dirs_psx = [p.as_posix() for p in s.included_top_dirs]
+    # print(f"{sorted(inc_dirs_psx)=}")
+    exc_dirs_psx = [p.as_posix() for p in s.excluded_top_dirs]
+    # print(f"{sorted(exc_dirs_psx)=}")
+    dir_path_psx = dir_path.as_posix()
+    (any(dir_path.match(dirname_glob) for dirname_glob in inc_dirnames_as_glob) if inc_dirnames_as_glob else True or (
+        any(dir_path_psx.startswith(top_dir) or top_dir.startswith(dir_path_psx) for top_dir in inc_dirs_psx) if inc_dirs_psx else True
+    )) and not any(dir_path_psx.startswith(top_dir) for top_dir in exc_dirs_psx)
 
 
 def find_sep(g: str) -> str:
