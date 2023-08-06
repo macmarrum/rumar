@@ -511,16 +511,14 @@ def is_dir_matching(dir_path: Path, relative_p: str, s: Settings) -> bool:
         if dir_path_psx.startswith(exc_top_psx):
             logger.debug(f"|D ...{relative_p}  -- skipping: matches excluded_top_dirs")
             return False
-    if inc_file_dirnames_as_glob:
-        for dirname_glob in inc_file_dirnames_as_glob:
-            if dir_path.match(dirname_glob):
-                logger.debug(f"=D ...{relative_p}  -- matches included_file_as_glob's dirname")
-                return True
-    if inc_top_dirs_psx:
-        for inc_top_psx in inc_top_dirs_psx:
-            if dir_path_psx.startswith(inc_top_psx) or inc_top_psx.startswith(dir_path_psx):
-                logger.debug(f"=D ...{relative_p}  -- matches included_top_dirs")
-                return True
+    for dirname_glob in inc_file_dirnames_as_glob:
+        if dir_path.match(dirname_glob):
+            logger.debug(f"=D ...{relative_p}  -- matches included_file_as_glob's dirname")
+            return True
+    for inc_top_psx in inc_top_dirs_psx:
+        if dir_path_psx.startswith(inc_top_psx) or inc_top_psx.startswith(dir_path_psx):
+            logger.debug(f"=D ...{relative_p}  -- matches included_top_dirs")
+            return True
     logger.debug(f"|D ...{relative_p}  -- skipping dir: doesn't match dirnames and/or top_dirs")
     return False
 
