@@ -475,7 +475,7 @@ def iter_matching_files(top_path: Path, s: Settings):
         for d in dirs.copy():
             dir_path = Path(root, d)
             relative_p = make_relative_p(dir_path, top_path, with_leading_slash=True)
-            if is_dir_matching(dir_path, relative_p, s):  # matches dirnames and/or top_dirs, now check regex
+            if is_dir_matching_top_dirs(dir_path, relative_p, s):  # matches dirnames and/or top_dirs, now check regex
                 if inc_dirs_rx:  # only included paths must be considered
                     if not find_matching_pattern(relative_p, inc_dirs_rx):
                         dirs.remove(d)
@@ -501,7 +501,7 @@ def iter_matching_files(top_path: Path, s: Settings):
                 pass
 
 
-def is_dir_matching(dir_path: Path, relative_p: str, s: Settings) -> bool:
+def is_dir_matching_top_dirs(dir_path: Path, relative_p: str, s: Settings) -> bool:
     # remove the file part by splitting at the rightmost sep, making sure not to split at the root sep
     inc_file_dirnames_as_glob = {f.rsplit(sep, 1)[0] for f in s.included_files_as_glob if (sep := find_sep(f)) and sep in f.lstrip(sep)}
     inc_top_dirs_psx = [p.as_posix() for p in s.included_top_dirs]
@@ -511,6 +511,9 @@ def is_dir_matching(dir_path: Path, relative_p: str, s: Settings) -> bool:
         if dir_path_psx.startswith(exc_top_psx):
             logger.debug(f"|D ...{relative_p}  -- skipping: matches excluded_top_dirs")
             return False
+    if not (s.included_top_dirs or s.included_files_as_glob):
+        logger.debug(f"=D ...{relative_p}  -- no included_top_dirs or included_files_as_glob")
+        return True
     for dirname_glob in inc_file_dirnames_as_glob:
         if dir_path.match(dirname_glob):
             logger.debug(f"=D ...{relative_p}  -- matches included_file_as_glob's dirname")
