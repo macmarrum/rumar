@@ -91,7 +91,7 @@ class MyLogger(logging.Logger):
 logger = MyLogger(me.name)
 log_level = logging.DEBUG
 filename = me.with_suffix('.log')
-log_format = '{levelShort} {asctime}: {funcName:20} {msg}'
+log_format = '{levelShort} {asctime}: {funcName:24} {msg}'
 # log_format = '{msg}'
 formatter = logging.Formatter(log_format, style='{')
 # for console output
@@ -512,7 +512,7 @@ def is_dir_matching_top_dirs(dir_path: Path, relative_p: str, s: Settings) -> bo
             logger.debug(f"|D ...{relative_p}  -- skipping: matches excluded_top_dirs")
             return False
     if not (s.included_top_dirs or s.included_files_as_glob):
-        logger.debug(f"=D ...{relative_p}  -- no included_top_dirs or included_files_as_glob")
+        logger.debug(f"=D ...{relative_p}  -- including because no included_top_dirs or included_files_as_glob")
         return True
     for dirname_glob in inc_file_dirnames_as_glob:
         if dir_path.match(dirname_glob):
@@ -540,6 +540,9 @@ def is_file_matching(file_path: Path, relative_p: str, s: Settings) -> bool:
         if file_path.match(file_as_glob):
             logger.debug(f"|F ...{relative_p}  -- skipping: matches excluded_files_as_glob {file_as_glob!r}")
             return False
+    if not (s.included_top_dirs or s.included_files_as_glob):
+        logger.debug(f"=F ...{relative_p}  -- including because no included_top_dirs or included_files_as_glob")
+        return True
     for file_as_glob in inc_files:
         if file_path.match(file_as_glob):
             logger.debug(f"=F ...{relative_p}  -- matches included_files_as_glob {file_as_glob!r}")
