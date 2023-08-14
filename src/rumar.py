@@ -494,7 +494,7 @@ def iter_matching_files(top_path: Path, s: Settings):
         for f in files:
             file_path = Path(root, f)
             relative_p = make_relative_p(file_path, top_path, with_leading_slash=True)
-            if is_file_matching(file_path, relative_p, s):  # matches glob, now check regex
+            if is_file_matching_glob(file_path, relative_p, s):  # matches glob, now check regex
                 if inc_files_rx:  # only included paths must be considered
                     if not find_matching_pattern(relative_p, inc_files_rx):
                         logger.debug(f"|f ...{relative_p}  -- skipping: none of included_files_as_regex matches")
@@ -532,7 +532,7 @@ def is_dir_matching_top_dirs(dir_path: Path, relative_p: str, s: Settings) -> bo
     return False
 
 
-def is_file_matching(file_path: Path, relative_p: str, s: Settings) -> bool:
+def is_file_matching_glob(file_path: Path, relative_p: str, s: Settings) -> bool:
     inc_top_dirs_psx = [p.as_posix() for p in s.included_top_dirs]
     inc_files = s.included_files_as_glob
     exc_files = s.excluded_files_as_glob
