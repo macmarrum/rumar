@@ -330,8 +330,8 @@ class Settings:
     backup_base_dir: Union[str, Path]
     source_dir: Union[str, Path]
     backup_base_dir_for_profile: Union[str, Path] = None
-    included_top_dirs: Union[list[str], set[str], list[Path], set[Path]] = ()
-    excluded_top_dirs: Union[list[str], set[str], list[Path], set[Path]] = ()
+    included_top_dirs: Union[list[Path], set[Path], list[str], set[str]] = ()
+    excluded_top_dirs: Union[list[Path], set[Path], list[str], set[str]] = ()
     included_dirs_as_regex: Union[list[str], list[Pattern]] = ()
     excluded_dirs_as_regex: Union[list[str], list[Pattern]] = ()
     included_files_as_glob: Union[list[str], set[str]] = ()
