@@ -48,6 +48,9 @@ me = Path(__file__)
 # <logger>
 
 DEBUG_11 = 11
+DEBUG_12 = 12
+DEBUG_13 = 13
+DEBUG_14 = 14
 DEBUG_15 = 15
 DEBUG_16 = RETVAL_16 = 16
 DEBUG_17 = METHOD_17 = 17
@@ -65,6 +68,9 @@ LEVEL_TO_SHORT = {
 SHORT_DEFAULT = '--'
 
 logging.addLevelName(DEBUG_11, 'DEBUG_11')
+logging.addLevelName(DEBUG_12, 'DEBUG_12')
+logging.addLevelName(DEBUG_13, 'DEBUG_13')
+logging.addLevelName(DEBUG_14, 'DEBUG_14')
 logging.addLevelName(DEBUG_15, 'DEBUG_15')
 logging.addLevelName(DEBUG_16, 'DEBUG_16')
 logging.addLevelName(DEBUG_17, 'DEBUG_17')
@@ -89,7 +95,7 @@ class MyLogger(logging.Logger):
 
 
 logger = MyLogger(me.name)
-log_level = logging.DEBUG
+log_level = DEBUG_14
 filename = me.with_suffix('.log')
 log_format = '{levelShort} {asctime}: {funcName:24} {msg}'
 # log_format = '{msg}'
@@ -509,20 +515,20 @@ def is_dir_matching_top_dirs(dir_path: Path, relative_p: str, s: Settings) -> bo
     dir_path_psx = dir_path.as_posix()
     for exc_top_psx in exc_top_dirs_psx:
         if dir_path_psx.startswith(exc_top_psx):
-            logger.debug(f"|D ...{relative_p}  -- skipping: matches excluded_top_dirs")
+            logger.log(DEBUG_14, f"|D ...{relative_p}  -- skipping: matches excluded_top_dirs")
             return False
     if not (s.included_top_dirs or s.included_files_as_glob):
-        logger.debug(f"=D ...{relative_p}  -- including because no included_top_dirs or included_files_as_glob")
+        logger.log(DEBUG_11, f"=D ...{relative_p}  -- including all: no included_top_dirs or included_files_as_glob")
         return True
     for dirname_glob in inc_file_dirnames_as_glob:
         if dir_path.match(dirname_glob):
-            logger.debug(f"=D ...{relative_p}  -- matches included_file_as_glob's dirname")
+            logger.log(DEBUG_12, f"=D ...{relative_p}  -- matches included_file_as_glob's dirname")
             return True
     for inc_top_psx in inc_top_dirs_psx:
         if dir_path_psx.startswith(inc_top_psx) or inc_top_psx.startswith(dir_path_psx):
-            logger.debug(f"=D ...{relative_p}  -- matches included_top_dirs")
+            logger.log(DEBUG_12, f"=D ...{relative_p}  -- matches included_top_dirs")
             return True
-    logger.debug(f"|D ...{relative_p}  -- skipping dir: doesn't match dirnames and/or top_dirs")
+    logger.log(DEBUG_13, f"|D ...{relative_p}  -- skipping: doesn't match dirnames and/or top_dirs")
     return False
 
 
@@ -538,20 +544,20 @@ def is_file_matching(file_path: Path, relative_p: str, s: Settings) -> bool:
     # )
     for file_as_glob in exc_files:
         if file_path.match(file_as_glob):
-            logger.debug(f"|F ...{relative_p}  -- skipping: matches excluded_files_as_glob {file_as_glob!r}")
+            logger.log(DEBUG_14, f"|F ...{relative_p}  -- skipping: matches excluded_files_as_glob {file_as_glob!r}")
             return False
     if not (s.included_top_dirs or s.included_files_as_glob):
-        logger.debug(f"=F ...{relative_p}  -- including because no included_top_dirs or included_files_as_glob")
+        logger.log(DEBUG_11, f"=F ...{relative_p}  -- including all: no included_top_dirs or included_files_as_glob")
         return True
     for file_as_glob in inc_files:
         if file_path.match(file_as_glob):
-            logger.debug(f"=F ...{relative_p}  -- matches included_files_as_glob {file_as_glob!r}")
+            logger.log(DEBUG_12, f"=F ...{relative_p}  -- matches included_files_as_glob {file_as_glob!r}")
             return True
     for inc_top_psx in inc_top_dirs_psx:
         if file_path_psx.startswith(inc_top_psx):
-            logger.debug(f"=F ...{relative_p}  -- matches included_top_dirs {inc_top_psx!r}")
+            logger.log(DEBUG_12, f"=F ...{relative_p}  -- matches included_top_dirs {inc_top_psx!r}")
             return True
-    logger.debug(f"|F ...{relative_p}  -- skipping file: doesn't match top dir or file glob")
+    logger.log(DEBUG_13, f"|F ...{relative_p}  -- skipping file: doesn't match top dir or file glob")
     return False
 
 
