@@ -16,6 +16,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import argparse
 import logging
+import logging.config
 import os
 import re
 import sqlite3
@@ -28,7 +29,6 @@ from enum import Enum
 from hashlib import sha256
 from pathlib import Path
 from textwrap import dedent
-from types import TracebackType
 from typing import Iterator, Union, Optional, Literal, Pattern, Any, Iterable
 
 vi = sys.version_info
@@ -45,8 +45,6 @@ except ImportError:
 
 me = Path(__file__)
 
-# <logger>
-
 DEBUG_11 = 11
 DEBUG_12 = 12
 DEBUG_13 = 13
@@ -56,16 +54,19 @@ DEBUG_16 = RETVAL_16 = 16
 DEBUG_17 = METHOD_17 = 17
 LEVEL_TO_SHORT = {
     10: '>>',  # DEBUG
-    11: '>+',  # DEBUG11
+    11: '>:',  # DEBUG11
+    12: '>:',  # DEBUG12
+    13: '>:',  # DEBUG13
+    14: '>:',  # DEBUG14
     15: '>:',  # DEBUG15
-    16: '=>',  # RETVAL
-    17: '~~',  # METHOD
+    16: '>=',  # RETVAL
+    17: '>~',  # METHOD
     20: '::',  # INFO
     30: '*=',  # WARNING
     40: '**',  # ERROR
     50: '##'  # CRITICAL
 }
-SHORT_DEFAULT = '--'
+SHORT_DEFAULT = '->'
 
 logging.addLevelName(DEBUG_11, 'DEBUG_11')
 logging.addLevelName(DEBUG_12, 'DEBUG_12')
@@ -76,43 +77,79 @@ logging.addLevelName(DEBUG_16, 'DEBUG_16')
 logging.addLevelName(DEBUG_17, 'DEBUG_17')
 
 
-class MyLogger(logging.Logger):
-    def __init__(self, name, level=logging.NOTSET):
-        super().__init__(name, level)
-
-    def makeRecord(self, name: str, level: int, fn: str, lno: int, msg: Any,
-                   args: Union[tuple[Any, ...], dict[str, Any]],
-                   exc_info: Optional[
-                       Union[tuple[type, BaseException, Optional[TracebackType]], tuple[None, None, None]]],
-                   func: Optional[str] = ..., extra: Optional[dict[str, Any]] = ...,
-                   sinfo: Optional[str] = ...) -> logging.LogRecord:
-        """override
-        Add 'levelShort' field to LogRecord, to be used in 'format'
-        """
-        log_record = super().makeRecord(name, level, fn, lno, msg, args, exc_info, func, extra, sinfo)
-        log_record.levelShort = LEVEL_TO_SHORT.get(level, SHORT_DEFAULT)
-        return log_record
+def log_record_factory(name, level, fn, lno, msg, args, exc_info, func=None, sinfo=None, **kwargs):
+    """Add 'levelShort' field to LogRecord, to be used in 'format'"""
+    log_record = logging.LogRecord(name, level, fn, lno, msg, args, exc_info, func, sinfo, **kwargs)
+    log_record.levelShort = LEVEL_TO_SHORT.get(level, SHORT_DEFAULT)
+    return log_record
 
 
-logger = MyLogger(me.name)
-log_level = DEBUG_14
-filename = me.with_suffix('.log')
-log_format = '{levelShort} {asctime}: {funcName:24} {msg}'
-# log_format = '{msg}'
-formatter = logging.Formatter(log_format, style='{')
-# for console output
-to_console = logging.StreamHandler()
-to_console.setLevel(log_level)
-to_console.setFormatter(formatter)
-logger.addHandler(to_console)
-# for file output
-to_file = logging.FileHandler(filename=filename, encoding='UTF-8')
-to_file.setLevel(log_level)
-to_file.setFormatter(formatter)
-logger.addHandler(to_file)
+logging.setLogRecordFactory(log_record_factory)
 
-# </logger>
 
+def get_default_path(suffix: str) -> Path:
+    """Returns the same name but with the provided suffix, located in the same directory as the program.
+    If not found, checks in %APPDATA%/ or $XDG_CONFIG_HOME/{path.stem}/.
+    If not found, falls back to the first option.
+    """
+    name = me.with_suffix(suffix).name
+    path = me.parent / name
+    if path.exists():
+        return path
+    else:
+        path_alt = get_appdata() / me.stem / name
+        if path_alt.exists():
+            return path_alt
+        else:
+            return path
+
+
+def get_appdata() -> Path:
+    if os.name == 'nt':
+        return Path(os.environ['APPDATA'])
+    elif os.name == 'posix':
+        return Path(os.environ.get('XDG_CONFIG_HOME', '~/.config')).expanduser()
+    else:
+        raise RuntimeError(f"unknown os.name: {os.name}")
+
+
+LOGGING_TOML_DEFAULT = '''
+version = 1
+
+[formatters.f1]
+format = "{levelShort} {asctime}: {funcName:24} {msg}"
+style = "{"
+validate = true
+
+[handlers.to_console]
+class = "logging.StreamHandler"
+formatter = "f1"
+#level = "DEBUG_14"
+
+[handlers.to_file]
+class = "logging.FileHandler"
+filename = "rumar.log"
+encoding = "UTF-8"
+formatter = "f1"
+#level = "DEBUG_14"
+
+[loggers.rumar]
+handlers = [
+    "to_console",
+    "to_file",
+]
+level = "DEBUG_14"
+'''
+
+rumar_logging_toml_path = get_default_path(suffix='.logging.toml')
+if rumar_logging_toml_path.exists():
+    print(f":: loading logging config from {rumar_logging_toml_path}")
+    dict_config = tomllib.load(rumar_logging_toml_path.open('rb'))
+else:
+    print(f":: loading default logging config")
+    dict_config = tomllib.loads(LOGGING_TOML_DEFAULT)
+logging.config.dictConfig(dict_config)
+logger = logging.getLogger('rumar')
 
 store_true = 'store_true'
 
@@ -147,32 +184,6 @@ def add_profile_args_to_parser(parser: argparse.ArgumentParser, required: bool):
 
 def make_path(file_path: str) -> Path:
     return Path(file_path).expanduser()
-
-
-def get_default_path(suffix: str) -> Path:
-    """Returns the same name but with the provided suffix, located in the same directory as the program.
-    If not found, checks in %APPDATA%/ or $XDG_CONFIG_HOME/{path.stem}/.
-    If not found, falls back to the first option.
-    """
-    name = me.with_suffix(suffix).name
-    path = me.parent / name
-    if path.exists():
-        return path
-    else:
-        path_alt = get_appdata() / me.stem / name
-        if path_alt.exists():
-            return path_alt
-        else:
-            return path
-
-
-def get_appdata() -> Path:
-    if os.name == 'nt':
-        return Path(os.environ['APPDATA'])
-    elif os.name == 'posix':
-        return Path(os.environ.get('XDG_CONFIG_HOME', '~/.config')).expanduser()
-    else:
-        raise RuntimeError(f"unknown os.name: {os.name}")
 
 
 def list_profiles(args):
@@ -724,6 +735,7 @@ class Rumar:
     def create_for_profile(self, profile: str):
         """Create a backup for the specified profile
         """
+        logger.info(profile)
         self._profile = profile  # for self.s to work
         for p in self.source_files:
             relative_p = make_relative_p(p, self.s.source_dir)
@@ -881,7 +893,7 @@ class Broom:
             self.sweep_profile(profile, is_dry_run=is_dry_run)
 
     def sweep_profile(self, profile, *, is_dry_run: bool):
-        logger.log(METHOD_17, f"{profile=}")
+        logger.info(profile)
         s = self._profile_to_settings[profile]
         self.gather_info(s)
         self.delete_files(is_dry_run)
