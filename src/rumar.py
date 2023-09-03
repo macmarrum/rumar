@@ -113,7 +113,7 @@ def get_appdata() -> Path:
         raise RuntimeError(f"unknown os.name: {os.name}")
 
 
-LOGGING_TOML_DEFAULT = '''
+LOGGING_TOML_DEFAULT = '''\
 version = 1
 
 [formatters.f1]

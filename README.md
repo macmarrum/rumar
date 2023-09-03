@@ -46,7 +46,7 @@ or inside `%APPDATA%` on NT (MS Windows).
 `rumar.toml`
 <!-- rumar.toml example begin -->
 ```toml
-# format version - always 1
+# schema version - always 1
 version = 1
 # settings common for all profiles
 backup_base_dir = 'C:\Users\Mac\Backup'
@@ -70,7 +70,7 @@ source_dir = "this setting won't be loaded"
 ### Settings details
 
 Profiles which start with a hash `#` are ignored when `rumar.toml` is loaded.\
-**version** indicates format version and for now is always `1`.
+**version** indicates schema version and for now is always `1`.
 
 <!-- settings pydoc begin -->
 * **backup_base_dir**: str &nbsp; &nbsp; _used by: create, sweep_\
@@ -152,3 +152,44 @@ Profiles which start with a hash `#` are ignored when `rumar.toml` is loaded.\
   it's best when the setting is part of a separate profile, i.e. a copy made for _**sweep**_,\
   otherwise _**create**_ will also seek such files to be excluded
 <!-- settings pydoc end -->
+
+## Logging settings
+
+Logging is controlled by settings located in `rumar/rumar.loggng.toml` inside `$XDG_CONFIG_HOME` (`$HOME/.config` if not set) on POSIX,
+or inside `%APPDATA%` on NT (MS Windows).\
+
+By default, `rumar.log` is created in the current directory (where `rumar.py` is executed).\
+To disable the creation of `rumar.log`,
+copy the below to `rumar.logging.toml` in the appropriate location
+and put a hash `#` in front of `"to_console",` in `[loggers.rumar]`.
+
+<!-- logging settings begin -->
+```toml
+version = 1
+
+[formatters.f1]
+format = "{levelShort} {asctime}: {funcName:24} {msg}"
+style = "{"
+validate = true
+
+[handlers.to_console]
+class = "logging.StreamHandler"
+formatter = "f1"
+#level = "DEBUG_14"
+
+[handlers.to_file]
+class = "logging.FileHandler"
+filename = "rumar.log"
+encoding = "UTF-8"
+formatter = "f1"
+#level = "DEBUG_14"
+
+[loggers.rumar]
+handlers = [
+    "to_console",
+    "to_file",
+]
+level = "DEBUG_14"
+```
+<!-- logging settings end -->
+More information: <https://docs.python.org/3/library/logging.config.html#logging-config-dictschema>
