@@ -1,3 +1,5 @@
+# format version - always 1
+version = 1
 # settings common for all profiles
 backup_base_dir = 'C:\Users\Mac\Backup'
 
@@ -5,9 +7,12 @@ backup_base_dir = 'C:\Users\Mac\Backup'
 
 ["My Documents"]
 source_dir = 'C:\Users\Mac\Documents'
-excluded_dirs_as_glob = ['My Music', 'My Pictures', 'My Videos']
-excluded_files_as_regex = ['/(desktop\.ini|thumbs\.db)$']
+excluded_top_dirs = ['My Music', 'My Pictures', 'My Videos']
+excluded_files_as_glob = ['desktop.ini', 'Thumbs.db']
 
 [Desktop]
 source_dir = 'C:\Users\Mac\Desktop'
 excluded_files_as_glob = ['desktop.ini', '*.exe', '*.msi']
+
+['# this profile starts with a hash, therefore will be ignored']
+source_dir = "this setting won't be loaded"

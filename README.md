@@ -38,13 +38,16 @@ Note: when `--dry-run` is used, **rumar.py** counts the backup files and selects
 ## Settings
 
 Unless specified by `--toml path/to/your/settings.toml`,
-settings are read from `rumar.toml` in the same directory as `rumar.py` or located in `rumar/rumar.toml` inside `$XDG_CONFIG_HOME` (`$HOME/.config` if not set) on POSIX,
+settings are loaded from `rumar.toml` in the same directory as `rumar.py` or located in `rumar/rumar.toml` inside `$XDG_CONFIG_HOME` (`$HOME/.config` if not set) on POSIX,
 or inside `%APPDATA%` on NT (MS Windows).
 
 ### Settings example
 
 `rumar.toml`
+<!-- rumar.toml example begin -->
 ```toml
+# format version - always 1
+version = 1
 # settings common for all profiles
 backup_base_dir = 'C:\Users\Mac\Backup'
 
@@ -52,15 +55,22 @@ backup_base_dir = 'C:\Users\Mac\Backup'
 
 ["My Documents"]
 source_dir = 'C:\Users\Mac\Documents'
-excluded_dirs_as_glob = ['My Music', 'My Pictures', 'My Videos']
-excluded_files_as_regex = ['/(desktop\.ini|thumbs\.db)$']
+excluded_top_dirs = ['My Music', 'My Pictures', 'My Videos']
+excluded_files_as_glob = ['desktop.ini', 'Thumbs.db']
 
 [Desktop]
 source_dir = 'C:\Users\Mac\Desktop'
 excluded_files_as_glob = ['desktop.ini', '*.exe', '*.msi']
+
+['# this profile starts with a hash, therefore will be ignored']
+source_dir = "this setting won't be loaded"
 ```
+<!-- rumar.toml example end -->
 
 ### Settings details
+
+Profiles which start with a hash `#` are ignored when `rumar.toml` is loaded.\
+**version** indicates format version and for now is always `1`.
 
 <!-- settings pydoc begin -->
 * **backup_base_dir**: str &nbsp; &nbsp; _used by: create, sweep_\
