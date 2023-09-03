@@ -452,6 +452,7 @@ def create_profile_to_settings_from_toml_path(toml_file: Path) -> ProfileToSetti
 def create_profile_to_settings_from_toml_text(toml_str) -> ProfileToSettings:
     profile_to_settings: ProfileToSettings = {}
     toml_dict = tomllib.loads(toml_str)
+    verify_version(toml_dict)
     common_kwargs_for_settings = {}
     profile_to_dict = {}
     for key, value in toml_dict.items():
@@ -467,6 +468,13 @@ def create_profile_to_settings_from_toml_text(toml_str) -> ProfileToSettings:
             kwargs_for_settings[key] = value
         profile_to_settings[profile] = Settings(**kwargs_for_settings)
     return profile_to_settings
+
+
+def verify_version(toml_dict):
+    version = toml_dict.get('version', 'missing')
+    if version != 1:
+        raise ValueError(f"rumar.toml version is {version} - expected 1")
+    del toml_dict['version']
 
 
 class CreateReason(Enum):
@@ -736,7 +744,7 @@ class Rumar:
     def create_for_profile(self, profile: str):
         """Create a backup for the specified profile
         """
-        logger.info(profile)
+        logger.info(f"{profile=}")
         self._profile = profile  # for self.s to work
         for p in self.source_files:
             relative_p = make_relative_p(p, self.s.source_dir)
