@@ -27,6 +27,6 @@ for line in readme_md_path.read_text(encoding=UTF8).splitlines():
         lines += doc.splitlines()
     if not is_settings:
         lines.append(line)
-text = '\n'.join(lines)
+text = '\n'.join(lines) + '\n'
 readme_md_path.rename(readme_md_path.with_suffix('.bak'))
 readme_md_path.write_text(text, encoding=UTF8)
