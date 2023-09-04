@@ -244,7 +244,7 @@ class Settings:
       path to the base dir used for the profile; usually left unset; see _**backup_base_dir**_
     archive_format: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz'] = 'tar.gz'
       used by: create, sweep
-      archive file to be created
+      format of archive files to be created
     compression_level: int = 3
       used by: create
       for the formats 'tar.gz', 'tar.bz2', 'tar.xz': compression level from 0 to 9
@@ -265,6 +265,7 @@ class Settings:
       a list of paths
       if present, only files from those dirs and their descendant subdirs will be considered, together with _**included_files_as_glob**_
       the paths can be relative to _**source_dir**_ or absolute, but always under _**source_dir**_
+      if missing, _**source_dir**_ and all its descendant subdirs of will be considered
     excluded_top_dirs: list[str]
       used by: create, sweep
       like _**included_top_dirs**_, but for exclusion
@@ -289,7 +290,7 @@ class Settings:
       e.g. `["My Music\*.m3u"]`
       on MS Windows, global-pattern matching is case-insensitive
       caution: a leading path separator in a path/glob indicates a root directory, e.g. `["\My Music\*"]`
-      means "C:\My Music\*" or "D:\My Music\*" but not "C:\Users\Mac\Documents\My Music\*"
+      means `C:\My Music\*` or `D:\My Music\*` but not `C:\Users\Mac\Documents\My Music\*`
       see also https://docs.python.org/3/library/fnmatch.html and https://en.wikipedia.org/wiki/Glob_(programming)
     excluded_files_as_glob: list[str]
       used by: create, sweep
@@ -306,6 +307,7 @@ class Settings:
       when False, a file is considered changed if its mtime is later than the latest backup's mtime and its size changed
       when True, SHA256 checksum is compared to determine if the file changed despite having the same size
       _mtime := time of last modification_
+      see also https://en.wikipedia.org/wiki/File_verification
     file_deduplication: bool = False
       used by: create
       when True, an attempt is made to find and skip duplicates
@@ -333,7 +335,7 @@ class Settings:
       determines which commands can use the filters specified in the included_* and excluded_* settings
       by default, filters are used only by _**create**_, i.e. _**sweep**_ considers all created backups (no filter is applied)
       a filter for _**sweep**_ could be used to e.g. never remove backups from the first day of a month:
-      `excluded_files_as_regex = ['/\d\d\d\d-\d\d-01_\d\d,\d\d,\d\d\.\d{6}(\+|-)\d\d,\d\d\~\d+.tar(\.(gz|bz2|xz))?$']`
+      `excluded_files_as_regex = ['/\d\d\d\d-\d\d-01_\d\d,\d\d,\d\d\.\d{6}(\+|-)\d\d,\d\d\~\d+(~.+)?.tar(\.(gz|bz2|xz))?$']`
       it's best when the setting is part of a separate profile, i.e. a copy made for _**sweep**_,
       otherwise _**create**_ will also seek such files to be excluded
     """

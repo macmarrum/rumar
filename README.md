@@ -79,7 +79,7 @@ Profiles which start with a hash `#` are ignored when `rumar.toml` is loaded.\
 * **backup_base_dir_for_profile**: str &nbsp; &nbsp; _used by: create, sweep_\
   path to the base dir used for the profile; usually left unset; see _**backup_base_dir**_
 * **archive_format**: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz'] = 'tar.gz' &nbsp; &nbsp; _used by: create, sweep_\
-  archive file to be created
+  format of archive files to be created
 * **compression_level**: int = 3 &nbsp; &nbsp; _used by: create_\
   for the formats 'tar.gz', 'tar.bz2', 'tar.xz': compression level from 0 to 9
 * **no_compression_suffixes_default**: str = '7z,zip,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,kdbx' &nbsp; &nbsp; _used by: create_\
@@ -93,7 +93,8 @@ Profiles which start with a hash `#` are ignored when `rumar.toml` is loaded.\
 * **included_top_dirs**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
   a list of paths\
   if present, only files from those dirs and their descendant subdirs will be considered, together with _**included_files_as_glob**_\
-  the paths can be relative to _**source_dir**_ or absolute, but always under _**source_dir**_
+  the paths can be relative to _**source_dir**_ or absolute, but always under _**source_dir**_\
+  if missing, _**source_dir**_ and all its descendant subdirs of will be considered
 * **excluded_top_dirs**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
   like _**included_top_dirs**_, but for exclusion
 * **included_dirs_as_regex**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
@@ -114,7 +115,7 @@ Profiles which start with a hash `#` are ignored when `rumar.toml` is loaded.\
   e.g. `["My Music\*.m3u"]`\
   on MS Windows, global-pattern matching is case-insensitive\
   caution: a leading path separator in a path/glob indicates a root directory, e.g. `["\My Music\*"]`\
-  means "C:\My Music\*" or "D:\My Music\*" but not "C:\Users\Mac\Documents\My Music\*"\
+  means `C:\My Music\*` or `D:\My Music\*` but not `C:\Users\Mac\Documents\My Music\*`\
   see also https://docs.python.org/3/library/fnmatch.html and https://en.wikipedia.org/wiki/Glob_(programming)
 * **excluded_files_as_glob**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
   like _**included_files_as_glob**_, but for exclusion
@@ -126,7 +127,8 @@ Profiles which start with a hash `#` are ignored when `rumar.toml` is loaded.\
 * **sha256_comparison_if_same_size**: bool = False &nbsp; &nbsp; _used by: create_\
   when False, a file is considered changed if its mtime is later than the latest backup's mtime and its size changed\
   when True, SHA256 checksum is compared to determine if the file changed despite having the same size\
-  _mtime := time of last modification_
+  _mtime := time of last modification_\
+  see also https://en.wikipedia.org/wiki/File_verification
 * **file_deduplication**: bool = False &nbsp; &nbsp; _used by: create_\
   when True, an attempt is made to find and skip duplicates\
   a duplicate file has the same suffix and size and part of its name, case-insensitive (suffix, name)
@@ -148,7 +150,7 @@ Profiles which start with a hash `#` are ignored when `rumar.toml` is loaded.\
   determines which commands can use the filters specified in the included_* and excluded_* settings\
   by default, filters are used only by _**create**_, i.e. _**sweep**_ considers all created backups (no filter is applied)\
   a filter for _**sweep**_ could be used to e.g. never remove backups from the first day of a month:\
-  `excluded_files_as_regex = ['/\d\d\d\d-\d\d-01_\d\d,\d\d,\d\d\.\d{6}(\+|-)\d\d,\d\d\~\d+.tar(\.(gz|bz2|xz))?$']`\
+  `excluded_files_as_regex = ['/\d\d\d\d-\d\d-01_\d\d,\d\d,\d\d\.\d{6}(\+|-)\d\d,\d\d\~\d+(~.+)?.tar(\.(gz|bz2|xz))?$']`\
   it's best when the setting is part of a separate profile, i.e. a copy made for _**sweep**_,\
   otherwise _**create**_ will also seek such files to be excluded
 <!-- settings pydoc end -->
