@@ -507,10 +507,10 @@ def iter_matching_files(top_path: Path, s: Settings):
                 if inc_dirs_rx:  # only included paths must be considered
                     if not find_matching_pattern(relative_p, inc_dirs_rx):
                         dirs.remove(d)
-                        logger.debug(f"|d ...{relative_p}  -- skipping dir: none of included_dirs_as_regex matches")
+                        logger.log(DEBUG_13, f"|d ...{relative_p}  -- skipping dir: none of included_dirs_as_regex matches")
                 if d in dirs and (exc_rx := find_matching_pattern(relative_p, exc_dirs_rx)):
                     dirs.remove(d)
-                    logger.debug(f"|d ...{relative_p}  -- skipping dir: matches '{exc_rx}'")
+                    logger.log(DEBUG_14, f"|d ...{relative_p}  -- skipping dir: matches '{exc_rx}'")
             else:  # doesn't match dirnames and/or top_dirs
                 dirs.remove(d)
         for f in files:
@@ -519,10 +519,10 @@ def iter_matching_files(top_path: Path, s: Settings):
             if is_file_matching_glob(file_path, relative_p, s):  # matches glob, now check regex
                 if inc_files_rx:  # only included paths must be considered
                     if not find_matching_pattern(relative_p, inc_files_rx):
-                        logger.debug(f"|f ...{relative_p}  -- skipping: none of included_files_as_regex matches")
+                        logger.log(DEBUG_13, f"|f ...{relative_p}  -- skipping: none of included_files_as_regex matches")
                 else:  # no incl filtering; checking exc_files_rx
                     if exc_rx := find_matching_pattern(relative_p, exc_files_rx):
-                        logger.debug(f"|f ...{relative_p}  -- skipping: matches {exc_rx!r}")
+                        logger.log(DEBUG_14, f"|f ...{relative_p}  -- skipping: matches {exc_rx!r}")
                     else:
                         yield file_path
             else:  # doesn't match glob
