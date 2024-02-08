@@ -158,12 +158,12 @@ Profiles which start with a hash `#` are ignored when `rumar.toml` is loaded.\
 ## Logging settings
 
 Logging is controlled by settings located in `rumar/rumar.loggng.toml` inside `$XDG_CONFIG_HOME` (`$HOME/.config` if not set) on POSIX,
-or inside `%APPDATA%` on NT (MS Windows).\
+or inside `%APPDATA%` on NT (MS Windows).
 
 By default, `rumar.log` is created in the current directory (where `rumar.py` is executed).\
 To disable the creation of `rumar.log`,
 copy the below to `rumar.logging.toml` in the appropriate location
-and put a hash `#` in front of `"to_console",` in `[loggers.rumar]`.
+and put a hash `#` in front of `"to_file",` in `[loggers.rumar]`.
 
 <!-- logging settings begin -->
 ```toml
