@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # rumar – a file-backup utility
-# Copyright (C) 2023  macmarrum
+# Copyright (C) 2023, 2024  macmarrum
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
