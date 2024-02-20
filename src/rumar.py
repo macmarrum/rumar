@@ -23,6 +23,7 @@ import sqlite3
 import stat
 import sys
 import tarfile
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, date
 from enum import Enum
@@ -33,6 +34,13 @@ from typing import Iterator, Union, Optional, Literal, Pattern, Any, Iterable
 
 vi = sys.version_info
 assert (vi.major, vi.minor) >= (3, 9), 'expected Python 3.9 or higher'
+
+try:
+    import pyzipper
+    is_pyzipper_present = True
+except ImportError:
+    print('pyzipper is missing => no support for zipx')
+    is_pyzipper_present = False
 
 try:
     import tomllib
@@ -222,6 +230,7 @@ class RumarFormat(Enum):
     TGZ = 'tar.gz'
     TBZ = 'tar.bz2'
     TXZ = 'tar.xz'
+    ZIPX = 'zipx'
 
 
 class Command(Enum):
@@ -242,12 +251,16 @@ class Settings:
     backup_base_dir_for_profile: str
       used by: create, sweep
       path to the base dir used for the profile; usually left unset; see _**backup_base_dir**_
-    archive_format: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz'] = 'tar.gz'
+    archive_format: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz', 'zipx'] = 'tar.gz'
       used by: create, sweep
       format of archive files to be created
+      zipx is AES-encrypted, therefore password must be provided
+    password: str
+      used by: create
+      for zipx encryption
     compression_level: int = 3
       used by: create
-      for the formats 'tar.gz', 'tar.bz2', 'tar.xz': compression level from 0 to 9
+      for the formats 'tar.gz', 'tar.bz2', 'tar.xz', 'zipx': compression level from 0 to 9
     no_compression_suffixes_default: str = '7z,zip,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,kdbx'
       used by: create
       comma-separated string of lower-case suffixes for which to use uncompressed tar
@@ -352,6 +365,8 @@ class Settings:
     included_files_as_regex: Union[list[str], list[Pattern]] = ()
     excluded_files_as_regex: Union[list[str], list[Pattern]] = ()
     archive_format: Union[str, RumarFormat] = RumarFormat.TGZ
+    password: str = None
+    zip_compression_method: int = zipfile.ZIP_DEFLATED
     compression_level: int = 3
     no_compression_suffixes_default: str = (
         '7z,zip,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,'
@@ -631,14 +646,16 @@ class Rumar:
     T = 'T'
     UNDERSCORE = '_'
     DOT_TAR = '.tar'
+    DOT_ZIPX = '.zipx'
     SYMLINK_COMPRESSLEVEL = 3
     COMPRESSLEVEL = 'compresslevel'
+    COMPRESSION = 'compression'
     PRESET = 'preset'
     SYMLINK_FORMAT_COMPRESSLEVEL = RumarFormat.TGZ, {COMPRESSLEVEL: SYMLINK_COMPRESSLEVEL}
     NOCOMPRESSION_FORMAT_COMPRESSLEVEL = RumarFormat.TAR, {}
     LNK = 'LNK'
     ARCHIVE_FORMAT_TO_MODE = {RumarFormat.TAR: 'x', RumarFormat.TGZ: 'x:gz', RumarFormat.TBZ: 'x:bz2', RumarFormat.TXZ: 'x:xz'}
-    RX_TAR = re.compile(r'\.tar(\.(gz|bz2|xz))?$')
+    RX_ARCHIVE_SUFFIX = re.compile(r'\.(tar(\.(gz|bz2|xz))?|zipx)$')
     CHECKSUM_SUFFIX = '.sha256'
     _path_to_lstat: dict[Path, os.stat_result] = {}
     STEMS = 'stems'
@@ -706,16 +723,15 @@ class Rumar:
     @classmethod
     def extract_core(cls, basename: str) -> str:
         """Example: 2023-04-30_09,48,20.872144+02,00~123#a7b6de.tar.gz => 2023-04-30_09,48,20+02,00~123#a7b6de"""
-        try:
-            core, _ = basename.rsplit(cls.DOT_TAR, 1)
-        except ValueError:
-            print(basename)
-            raise
+        core = cls.RX_ARCHIVE_SUFFIX.sub('', basename)
+        if core == basename:
+            raise RuntimeError('basename: ' + basename)
         return core
 
     @classmethod
     def split_ext(cls, basename: str) -> tuple[str, str]:
         """Example: 2023-04-30_09,48,20.872144+02,00~123.tar.gz => 2023-04-30_09,48,20+02,00~123 .gz"""
+        raise NotImplementedError('this method needs work after the addition of zipx')
         try:
             core, post_tar_ext = basename.rsplit(cls.DOT_TAR, 1)
         except ValueError:
@@ -798,10 +814,16 @@ class Rumar:
         archive_container_dir = self.calc_archive_container_dir(relative_p=relative_p)
         if not archive_container_dir.exists():
             return None
-        latest_dir_entry = self.find_last_file_in_dir(archive_container_dir, self.RX_TAR)
+        latest_dir_entry = self.find_last_file_in_dir(archive_container_dir, self.RX_ARCHIVE_SUFFIX)
         return Path(latest_dir_entry) if latest_dir_entry else None
 
     def _create(self, create_reason: CreateReason, path: Path, relative_p: str, archive_container_dir: Path, mtime_str: str, size: int):
+        if self.s.archive_format == RumarFormat.ZIPX:
+            self._create_zipx(create_reason, path, relative_p, archive_container_dir, mtime_str, size)
+        else:
+            self._create_tar(create_reason, path, relative_p, archive_container_dir, mtime_str, size)
+
+    def _create_tar(self, create_reason: CreateReason, path: Path, relative_p: str, archive_container_dir: Path, mtime_str: str, size: int):
         archive_container_dir.mkdir(parents=True, exist_ok=True)
         sign = create_reason.value
         logger.info(f"{sign} {relative_p}  {mtime_str}  {size} {sign} {archive_container_dir}")
@@ -811,6 +833,20 @@ class Rumar:
         archive_path = self.calc_archive_path(archive_container_dir, archive_format, mtime_str, size, self.LNK if is_lnk else self.BLANK)
         with tarfile.open(archive_path, mode, format=self.s.tar_format, **compresslevel_kwargs) as tf:
             tf.add(path, arcname=path.name)
+
+    def _create_zipx(self, create_reason: CreateReason, path: Path, relative_p: str, archive_container_dir: Path, mtime_str: str, size: int):
+        archive_container_dir.mkdir(parents=True, exist_ok=True)
+        sign = create_reason.value
+        logger.info(f"{sign} {relative_p}  {mtime_str}  {size} {sign} {archive_container_dir}")
+        if path.suffix.lower() in self.s.suffixes_without_compression:
+            kwargs = {self.COMPRESSION: zipfile.ZIP_STORED}
+        else:
+            kwargs = {self.COMPRESSION: self.s.zip_compression_method, self.COMPRESSLEVEL: self.s.compression_level}
+        is_lnk = stat.S_ISLNK(self.cached_lstat(path).st_mode)
+        archive_path = self.calc_archive_path(archive_container_dir, RumarFormat.ZIPX, mtime_str, size, self.LNK if is_lnk else self.BLANK)
+        with pyzipper.AESZipFile(archive_path, 'w', encryption=pyzipper.WZ_AES, **kwargs) as zf:
+            zf.setpassword(self.s.password.encode())
+            zf.write(path, arcname=path.name)
 
     def calc_archive_container_dir(self, *, relative_p: Optional[str] = None, path: Optional[Path] = None) -> Path:
         assert relative_p or path, '** either relative_p or path must be provided'
