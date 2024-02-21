@@ -37,6 +37,7 @@ assert (vi.major, vi.minor) >= (3, 9), 'expected Python 3.9 or higher'
 
 try:
     import pyzipper
+
     is_pyzipper_present = True
 except ImportError:
     print('pyzipper is missing => no support for zipx')
@@ -212,7 +213,12 @@ def create(args):
 
 
 def extract(args):
-    print('** extract not implemented')
+    profile_to_settings = create_profile_to_settings_from_toml_path(args.toml)
+    rumar = Rumar(profile_to_settings)
+    if args.all:
+        rumar.extract_for_all_profiles(extract_root=args.extract_root)
+    elif args.profile:
+        rumar.extract_for_profile(profile=args.profile, extract_root=args.extract_root)
 
 
 def sweep(args):
@@ -683,10 +689,16 @@ class Rumar:
                     return dir_entry
 
     @staticmethod
-    def compute_checksum_of_file_in_archive(archive: Union[os.DirEntry, Path]) -> Optional[str]:
-        with tarfile.open(archive) as tf:
-            member = tf.getmembers()[0]
-            return sha256(tf.extractfile(member).read()).hexdigest()
+    def compute_checksum_of_file_in_archive(archive: Union[os.DirEntry, Path], s: Settings) -> Optional[str]:
+        if s.archive_format == RumarFormat.ZIPX:
+            with pyzipper.AESZipFile(archive) as zf:
+                zf.setpassword(s.password)
+                zip_info = zf.infolist()[0]
+                return sha256(zf.read(zip_info)).hexdigest()
+        else:
+            with tarfile.open(archive) as tf:
+                member = tf.getmembers()[0]
+                return sha256(tf.extractfile(member).read()).hexdigest()
 
     @staticmethod
     def set_mtime(target_path: Path, mtime: datetime):
@@ -792,7 +804,7 @@ class Rumar:
                         if self.s.sha256_comparison_if_same_size:
                             checksum_file = self.calc_checksum_file_path(latest_archive)
                             if not checksum_file.exists():
-                                latest_checksum = self.compute_checksum_of_file_in_archive(latest_archive)
+                                latest_checksum = self.compute_checksum_of_file_in_archive(latest_archive, self.s)
                                 logger.info(f':- {relative_p}  {latest_mtime_str}  {latest_checksum}')
                                 checksum_file.write_text(latest_checksum)
                             else:
@@ -910,8 +922,30 @@ class Rumar:
         stems_and_paths.setdefault(self.STEMS, []).append(stem)
         stems_and_paths.setdefault(self.PATHS, []).append(file_path)
 
-    def extract_all(self, extract_root: Path):
-        raise RuntimeError('not implemented')
+    def extract_for_all_profiles(self, extract_root: Path):
+        for profile in self._profile_to_settings:
+            self.extract_for_profile(profile)
+        # raise RuntimeError('not implemented')
+
+    def extract_for_profile(self, profile: str, extract_root: Path):
+        # extract latest to root
+        logger.info(f"{profile=}")
+        self._profile = profile  # for self.s to work
+        for dirpath, dirnames, filenames in os.walk(self.s.backup_base_dir_for_profile):
+            relative_dirpath = make_relative_p(Path(dirpath), self.s.backup_base_dir_for_profile)
+            is_archive_found = False
+            for f in sorted(filenames, reverse=True):
+                if self.RX_ARCHIVE_SUFFIX.search(f):
+                    is_archive_found = True
+                    self._extract_zipx(dirpath / f, extract_root / relative_dirpath)
+                    break
+            if not is_archive_found:
+                (extract_root / relative_dirpath).mkdir(exist_ok=True)
+
+    def _extract_zipx(self, src, dst):
+        with pyzipper.AESZipFile(src) as zf:
+            zf.setpassword(self.s.password.encode())
+            zf.extract(member, dst)
 
 
 class Broom:
