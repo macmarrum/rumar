@@ -157,7 +157,7 @@ Profiles which start with a hash `#` are ignored when `rumar.toml` is loaded.\
 
 ## Logging settings
 
-Logging is controlled by settings located in `rumar/rumar.loggng.toml` inside `$XDG_CONFIG_HOME` (`$HOME/.config` if not set) on POSIX,
+Logging is controlled by settings located in `rumar/rumar.logging.toml` inside `$XDG_CONFIG_HOME` (`$HOME/.config` if not set) on POSIX,
 or inside `%APPDATA%` on NT (MS Windows).
 
 By default, `rumar.log` is created in the current directory (where `rumar.py` is executed).\
