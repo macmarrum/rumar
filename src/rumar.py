@@ -262,6 +262,8 @@ class Settings:
       used by: create
       for the formats 'tar.gz', 'tar.bz2', 'tar.xz', 'zipx': compression level from 0 to 9
     no_compression_suffixes_default: str = '7z,zip,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,kdbx'
+      for the formats 'tar.gz', 'tar.bz2', 'tar.xz': compression level from 0 to 9
+    no_compression_suffixes_default: str = '7z,zip,zipx,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,kdbx'
       used by: create
       comma-separated string of lower-case suffixes for which to use uncompressed tar
     no_compression_suffixes: str = ''
@@ -278,7 +280,7 @@ class Settings:
       a list of paths
       if present, only files from those dirs and their descendant subdirs will be considered, together with _**included_files_as_glob**_
       the paths can be relative to _**source_dir**_ or absolute, but always under _**source_dir**_
-      if missing, _**source_dir**_ and all its descendant subdirs of will be considered
+      if missing, _**source_dir**_ and all its descendant subdirs will be considered
     excluded_top_dirs: list[str]
       used by: create, sweep
       like _**included_top_dirs**_, but for exclusion
@@ -318,7 +320,7 @@ class Settings:
     sha256_comparison_if_same_size: bool = False
       used by: create
       when False, a file is considered changed if its mtime is later than the latest backup's mtime and its size changed
-      when True, SHA256 checksum is compared to determine if the file changed despite having the same size
+      when True, SHA256 checksum is calculated to determine if the file changed despite having the same size
       _mtime := time of last modification_
       see also https://en.wikipedia.org/wiki/File_verification
     file_deduplication: bool = False
@@ -369,7 +371,7 @@ class Settings:
     zip_compression_method: int = zipfile.ZIP_DEFLATED
     compression_level: int = 3
     no_compression_suffixes_default: str = (
-        '7z,zip,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,'
+        '7z,zip,zipx,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,'
         'xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,'
         'png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,kdbx'
     )
@@ -469,7 +471,7 @@ def create_profile_to_settings_from_toml_path(toml_file: Path) -> ProfileToSetti
 def create_profile_to_settings_from_toml_text(toml_str) -> ProfileToSettings:
     profile_to_settings: ProfileToSettings = {}
     toml_dict = tomllib.loads(toml_str)
-    verify_version(toml_dict)
+    verify_and_remove_version(toml_dict)
     common_kwargs_for_settings = {}
     profile_to_dict = {}
     for key, value in toml_dict.items():
@@ -487,7 +489,7 @@ def create_profile_to_settings_from_toml_text(toml_str) -> ProfileToSettings:
     return profile_to_settings
 
 
-def verify_version(toml_dict):
+def verify_and_remove_version(toml_dict):
     version = toml_dict.get('version', 'missing')
     if version != 1:
         raise ValueError(f"rumar.toml version is {version} - expected 1")
