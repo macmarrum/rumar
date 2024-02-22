@@ -27,7 +27,7 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, date
 from enum import Enum
-from hashlib import sha256
+from hashlib import blake2b
 from pathlib import Path
 from textwrap import dedent
 from typing import Iterator, Union, Optional, Literal, Pattern, Any, Iterable
@@ -323,10 +323,10 @@ class Settings:
     excluded_files_as_regex: list[str]
       used by: create, sweep
       like _**included_files_as_regex**_, but for exclusion
-    sha256_comparison_if_same_size: bool = False
+    checksum_comparison_if_same_size: bool = False
       used by: create
       when False, a file is considered changed if its mtime is later than the latest backup's mtime and its size changed
-      when True, SHA256 checksum is calculated to determine if the file changed despite having the same size
+      when True, BLAKE2b checksum is calculated to determine if the file changed despite having the same size
       _mtime := time of last modification_
       see also https://en.wikipedia.org/wiki/File_verification
     file_deduplication: bool = False
@@ -383,7 +383,7 @@ class Settings:
     )
     no_compression_suffixes: str = ''
     tar_format: Literal[0, 1, 2] = tarfile.GNU_FORMAT
-    sha256_comparison_if_same_size: bool = False
+    blake2b_comparison_if_same_size: bool = False
     file_deduplication: bool = False
     min_age_in_days_of_backups_to_sweep: int = 2
     number_of_backups_per_day_to_keep: int = 2
@@ -664,7 +664,7 @@ class Rumar:
     LNK = 'LNK'
     ARCHIVE_FORMAT_TO_MODE = {RumarFormat.TAR: 'x', RumarFormat.TGZ: 'x:gz', RumarFormat.TBZ: 'x:bz2', RumarFormat.TXZ: 'x:xz'}
     RX_ARCHIVE_SUFFIX = re.compile(r'\.(tar(\.(gz|bz2|xz))?|zipx)$')
-    CHECKSUM_SUFFIX = '.sha256'
+    CHECKSUM_SUFFIX = '.b2b'
     _path_to_lstat: dict[Path, os.stat_result] = {}
     STEMS = 'stems'
     PATHS = 'paths'
@@ -694,11 +694,11 @@ class Rumar:
             with pyzipper.AESZipFile(archive) as zf:
                 zf.setpassword(s.password.encode())
                 zip_info = zf.infolist()[0]
-                return sha256(zf.read(zip_info)).hexdigest()
+                return blake2b(zf.read(zip_info)).hexdigest()
         else:
             with tarfile.open(archive) as tf:
                 member = tf.getmembers()[0]
-                return sha256(tf.extractfile(member).read()).hexdigest()
+                return blake2b(tf.extractfile(member).read()).hexdigest()
 
     @staticmethod
     def set_mtime(target_path: Path, mtime: datetime):
@@ -802,7 +802,7 @@ class Rumar:
                         is_changed = True
                     else:
                         is_changed = False
-                        if self.s.sha256_comparison_if_same_size:
+                        if self.s.blake2b_comparison_if_same_size:
                             checksum_file = self.calc_checksum_file_path(latest_archive)
                             if not checksum_file.exists():
                                 latest_checksum = self.compute_checksum_of_file_in_archive(latest_archive, self.s)
@@ -810,7 +810,7 @@ class Rumar:
                                 checksum_file.write_text(latest_checksum)
                             else:
                                 latest_checksum = checksum_file.read_text()
-                            checksum = sha256(p.open('rb').read()).hexdigest()
+                            checksum = blake2b(p.open('rb').read()).hexdigest()
                             is_changed = checksum != latest_checksum
                         else:
                             pass
@@ -946,7 +946,7 @@ class Rumar:
     def _extract_zipx(self, src, dst):
         with pyzipper.AESZipFile(src) as zf:
             zf.setpassword(self.s.password.encode())
-            zf.extract(member, dst)
+            # zf.extract(member, dst)
 
 
 class Broom:
