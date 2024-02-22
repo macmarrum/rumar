@@ -383,7 +383,7 @@ class Settings:
     )
     no_compression_suffixes: str = ''
     tar_format: Literal[0, 1, 2] = tarfile.GNU_FORMAT
-    blake2b_comparison_if_same_size: bool = False
+    checksum_comparison_if_same_size: bool = False
     file_deduplication: bool = False
     min_age_in_days_of_backups_to_sweep: int = 2
     number_of_backups_per_day_to_keep: int = 2
@@ -802,7 +802,7 @@ class Rumar:
                         is_changed = True
                     else:
                         is_changed = False
-                        if self.s.blake2b_comparison_if_same_size:
+                        if self.s.checksum_comparison_if_same_size:
                             checksum_file = self.calc_checksum_file_path(latest_archive)
                             if not checksum_file.exists():
                                 latest_checksum = self.compute_checksum_of_file_in_archive(latest_archive, self.s)
