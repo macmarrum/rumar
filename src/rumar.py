@@ -692,7 +692,7 @@ class Rumar:
     def compute_checksum_of_file_in_archive(archive: Union[os.DirEntry, Path], s: Settings) -> Optional[str]:
         if s.archive_format == RumarFormat.ZIPX:
             with pyzipper.AESZipFile(archive) as zf:
-                zf.setpassword(s.password)
+                zf.setpassword(s.password.encode())
                 zip_info = zf.infolist()[0]
                 return sha256(zf.read(zip_info)).hexdigest()
         else:
