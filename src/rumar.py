@@ -778,6 +778,7 @@ class Rumar:
         """
         logger.info(f"{profile=}")
         self._profile = profile  # for self.s to work
+        self._path_to_lstat.clear()
         for p in self.source_files:
             relative_p = make_relative_p(p, self.s.source_dir)
             lstat = self.cached_lstat(p)  # don't follow symlinks - pathlib calls stat for each is_*()
