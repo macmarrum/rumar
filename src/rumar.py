@@ -664,7 +664,7 @@ class Rumar:
     LNK = 'LNK'
     ARCHIVE_FORMAT_TO_MODE = {RumarFormat.TAR: 'x', RumarFormat.TGZ: 'x:gz', RumarFormat.TBZ: 'x:bz2', RumarFormat.TXZ: 'x:xz'}
     RX_ARCHIVE_SUFFIX = re.compile(r'\.(tar(\.(gz|bz2|xz))?|zipx)$')
-    CHECKSUM_SUFFIX = '.b2b'
+    CHECKSUM_SUFFIX = '.blake2b'
     _path_to_lstat: dict[Path, os.stat_result] = {}
     STEMS = 'stems'
     PATHS = 'paths'
