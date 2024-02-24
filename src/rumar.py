@@ -961,21 +961,17 @@ class Rumar:
 
     def extract_for_profile(self, profile: str, extract_base_dir: Path):
         # extract latest to root
-        logger.info(f"{profile=}")
+        logger.info(f"{profile=} extract_base_dir={repr(str(extract_base_dir))}")
         self._profile = profile  # for self.s to work
         for dirpath, dirnames, filenames in os.walk(self.s.backup_base_dir_for_profile):
             dir_path = Path(dirpath)  # the original file (in the backup file tree)
             relative_file_parent = make_relative_p(dir_path.parent, self.s.backup_base_dir_for_profile)
-            # is_archive_found = False
             for f in sorted(filenames, reverse=True):
                 if self.RX_ARCHIVE_SUFFIX.search(f):
-                    # is_archive_found = True
                     archive_path = dir_path / f
                     target_directory = extract_base_dir / relative_file_parent
                     self._extract(archive_path, target_directory)
                     break
-            # if not is_archive_found:
-            #     (extract_base_dir / relative_dirpath).mkdir(exist_ok=True)
 
     def _extract(self, file: Path, target_directory: PathAlike):
         if file.suffix == self.DOT_ZIPX:
@@ -983,11 +979,14 @@ class Rumar:
         else:
             self._extract_tar(file, target_directory)
 
-    def _extract_zipx(self, file: PathAlike, target_directory: PathAlike):
+    def _extract_zipx(self, file: Path, target_directory: PathAlike):
+        logger.info(f":@ {file.parent.name} | {file.name}")
         with pyzipper.AESZipFile(file) as zf:
             zf.setpassword(self.s.password)
             member = zf.infolist()[0]
-            zf.extract(member, target_directory)
+            target = zf.extract(member, target_directory)
+        mtime_str, size = self.extract_mtime_size(file)
+        self.set_mtime(Path(target), self.from_mtime_str(mtime_str))
 
     def _extract_tar(self, file: PathAlike, target_directory: PathAlike):
         raise NotImplementedError()
