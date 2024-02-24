@@ -714,9 +714,6 @@ class Rumar:
         except:
             logger.error(f">> error setting mtime -> {sys.exc_info()}")
 
-    def cached_lstat(self, path: Path):
-        return self._path_to_lstat.setdefault(path, path.lstat())
-
     @classmethod
     def to_mtime_str(cls, dt: datetime) -> str:
         """archive-file stem - first part"""
@@ -774,6 +771,9 @@ class Rumar:
     @property
     def s(self) -> Settings:
         return self._profile_to_settings[self._profile]
+
+    def cached_lstat(self, path: Path):
+        return self._path_to_lstat.setdefault(path, path.lstat())
 
     def create_for_all_profiles(self):
         for profile in self._profile_to_settings:
