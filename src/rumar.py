@@ -267,8 +267,6 @@ class Settings:
     compression_level: int = 3
       used by: create
       for the formats 'tar.gz', 'tar.bz2', 'tar.xz', 'zipx': compression level from 0 to 9
-    no_compression_suffixes_default: str = '7z,zip,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,kdbx'
-      for the formats 'tar.gz', 'tar.bz2', 'tar.xz': compression level from 0 to 9
     no_compression_suffixes_default: str = '7z,zip,zipx,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,kdbx'
       used by: create
       comma-separated string of lower-case suffixes for which to use uncompressed tar
