@@ -962,14 +962,15 @@ class Rumar:
         logger.info(f"{profile=} extract_base_dir={repr(str(extract_base_dir))}")
         self._profile = profile  # for self.s to work
         for dirpath, dirnames, filenames in os.walk(self.s.backup_base_dir_for_profile):
-            dir_path = Path(dirpath)  # the original file (in the backup file tree)
-            relative_file_parent = make_relative_p(dir_path.parent, self.s.backup_base_dir_for_profile)
+            archive_container_dir = Path(dirpath)  # the original file, in the mirrored directory tree
+            relative_file_parent = make_relative_p(archive_container_dir.parent, self.s.backup_base_dir_for_profile)
+            target_directory = extract_base_dir / relative_file_parent
             for f in sorted(filenames, reverse=True):
                 if self.RX_ARCHIVE_SUFFIX.search(f):
-                    archive_path = dir_path / f
-                    target_directory = extract_base_dir / relative_file_parent
+                    archive_path = archive_container_dir / f
                     self._extract(archive_path, target_directory)
                     break
+        self._profile = None  # safeguard so that self.s will complain
 
     def _extract(self, file: Path, target_directory: PathAlike):
         if file.suffix == self.DOT_ZIPX:
