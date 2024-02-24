@@ -30,18 +30,16 @@ from enum import Enum
 from hashlib import blake2b
 from pathlib import Path
 from textwrap import dedent
-from typing import Iterator, Union, Optional, Literal, Pattern, Any, Iterable
+from os import PathLike
+from typing import Iterator, Union, Optional, Literal, Pattern, Any, Iterable, BinaryIO
 
 vi = sys.version_info
 assert (vi.major, vi.minor) >= (3, 9), 'expected Python 3.9 or higher'
 
 try:
     import pyzipper
-
-    is_pyzipper_present = True
 except ImportError:
     print('pyzipper is missing => no support for zipx')
-    is_pyzipper_present = False
 
 try:
     import tomllib
@@ -161,6 +159,8 @@ logging.config.dictConfig(dict_config)
 logger = logging.getLogger('rumar')
 
 store_true = 'store_true'
+PathAlike = Union[str, PathLike[str]]
+UTF8 = 'UTF-8'
 
 
 def main():
@@ -176,7 +176,7 @@ def main():
     parser_extract = subparsers.add_parser(Command.EXTRACT.value, aliases=['x'])
     parser_extract.set_defaults(func=extract)
     add_profile_args_to_parser(parser_extract, required=True)
-    parser_extract.add_argument('-e', '--extract-root', type=make_path, required=True)
+    parser_extract.add_argument('-E', '--extract-base-dir', type=make_path, required=True)
     parser_sweep = subparsers.add_parser(Command.SWEEP.value, aliases=['s'])
     parser_sweep.set_defaults(func=sweep)
     parser_sweep.add_argument('-d', '--dry-run', action=store_true)
@@ -216,9 +216,9 @@ def extract(args):
     profile_to_settings = create_profile_to_settings_from_toml_path(args.toml)
     rumar = Rumar(profile_to_settings)
     if args.all:
-        rumar.extract_for_all_profiles(extract_root=args.extract_root)
+        rumar.extract_for_all_profiles(extract_base_dir=args.extract_base_dir)
     elif args.profile:
-        rumar.extract_for_profile(profile=args.profile, extract_root=args.extract_root)
+        rumar.extract_for_profile(profile=args.profile, extract_base_dir=args.extract_base_dir)
 
 
 def sweep(args):
@@ -373,7 +373,7 @@ class Settings:
     included_files_as_regex: Union[list[str], list[Pattern]] = ()
     excluded_files_as_regex: Union[list[str], list[Pattern]] = ()
     archive_format: Union[str, RumarFormat] = RumarFormat.TGZ
-    password: str = None
+    password: Union[str, bytes] = None
     zip_compression_method: int = zipfile.ZIP_DEFLATED
     compression_level: int = 3
     no_compression_suffixes_default: str = (
@@ -417,6 +417,10 @@ class Settings:
             self.archive_format = RumarFormat.TGZ
         self.archive_format = RumarFormat(self.archive_format)
         self.commands_which_use_filters = [Command(cmd) for cmd in self.commands_which_use_filters]
+        try:  # make sure password is bytes
+            self.password = self.password.encode(UTF8)
+        except AttributeError:  # 'bytes' object has no attribute 'encode'
+            pass
 
     def _setify(self, attribute_name: str):
         attr = getattr(self, attribute_name)
@@ -470,7 +474,7 @@ ProfileToSettings = dict[str, Settings]
 
 def create_profile_to_settings_from_toml_path(toml_file: Path) -> ProfileToSettings:
     logger.log(DEBUG_11, f"{toml_file=}")
-    toml_str = toml_file.read_text(encoding='UTF-8')
+    toml_str = toml_file.read_text(encoding=UTF8)
     return create_profile_to_settings_from_toml_text(toml_str)
 
 
@@ -664,8 +668,8 @@ class Rumar:
     LNK = 'LNK'
     ARCHIVE_FORMAT_TO_MODE = {RumarFormat.TAR: 'x', RumarFormat.TGZ: 'x:gz', RumarFormat.TBZ: 'x:bz2', RumarFormat.TXZ: 'x:xz'}
     RX_ARCHIVE_SUFFIX = re.compile(r'\.(tar(\.(gz|bz2|xz))?|zipx)$')
-    CHECKSUM_SUFFIX = '.blake2b'
-    _path_to_lstat: dict[Path, os.stat_result] = {}
+    CHECKSUM_SUFFIX = '.b2'
+    CHECKSUM_SIZE_THRESHOLD = 10_000_000
     STEMS = 'stems'
     PATHS = 'paths'
 
@@ -673,6 +677,7 @@ class Rumar:
         self._profile_to_settings = profile_to_settings
         self._profile: Optional[str] = None
         self._suffix_size_stems_and_paths: dict[str, dict[int, dict]] = {}
+        self._path_to_lstat: dict[Path, os.stat_result] = {}
 
     @staticmethod
     def can_ignore_for_archive(lstat: os.stat_result) -> bool:
@@ -689,16 +694,18 @@ class Rumar:
                     return dir_entry
 
     @staticmethod
-    def compute_checksum_of_file_in_archive(archive: Union[os.DirEntry, Path], s: Settings) -> Optional[str]:
-        if s.archive_format == RumarFormat.ZIPX:
+    def compute_checksum_of_file_in_archive(archive: Path, password: bytes) -> str:
+        if archive.suffix == Rumar.DOT_ZIPX:
             with pyzipper.AESZipFile(archive) as zf:
-                zf.setpassword(s.password.encode())
+                zf.setpassword(password)
                 zip_info = zf.infolist()[0]
-                return blake2b(zf.read(zip_info)).hexdigest()
+                with zf.open(zip_info) as f:
+                    return compute_blake2b_checksum(f)
         else:
             with tarfile.open(archive) as tf:
                 member = tf.getmembers()[0]
-                return blake2b(tf.extractfile(member).read()).hexdigest()
+                with tf.extractfile(member) as f:
+                    return compute_blake2b_checksum(f)
 
     @staticmethod
     def set_mtime(target_path: Path, mtime: datetime):
@@ -707,9 +714,8 @@ class Rumar:
         except:
             logger.error(f">> error setting mtime -> {sys.exc_info()}")
 
-    @classmethod
-    def cached_lstat(cls, path: Path):
-        return cls._path_to_lstat.setdefault(path, path.lstat())
+    def cached_lstat(self, path: Path):
+        return self._path_to_lstat.setdefault(path, path.lstat())
 
     @classmethod
     def to_mtime_str(cls, dt: datetime) -> str:
@@ -796,34 +802,60 @@ class Rumar:
                 latest_mtime_str, latest_size = latest
                 latest_mtime_dt = self.from_mtime_str(latest_mtime_str)
                 is_changed = False
-                checksum = None
                 if mtime_dt > latest_mtime_dt:
                     if size != latest_size:
                         is_changed = True
                     else:
                         is_changed = False
                         if self.s.checksum_comparison_if_same_size:
+                            # get checksum of the latest archived file (unpacked)
                             checksum_file = self.calc_checksum_file_path(latest_archive)
                             if not checksum_file.exists():
-                                latest_checksum = self.compute_checksum_of_file_in_archive(latest_archive, self.s)
+                                latest_checksum = self.compute_checksum_of_file_in_archive(latest_archive, self.s.password)
                                 logger.info(f':- {relative_p}  {latest_mtime_str}  {latest_checksum}')
                                 checksum_file.write_text(latest_checksum)
                             else:
                                 latest_checksum = checksum_file.read_text()
-                            checksum = blake2b(p.open('rb').read()).hexdigest()
+                            # get checksum of the current file
+                            with p.open('rb') as f:
+                                checksum = compute_blake2b_checksum(f)
+                            self._save_checksum_if_big(size, checksum, relative_p, archive_container_dir, mtime_str)
                             is_changed = checksum != latest_checksum
                         else:
                             pass
                             # newer mtime, same size, not instructed to do checksum comparison => no backup
                 if is_changed:
-                    if checksum:  # save checksum, if it was calculated
-                        checksum_file = archive_container_dir / f"{mtime_str}{self.MTIME_SEP}{size}{self.CHECKSUM_SUFFIX}"
-                        logger.info(f':- {relative_p}  {mtime_str}  {checksum}')
-                        checksum_file.write_text(checksum)
                     # file has changed as compared to the last backup
                     logger.info(f":= {relative_p}  {latest_mtime_str}  {latest_size} =: last backup")
                     self._create(CreateReason.CHANGED, p, relative_p, archive_container_dir, mtime_str, size)
         self._profile = None  # safeguard so that self.s will complain
+
+    def _save_checksum_if_big(self, size, checksum, relative_p, archive_container_dir, mtime_str):
+        """Save checksum if file is big, to save computation time in the future.
+        The checksum might not be needed, therefore the cost/benefit ration needs to be considered, i.e.
+        whether it's better to save an already computed checksum to disk (time to save it and delete it in the future),
+        or -- when the need arises -- to unpack the file and calculate its checksum on the fly (time to read, decompress and checksum).
+        On a modern computer with an SDD, this is how long it takes to
+         (1) read and decompress an AES-encrypted ZIP_DEFLATED .zipx file (random data) and compute its blake2b checksum;
+         (2) read the (uncompressed) file from disk, compute its blake2b checksum and save it to a file
+          -- it's assumed the time to save it is similar to the time to read and delete the file in the future
+         | size    | (1)  | (2)  |
+         |   25 MB | 0.14 | 0.04 |
+         |   50 MB | 0.29 | 0.07 |
+         |  100 MB | 0.56 | 0.14 |
+         |  250 MB | 1.39 | 0.35 |
+         |  500 MB | 3.10 | 0.68 |
+         | 1000 MB | 5.94 | 1.66 |
+         (1) is the amount of time wasted in case it turns out that the checksum is needed (and it wasn't saved before)
+         The same test, but on a xml (.mm) file
+         | size    | (1)  | (2)  |
+         |   10 MB | 0.05 | 0.02 |
+        """
+        if size > self.CHECKSUM_SIZE_THRESHOLD:
+            checksum_file = archive_container_dir / f"{mtime_str}{self.MTIME_SEP}{size}{self.CHECKSUM_SUFFIX}"
+            logger.info(f':  {relative_p}  {checksum}')
+            archive_container_dir.mkdir(parents=True, exist_ok=True)
+            checksum_file.write_text(checksum)
 
     def _find_latest_archive(self, relative_p: str) -> Optional[Path]:
         archive_container_dir = self.calc_archive_container_dir(relative_p=relative_p)
@@ -860,7 +892,7 @@ class Rumar:
         is_lnk = stat.S_ISLNK(self.cached_lstat(path).st_mode)
         archive_path = self.calc_archive_path(archive_container_dir, RumarFormat.ZIPX, mtime_str, size, self.LNK if is_lnk else self.BLANK)
         with pyzipper.AESZipFile(archive_path, 'w', encryption=pyzipper.WZ_AES, **kwargs) as zf:
-            zf.setpassword(self.s.password.encode())
+            zf.setpassword(self.s.password)
             zf.write(path, arcname=path.name)
 
     def calc_archive_container_dir(self, *, relative_p: Optional[str] = None, path: Optional[Path] = None) -> Path:
@@ -923,30 +955,49 @@ class Rumar:
         stems_and_paths.setdefault(self.STEMS, []).append(stem)
         stems_and_paths.setdefault(self.PATHS, []).append(file_path)
 
-    def extract_for_all_profiles(self, extract_root: Path):
+    def extract_for_all_profiles(self, extract_base_dir: Path):
         for profile in self._profile_to_settings:
-            self.extract_for_profile(profile)
-        # raise RuntimeError('not implemented')
+            self.extract_for_profile(profile, extract_base_dir)
 
-    def extract_for_profile(self, profile: str, extract_root: Path):
+    def extract_for_profile(self, profile: str, extract_base_dir: Path):
         # extract latest to root
         logger.info(f"{profile=}")
         self._profile = profile  # for self.s to work
         for dirpath, dirnames, filenames in os.walk(self.s.backup_base_dir_for_profile):
-            relative_dirpath = make_relative_p(Path(dirpath), self.s.backup_base_dir_for_profile)
-            is_archive_found = False
+            dir_path = Path(dirpath)  # the original file (in the backup file tree)
+            relative_file_parent = make_relative_p(dir_path.parent, self.s.backup_base_dir_for_profile)
+            # is_archive_found = False
             for f in sorted(filenames, reverse=True):
                 if self.RX_ARCHIVE_SUFFIX.search(f):
-                    is_archive_found = True
-                    self._extract_zipx(dirpath / f, extract_root / relative_dirpath)
+                    # is_archive_found = True
+                    archive_path = dir_path / f
+                    target_directory = extract_base_dir / relative_file_parent
+                    self._extract(archive_path, target_directory)
                     break
-            if not is_archive_found:
-                (extract_root / relative_dirpath).mkdir(exist_ok=True)
+            # if not is_archive_found:
+            #     (extract_base_dir / relative_dirpath).mkdir(exist_ok=True)
 
-    def _extract_zipx(self, src, dst):
-        with pyzipper.AESZipFile(src) as zf:
-            zf.setpassword(self.s.password.encode())
-            # zf.extract(member, dst)
+    def _extract(self, file: Path, target_directory: PathAlike):
+        if file.suffix == self.DOT_ZIPX:
+            self._extract_zipx(file, target_directory)
+        else:
+            self._extract_tar(file, target_directory)
+
+    def _extract_zipx(self, file: PathAlike, target_directory: PathAlike):
+        with pyzipper.AESZipFile(file) as zf:
+            zf.setpassword(self.s.password)
+            member = zf.infolist()[0]
+            zf.extract(member, target_directory)
+
+    def _extract_tar(self, file: PathAlike, target_directory: PathAlike):
+        raise NotImplementedError()
+
+
+def compute_blake2b_checksum(f: BinaryIO) -> str:
+    b = blake2b()
+    for chunk in iter(lambda: f.read(32768), b''):
+        b.update(chunk)
+    return b.hexdigest()
 
 
 class Broom:
