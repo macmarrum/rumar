@@ -4,9 +4,10 @@
 
 Creates a directory named as the original file, containing a **tar**red copy of the file, optionally compressed.
 
-Files are added to the **tar** archive only if they were changed, as compared to the last archive.
+Files are added to the **tar** archive only if they were changed,\
+_i.e. modification time is greater as compared to the last archive and size (or checksum) is different._
 
-The directory containing **tar** files is placed in a mirrored directory hierarchy.
+The directory containing **tar** files is placed in a mirrored directory tree.
 
 ![](images/original-and-backup-directories.png)
 
@@ -85,8 +86,6 @@ Profiles which start with a hash `#` are ignored when `rumar.toml` is loaded.\
   for zipx encryption
 * **compression_level**: int = 3 &nbsp; &nbsp; _used by: create_\
   for the formats 'tar.gz', 'tar.bz2', 'tar.xz', 'zipx': compression level from 0 to 9
-* **no_compression_suffixes_default**: str = '7z,zip,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,kdbx' &nbsp; &nbsp; _used by: create_\
-  for the formats 'tar.gz', 'tar.bz2', 'tar.xz': compression level from 0 to 9
 * **no_compression_suffixes_default**: str = '7z,zip,zipx,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,kdbx' &nbsp; &nbsp; _used by: create_\
   comma-separated string of lower-case suffixes for which to use uncompressed tar
 * **no_compression_suffixes**: str = '' &nbsp; &nbsp; _used by: create_\
@@ -129,9 +128,9 @@ Profiles which start with a hash `#` are ignored when `rumar.toml` is loaded.\
   applied after _**..._top_dirs**_ and _**..._dirs_as_regex**_ and _**..._files_as_glob**_
 * **excluded_files_as_regex**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
   like _**included_files_as_regex**_, but for exclusion
-* **sha256_comparison_if_same_size**: bool = False &nbsp; &nbsp; _used by: create_\
+* **checksum_comparison_if_same_size**: bool = False &nbsp; &nbsp; _used by: create_\
   when False, a file is considered changed if its mtime is later than the latest backup's mtime and its size changed\
-  when True, SHA256 checksum is calculated to determine if the file changed despite having the same size\
+  when True, BLAKE2b checksum is calculated to determine if the file changed despite having the same size\
   _mtime := time of last modification_\
   see also https://en.wikipedia.org/wiki/File_verification
 * **file_deduplication**: bool = False &nbsp; &nbsp; _used by: create_\
