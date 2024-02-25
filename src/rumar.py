@@ -31,7 +31,7 @@ from hashlib import blake2b
 from pathlib import Path
 from textwrap import dedent
 from os import PathLike
-from typing import Iterator, Union, Optional, Literal, Pattern, Any, Iterable, BinaryIO
+from typing import Iterator, Union, Optional, Literal, Pattern, Any, Iterable, BinaryIO, cast
 
 vi = sys.version_info
 assert (vi.major, vi.minor) >= (3, 9), 'expected Python 3.9 or higher'
@@ -177,6 +177,7 @@ def main():
     parser_extract.set_defaults(func=extract)
     add_profile_args_to_parser(parser_extract, required=True)
     parser_extract.add_argument('-E', '--extract-base-dir', type=make_path, required=True)
+    parser_extract.add_argument('-f', '--force', type=bool, default=False, help='Forces existing files to be overwritten without asking')
     parser_sweep = subparsers.add_parser(Command.SWEEP.value, aliases=['s'])
     parser_sweep.set_defaults(func=sweep)
     parser_sweep.add_argument('-d', '--dry-run', action=store_true)
@@ -216,9 +217,9 @@ def extract(args):
     profile_to_settings = create_profile_to_settings_from_toml_path(args.toml)
     rumar = Rumar(profile_to_settings)
     if args.all:
-        rumar.extract_for_all_profiles(extract_base_dir=args.extract_base_dir)
+        rumar.extract_for_all_profiles(extract_base_dir=args.extract_base_dir, force=args.force)
     elif args.profile:
-        rumar.extract_for_profile(profile=args.profile, extract_base_dir=args.extract_base_dir)
+        rumar.extract_for_profile(profile=args.profile, extract_base_dir=args.extract_base_dir, force=args.force)
 
 
 def sweep(args):
@@ -676,6 +677,8 @@ class Rumar:
         self._profile: Optional[str] = None
         self._suffix_size_stems_and_paths: dict[str, dict[int, dict]] = {}
         self._path_to_lstat: dict[Path, os.stat_result] = {}
+        self._warnings = []
+        self._errors = []
 
     @staticmethod
     def can_ignore_for_archive(lstat: os.stat_result) -> bool:
@@ -781,8 +784,7 @@ class Rumar:
         """Create a backup for the specified profile
         """
         logger.info(f"{profile=}")
-        self._profile = profile  # for self.s to work
-        self._path_to_lstat.clear()
+        self._at_beginning(profile)
         for p in self.source_files:
             relative_p = make_relative_p(p, self.s.source_dir)
             lstat = self.cached_lstat(p)  # don't follow symlinks - pathlib calls stat for each is_*()
@@ -826,7 +828,22 @@ class Rumar:
                     # file has changed as compared to the last backup
                     logger.info(f":= {relative_p}  {latest_mtime_str}  {latest_size} =: last backup")
                     self._create(CreateReason.CHANGED, p, relative_p, archive_container_dir, mtime_str, size)
+        self._at_end()
+
+    def _at_beginning(self, profile: str):
+        self._profile = profile  # for self.s to work
+        self._path_to_lstat.clear()
+        self._warnings.clear()
+        self._errors.clear()
+
+    def _at_end(self):
         self._profile = None  # safeguard so that self.s will complain
+        if self._warnings:
+            for w in self._warnings:
+                logger.warning(w)
+        if self._errors:
+            for e in self._errors:
+                logger.error(e)
 
     def _save_checksum_if_big(self, size, checksum, relative_p, archive_container_dir, mtime_str):
         """Save checksum if file is big, to save computation time in the future.
@@ -953,39 +970,62 @@ class Rumar:
         stems_and_paths.setdefault(self.STEMS, []).append(stem)
         stems_and_paths.setdefault(self.PATHS, []).append(file_path)
 
-    def extract_for_all_profiles(self, extract_base_dir: Path):
+    def extract_for_all_profiles(self, extract_base_dir: Path, force: bool):
         for profile in self._profile_to_settings:
-            self.extract_for_profile(profile, extract_base_dir)
+            self.extract_for_profile(profile, extract_base_dir, force)
 
-    def extract_for_profile(self, profile: str, extract_base_dir: Path):
+    def extract_for_profile(self, profile: str, extract_base_dir: Path, force: bool):
         # extract latest to root
-        logger.info(f"{profile=} extract_base_dir={repr(str(extract_base_dir))}")
-        self._profile = profile  # for self.s to work
+        logger.info(f"{profile=} extract_base_dir={repr(str(extract_base_dir))} {force=}")
+        self._at_beginning(profile)
         for dirpath, dirnames, filenames in os.walk(self.s.backup_base_dir_for_profile):
             archive_container_dir = Path(dirpath)  # the original file, in the mirrored directory tree
             relative_file_parent = make_relative_p(archive_container_dir.parent, self.s.backup_base_dir_for_profile)
-            target_directory = extract_base_dir / relative_file_parent
-            for f in sorted(filenames, reverse=True):
-                if self.RX_ARCHIVE_SUFFIX.search(f):
-                    archive_path = archive_container_dir / f
-                    self._extract(archive_path, target_directory)
-                    break
-        self._profile = None  # safeguard so that self.s will complain
+            target_file = extract_base_dir / relative_file_parent / archive_container_dir.name
+            if filenames:
+                if target_file.exists():
+                    if force or self._ask_to_overwrite(target_file):
+                        should_extract = True
+                    else:
+                        should_extract = False
+                        warning = f"file exists - skipping  {target_file}"
+                        self._warnings.append(warning)
+                        logger.warning(warning)
+                else:
+                    should_extract = True
+                if should_extract:
+                    for f in sorted(filenames, reverse=True):
+                        if self.RX_ARCHIVE_SUFFIX.search(f):
+                            archive_path = archive_container_dir / f
+                            self._extract(archive_path, target_file)
+                            break
+        self._at_end()
 
-    def _extract(self, file: Path, target_directory: PathAlike):
+    @staticmethod
+    def _ask_to_overwrite(target_file):
+        answer = input(f"\n{target_file}\n The above file exists. Overwrite it? [y/N] ")
+        logger.info(f":  {answer=}  {target_file}")
+        return answer in ['y', 'Y']
+
+    def _extract(self, file: Path, target_file: Path):
         if file.suffix == self.DOT_ZIPX:
-            self._extract_zipx(file, target_directory)
+            self._extract_zipx(file, target_file)
         else:
-            self._extract_tar(file, target_directory)
+            self._extract_tar(file, target_file)
 
-    def _extract_zipx(self, file: Path, target_directory: PathAlike):
+    def _extract_zipx(self, file: Path, target_file: Path):
         logger.info(f":@ {file.parent.name} | {file.name}")
         with pyzipper.AESZipFile(file) as zf:
             zf.setpassword(self.s.password)
-            member = zf.infolist()[0]
-            target = zf.extract(member, target_directory)
-        mtime_str, size = self.extract_mtime_size(file)
-        self.set_mtime(Path(target), self.from_mtime_str(mtime_str))
+            member = cast(zipfile.ZipInfo, zf.infolist()[0])
+            if member.filename == target_file.name:
+                zf.extract(member, target_file.parent)
+                mtime_str, size = self.extract_mtime_size(file)
+                self.set_mtime(target_file, self.from_mtime_str(mtime_str))
+            else:
+                error = f"archived-file name is different than the archive-container-directory name: {member.filename} != {target_file.name}"
+                self._errors.append(error)
+                logger.error(error)
 
     def _extract_tar(self, file: PathAlike, target_directory: PathAlike):
         raise NotImplementedError()
