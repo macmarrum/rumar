@@ -237,6 +237,7 @@ class RumarFormat(Enum):
     TGZ = 'tar.gz'
     TBZ = 'tar.bz2'
     TXZ = 'tar.xz'
+    # zipx is experimental
     ZIPX = 'zipx'
 
 
@@ -258,16 +259,12 @@ class Settings:
     backup_base_dir_for_profile: str
       used by: create, sweep
       path to the base dir used for the profile; usually left unset; see _**backup_base_dir**_
-    archive_format: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz', 'zipx'] = 'tar.gz'
+    archive_format: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz'] = 'tar.gz'
       used by: create, sweep
       format of archive files to be created
-      zipx is AES-encrypted, therefore password must be provided
-    password: str
-      used by: create
-      for zipx encryption
     compression_level: int = 3
       used by: create
-      for the formats 'tar.gz', 'tar.bz2', 'tar.xz', 'zipx': compression level from 0 to 9
+      for the formats 'tar.gz', 'tar.bz2', 'tar.xz': compression level from 0 to 9
     no_compression_suffixes_default: str = '7z,zip,zipx,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,kdbx'
       used by: create
       comma-separated string of lower-case suffixes for which to use uncompressed tar
@@ -372,6 +369,7 @@ class Settings:
     included_files_as_regex: Union[list[str], list[Pattern]] = ()
     excluded_files_as_regex: Union[list[str], list[Pattern]] = ()
     archive_format: Union[str, RumarFormat] = RumarFormat.TGZ
+    # password for zipx, as it's AES-encrypted
     password: Union[str, bytes] = None
     zip_compression_method: int = zipfile.ZIP_DEFLATED
     compression_level: int = 3
