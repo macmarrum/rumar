@@ -1025,8 +1025,16 @@ class Rumar:
                 self._errors.append(error)
                 logger.error(error)
 
-    def _extract_tar(self, file: PathAlike, target_directory: PathAlike):
-        raise NotImplementedError()
+    def _extract_tar(self, file: Path, target_file: Path):
+        logger.info(f":@ {file.parent.name} | {file.name}")
+        with tarfile.open(file) as tf:
+            member = cast(tarfile.TarInfo, tf.getmembers()[0])
+            if member.name == target_file.name:
+                tf.extract(member, target_file)
+            else:
+                error = f"archived-file name is different than the archive-container-directory name: {member.name} != {target_file.name}"
+                self._errors.append(error)
+                logger.error(error)
 
 
 def compute_blake2b_checksum(f: BinaryIO) -> str:
