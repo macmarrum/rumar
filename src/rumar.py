@@ -498,8 +498,8 @@ def create_profile_to_settings_from_toml_text(toml_str) -> ProfileToSettings:
 
 def verify_and_remove_version(toml_dict):
     version = toml_dict.get('version', 'missing')
-    if version != 1:
-        raise ValueError(f"rumar.toml version is {version} - expected 1")
+    if version != 2:
+        raise ValueError(f"rumar.toml version is {version} - expected 2")
     del toml_dict['version']
 
 
