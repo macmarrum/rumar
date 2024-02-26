@@ -39,7 +39,7 @@ assert (vi.major, vi.minor) >= (3, 9), 'expected Python 3.9 or higher'
 try:
     import pyzipper
 except ImportError:
-    print('pyzipper is missing => no support for zipx')
+    pass
 
 try:
     import tomllib
@@ -370,7 +370,7 @@ class Settings:
     excluded_files_as_regex: Union[list[str], list[Pattern]] = ()
     archive_format: Union[str, RumarFormat] = RumarFormat.TGZ
     # password for zipx, as it's AES-encrypted
-    password: Union[str, bytes] = None
+    password: Optional[Union[str, bytes]] = None
     zip_compression_method: int = zipfile.ZIP_DEFLATED
     compression_level: int = 3
     no_compression_suffixes_default: str = (
