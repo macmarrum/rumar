@@ -47,8 +47,8 @@ or inside `%APPDATA%` on NT (MS Windows).
 `rumar.toml`
 <!-- rumar.toml example begin -->
 ```toml
-# schema version - always 1
-version = 1
+# schema version - always 2
+version = 2
 # settings common for all profiles
 backup_base_dir = 'C:\Users\Mac\Backup'
 
@@ -79,13 +79,10 @@ Profiles which start with a hash `#` are ignored when `rumar.toml` is loaded.\
   backup dir for each profile is constructed as _**backup_base_dir**_ + _**profile**_, unless _**backup_base_dir_for_profile**_ is set, which takes precedence
 * **backup_base_dir_for_profile**: str &nbsp; &nbsp; _used by: create, sweep_\
   path to the base dir used for the profile; usually left unset; see _**backup_base_dir**_
-* **archive_format**: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz', 'zipx'] = 'tar.gz' &nbsp; &nbsp; _used by: create, sweep_\
-  format of archive files to be created\
-  zipx is AES-encrypted, therefore password must be provided
-* **password**: str &nbsp; &nbsp; _used by: create_\
-  for zipx encryption
+* **archive_format**: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz'] = 'tar.gz' &nbsp; &nbsp; _used by: create, sweep_\
+  format of archive files to be created
 * **compression_level**: int = 3 &nbsp; &nbsp; _used by: create_\
-  for the formats 'tar.gz', 'tar.bz2', 'tar.xz', 'zipx': compression level from 0 to 9
+  for the formats 'tar.gz', 'tar.bz2', 'tar.xz': compression level from 0 to 9
 * **no_compression_suffixes_default**: str = '7z,zip,zipx,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,kdbx' &nbsp; &nbsp; _used by: create_\
   comma-separated string of lower-case suffixes for which to use uncompressed tar
 * **no_compression_suffixes**: str = '' &nbsp; &nbsp; _used by: create_\
@@ -158,6 +155,11 @@ Profiles which start with a hash `#` are ignored when `rumar.toml` is loaded.\
   it's best when the setting is part of a separate profile, i.e. a copy made for _**sweep**_,\
   otherwise _**create**_ will also seek such files to be excluded
 <!-- settings pydoc end -->
+
+### Settings schema version 2 vs 1
+
+Version 1 contained `sha256_comparison_if_same_size`.
+In version 2 it's `checksum_comparison_if_same_size`.
 
 ## Logging settings
 
