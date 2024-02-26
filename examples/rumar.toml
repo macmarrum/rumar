@@ -1,5 +1,5 @@
-# schema version - always 1
-version = 1
+# schema version - always 2
+version = 2
 # settings common for all profiles
 backup_base_dir = 'C:\Users\Mac\Backup'
 
