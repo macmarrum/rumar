@@ -177,7 +177,7 @@ def main():
     parser_extract.set_defaults(func=extract)
     add_profile_args_to_parser(parser_extract, required=True)
     parser_extract.add_argument('-E', '--extract-base-dir', type=make_path, required=True)
-    parser_extract.add_argument('-f', '--force', type=bool, default=False, help='Forces existing files to be overwritten without asking')
+    parser_extract.add_argument('-f', '--force', action=store_true, help='Forces existing files to be overwritten without asking')
     parser_sweep = subparsers.add_parser(Command.SWEEP.value, aliases=['s'])
     parser_sweep.set_defaults(func=sweep)
     parser_sweep.add_argument('-d', '--dry-run', action=store_true)
