@@ -24,7 +24,7 @@ import stat
 import sys
 import tarfile
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, date
 from enum import Enum
 from hashlib import blake2b
@@ -153,7 +153,7 @@ if rumar_logging_toml_path.exists():
     print(f":: loading logging config from {rumar_logging_toml_path}")
     dict_config = tomllib.load(rumar_logging_toml_path.open('rb'))
 else:
-    print(f":: loading default logging config")
+    print(':: loading default logging config')
     dict_config = tomllib.loads(LOGGING_TOML_DEFAULT)
 logging.config.dictConfig(dict_config)
 logger = logging.getLogger('rumar')
@@ -359,18 +359,18 @@ class Settings:
     profile: str
     backup_base_dir: Union[str, Path]
     source_dir: Union[str, Path]
-    backup_base_dir_for_profile: Union[str, Path] = None
-    included_top_dirs: Union[list[Path], set[Path], list[str], set[str]] = ()
-    excluded_top_dirs: Union[list[Path], set[Path], list[str], set[str]] = ()
-    included_dirs_as_regex: Union[list[str], list[Pattern]] = ()
-    excluded_dirs_as_regex: Union[list[str], list[Pattern]] = ()
-    included_files_as_glob: Union[list[str], set[str]] = ()
-    excluded_files_as_glob: Union[list[str], set[str]] = ()
-    included_files_as_regex: Union[list[str], list[Pattern]] = ()
-    excluded_files_as_regex: Union[list[str], list[Pattern]] = ()
-    archive_format: Union[str, RumarFormat] = RumarFormat.TGZ
+    backup_base_dir_for_profile: Optional[Union[Path, str]] = None
+    included_top_dirs: Union[set[Path], list[str]] = field(default_factory=list)
+    excluded_top_dirs: Union[set[Path], list[str]] = field(default_factory=list)
+    included_dirs_as_regex: Union[list[Pattern], list[str]] = field(default_factory=list)
+    excluded_dirs_as_regex: Union[list[Pattern], list[str]] = field(default_factory=list)
+    included_files_as_glob: Union[set[str], list[str]] = field(default_factory=list)
+    excluded_files_as_glob: Union[set[str], list[str]] = field(default_factory=list)
+    included_files_as_regex: Union[list[Pattern], list[str]] = field(default_factory=list)
+    excluded_files_as_regex: Union[list[Pattern], list[str]] = field(default_factory=list)
+    archive_format: Union[RumarFormat, str] = RumarFormat.TGZ
     # password for zipx, as it's AES-encrypted
-    password: Optional[Union[str, bytes]] = None
+    password: Optional[Union[bytes, str]] = None
     zip_compression_method: int = zipfile.ZIP_DEFLATED
     compression_level: int = 3
     no_compression_suffixes_default: str = (
@@ -386,7 +386,7 @@ class Settings:
     number_of_backups_per_day_to_keep: int = 2
     number_of_backups_per_week_to_keep: int = 14
     number_of_backups_per_month_to_keep: int = 60
-    commands_which_use_filters: Union[list[str], list[Command]] = (Command.CREATE,)
+    commands_which_use_filters: Union[list[str], tuple[Command]] = (Command.CREATE,)
     COMMA = ','
 
     @staticmethod
@@ -413,7 +413,7 @@ class Settings:
         if self.archive_format is None:
             self.archive_format = RumarFormat.TGZ
         self.archive_format = RumarFormat(self.archive_format)
-        self.commands_which_use_filters = [Command(cmd) for cmd in self.commands_which_use_filters]
+        self.commands_which_use_filters = tuple(Command(cmd) for cmd in self.commands_which_use_filters)
         try:  # make sure password is bytes
             self.password = self.password.encode(UTF8)
         except AttributeError:  # 'bytes' object has no attribute 'encode'
@@ -687,9 +687,7 @@ class Rumar:
     def find_last_file_in_dir(archive_container_dir: Path, pattern: Pattern = None) -> Optional[os.DirEntry]:
         for dir_entry in sorted(os.scandir(archive_container_dir), key=lambda x: x.name, reverse=True):
             if dir_entry.is_file():
-                if pattern is None:
-                    return dir_entry
-                elif pattern.search(dir_entry.name):
+                if pattern is None or pattern.search(dir_entry.name):
                     return dir_entry
 
     @staticmethod
@@ -1018,7 +1016,7 @@ class Rumar:
             member = cast(zipfile.ZipInfo, zf.infolist()[0])
             if member.filename == target_file.name:
                 zf.extract(member, target_file.parent)
-                mtime_str, size = self.extract_mtime_size(file)
+                mtime_str, _ = self.extract_mtime_size(file)
                 self.set_mtime(target_file, self.from_mtime_str(mtime_str))
             else:
                 error = f"archived-file name is different than the archive-container-directory name: {member.filename} != {target_file.name}"
