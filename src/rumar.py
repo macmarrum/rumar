@@ -28,10 +28,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, date
 from enum import Enum
 from hashlib import blake2b
+from os import PathLike
 from pathlib import Path
 from textwrap import dedent
-from os import PathLike
-from typing import Iterator, Union, Optional, Literal, Pattern, Any, Iterable, BinaryIO, cast
+from typing import Iterator, Union, Optional, Literal, Pattern, Any, Iterable, cast, IO
 
 vi = sys.version_info
 assert (vi.major, vi.minor) >= (3, 9), 'expected Python 3.9 or higher'
@@ -165,19 +165,29 @@ UTF8 = 'UTF-8'
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-t', '--toml', type=make_path, default=get_default_path(suffix='.toml'), help='a non-standard path to settings')
+    parser.add_argument('-t', '--toml', type=mk_abs_path, default=get_default_path(suffix='.toml'),
+                        help='a non-default path to settings')
     subparsers = parser.add_subparsers(dest='subparser')
-    parser_list = subparsers.add_parser('list-profiles', aliases=['l'], help='list all profiles defined in settings (toml)')
+    parser_list = subparsers.add_parser('list-profiles', aliases=['l'],
+                                        help='list all profiles defined in settings (toml)')
     parser_list.set_defaults(func=list_profiles)
     add_profile_args_to_parser(parser_list, required=False)
-    parser_create = subparsers.add_parser(Command.CREATE.value, aliases=['c'], help='create a backup of each file, if it changed, matching the criteria in settings (toml)')
+    parser_create = subparsers.add_parser(Command.CREATE.value, aliases=['c'],
+                                          help='create a backup of each file, if it changed, matching the criteria in settings (toml)')
     parser_create.set_defaults(func=create)
     add_profile_args_to_parser(parser_create, required=True)
-    parser_extract = subparsers.add_parser(Command.EXTRACT.value, aliases=['x'], help='extract the latest archive of each file from backup_base_dir')
+    parser_extract = subparsers.add_parser(Command.EXTRACT.value, aliases=['x'],
+                                           help='extract the latest archive of each file from backup_base_dir')
     parser_extract.set_defaults(func=extract)
     add_profile_args_to_parser(parser_extract, required=True)
-    parser_extract.add_argument('-E', '--extract-base-dir', type=make_path, required=True)
-    parser_extract.add_argument('-f', '--force', action=store_true, help='force existing files to be overwritten without asking')
+    parser_extract.add_argument('--archive-container-dir', type=mk_abs_path,
+                                help='path to an archive-container directory from which to extract the latest archive; all other archives are ignored')
+    parser_extract.add_argument('--extract-base-dir', type=mk_abs_path,
+                                help="path to the target directory used for extraction; profile's source_dir by default")
+    parser_extract.add_argument('--overwrite', action=store_true,
+                                help="overwrite existing files without asking")
+    parser_extract.add_argument('--meta-diff', action=store_true,
+                                help="only if mtime or size differ between archive and target, if it exists")
     parser_sweep = subparsers.add_parser(Command.SWEEP.value, aliases=['s'])
     parser_sweep.set_defaults(func=sweep)
     parser_sweep.add_argument('-d', '--dry-run', action=store_true)
@@ -192,8 +202,8 @@ def add_profile_args_to_parser(parser: argparse.ArgumentParser, required: bool):
     profile_gr.add_argument('-p', '--profile')
 
 
-def make_path(file_path: str) -> Path:
-    return Path(file_path).expanduser()
+def mk_abs_path(file_path: str) -> Path:
+    return Path(file_path).expanduser().absolute()
 
 
 def list_profiles(args):
@@ -217,9 +227,9 @@ def extract(args):
     profile_to_settings = create_profile_to_settings_from_toml_path(args.toml)
     rumar = Rumar(profile_to_settings)
     if args.all:
-        rumar.extract_for_all_profiles(extract_base_dir=args.extract_base_dir, force=args.force)
+        rumar.extract_for_all_profiles(args.archive_container_dir, args.extract_base_dir, args.overwrite, args.meta_diff)
     elif args.profile:
-        rumar.extract_for_profile(profile=args.profile, extract_base_dir=args.extract_base_dir, force=args.force)
+        rumar.extract_for_profile(args.profile, args.archive_container_dir, args.extract_base_dir, args.overwrite, args.meta_diff)
 
 
 def sweep(args):
@@ -966,66 +976,95 @@ class Rumar:
         stems_and_paths.setdefault(self.STEMS, []).append(stem)
         stems_and_paths.setdefault(self.PATHS, []).append(file_path)
 
-    def extract_for_all_profiles(self, extract_base_dir: Path, force: bool):
+    def extract_for_all_profiles(self, archive_container_dir: Optional[Path], extract_base_dir: Optional[Path], overwrite: bool, meta_diff: bool):
         for profile in self._profile_to_settings:
-            self.extract_for_profile(profile, extract_base_dir, force)
+            if extract_base_dir is None:
+                extract_base_dir = self._profile_to_settings[profile].source_dir
+            self.extract_for_profile(profile, archive_container_dir, extract_base_dir, overwrite, meta_diff)
 
-    def extract_for_profile(self, profile: str, extract_base_dir: Path, force: bool):
-        # extract latest to root
-        logger.info(f"{profile=} extract_base_dir={repr(str(extract_base_dir))} {force=}")
+    def extract_for_profile(self, profile: str, archive_container_dir: Optional[Path], extract_base_dir: Optional[Path], overwrite: bool, meta_diff: bool):
+        if extract_base_dir is None:
+            extract_base_dir = self._profile_to_settings[profile].source_dir
+        logger.info(f"{profile=} extract_base_dir={repr(str(extract_base_dir))} {overwrite=} {meta_diff=}")
         self._at_beginning(profile)
-        for dirpath, dirnames, filenames in os.walk(self.s.backup_base_dir_for_profile):
-            archive_container_dir = Path(dirpath)  # the original file, in the mirrored directory tree
-            relative_file_parent = make_relative_p(archive_container_dir.parent, self.s.backup_base_dir_for_profile)
-            target_file = extract_base_dir / relative_file_parent / archive_container_dir.name
-            if filenames:
-                if target_file.exists():
-                    if force or self._ask_to_overwrite(target_file):
-                        should_extract = True
-                    else:
-                        should_extract = False
-                        warning = f"file exists - skipping  {target_file}"
-                        self._warnings.append(warning)
-                        logger.warning(warning)
-                else:
-                    should_extract = True
-                if should_extract:
-                    for f in sorted(filenames, reverse=True):
-                        if self.RX_ARCHIVE_SUFFIX.search(f):
-                            archive_path = archive_container_dir / f
-                            self._extract(archive_path, target_file)
-                            break
+        if archive_container_dir:
+            if archive_container_dir.as_posix().startswith(self.s.backup_base_dir_for_profile.as_posix()):
+                logger.info(f"archive_container_dir={repr(str(archive_container_dir))}")
+                self.extract_latest_file(self.s.backup_base_dir_for_profile, archive_container_dir, extract_base_dir, overwrite, meta_diff, None)
+            else:
+                logger.warning(f"skipping {profile=} - archive-container-dir is not under backup_base_dir_for_profile: "
+                               f"archive_container_dir={repr(str(archive_container_dir))} backup_base_dir_for_profile={repr(str(self.s.backup_base_dir_for_profile))}")
+        else:
+            for dirpath, dirnames, filenames in os.walk(self.s.backup_base_dir_for_profile):
+                if filenames:
+                    archive_container_dir = Path(dirpath)  # the original file, in the mirrored directory tree
+                    self.extract_latest_file(self.s.backup_base_dir_for_profile, archive_container_dir, extract_base_dir, overwrite, meta_diff, filenames)
         self._at_end()
+
+    def extract_latest_file(self, backup_base_dir_for_profile, archive_container_dir: Path, extract_base_dir: Path, overwrite: bool, meta_diff: bool,
+                            filenames: Optional[list[str]] = None):
+        if filenames is None:
+            filenames = os.listdir(archive_container_dir)
+        relative_file_parent = make_relative_p(archive_container_dir.parent, backup_base_dir_for_profile)
+        target_file = extract_base_dir / relative_file_parent / archive_container_dir.name
+        for f in sorted(filenames, reverse=True):
+            if self.RX_ARCHIVE_SUFFIX.search(f):
+                archive_file = archive_container_dir / f
+                self.extract_archive(archive_file, target_file, overwrite, meta_diff)
+                break
+
+    def extract_archive(self, archive_file: Path, target_file: Path, overwrite: bool, meta_diff: bool):
+        try:
+            st_stat = target_file.stat()
+            target_file_exists = True
+        except OSError:
+            st_stat = None
+            target_file_exists = False
+        if target_file_exists:
+            if meta_diff and self.extract_mtime_size(archive_file) == (self.to_mtime_str(datetime.fromtimestamp(st_stat.st_mtime)), st_stat.st_size):
+                should_extract = False
+                logger.info(f"skipping {make_relative_p(archive_file.parent, self.s.backup_base_dir_for_profile)} - mtime and size are the same as in the target file")
+            elif overwrite or self._ask_to_overwrite(target_file):
+                should_extract = True
+            else:
+                should_extract = False
+                warning = f"file exists - skipping  {target_file}"
+                self._warnings.append(warning)
+                logger.warning(warning)
+        else:
+            should_extract = True
+        if should_extract:
+            self._extract(archive_file, target_file)
 
     @staticmethod
     def _ask_to_overwrite(target_file):
-        answer = input(f"\n{target_file}\n The above file exists. Overwrite it? [y/N] ")
+        answer = input(f"\n{target_file}\n The above file exists. Overwrite it? [N/y] ")
         logger.info(f":  {answer=}  {target_file}")
         return answer in ['y', 'Y']
 
-    def _extract(self, file: Path, target_file: Path):
-        if file.suffix == self.DOT_ZIPX:
-            self._extract_zipx(file, target_file)
+    def _extract(self, archive_file: Path, target_file: Path):
+        if archive_file.suffix == self.DOT_ZIPX:
+            self._extract_zipx(archive_file, target_file)
         else:
-            self._extract_tar(file, target_file)
+            self._extract_tar(archive_file, target_file)
 
-    def _extract_zipx(self, file: Path, target_file: Path):
-        logger.info(f":@ {file.parent.name} | {file.name}")
-        with pyzipper.AESZipFile(file) as zf:
+    def _extract_zipx(self, archive_file: Path, target_file: Path):
+        logger.info(f":@ {archive_file.parent.name} | {archive_file.name}")
+        with pyzipper.AESZipFile(archive_file) as zf:
             zf.setpassword(self.s.password)
             member = cast(zipfile.ZipInfo, zf.infolist()[0])
             if member.filename == target_file.name:
                 zf.extract(member, target_file.parent)
-                mtime_str, _ = self.extract_mtime_size(file)
+                mtime_str, _ = self.extract_mtime_size(archive_file)
                 self.set_mtime(target_file, self.from_mtime_str(mtime_str))
             else:
                 error = f"archived-file name is different than the archive-container-directory name: {member.filename} != {target_file.name}"
                 self._errors.append(error)
                 logger.error(error)
 
-    def _extract_tar(self, file: Path, target_file: Path):
-        logger.info(f":@ {file.parent.name} | {file.name}")
-        with tarfile.open(file) as tf:
+    def _extract_tar(self, archive_file: Path, target_file: Path):
+        logger.info(f":@ {archive_file.parent.name} | {archive_file.name}")
+        with tarfile.open(archive_file) as tf:
             member = cast(tarfile.TarInfo, tf.getmembers()[0])
             if member.name == target_file.name:
                 tf.extract(member, target_file)
@@ -1035,7 +1074,7 @@ class Rumar:
                 logger.error(error)
 
 
-def compute_blake2b_checksum(f: BinaryIO) -> str:
+def compute_blake2b_checksum(f: IO[bytes]) -> str:
     b = blake2b()
     for chunk in iter(lambda: f.read(32768), b''):
         b.update(chunk)
