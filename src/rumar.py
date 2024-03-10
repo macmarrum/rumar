@@ -28,10 +28,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, date
 from enum import Enum
 from hashlib import blake2b
+from io import BufferedIOBase
 from os import PathLike
 from pathlib import Path
 from textwrap import dedent
-from typing import Iterator, Union, Optional, Literal, Pattern, Any, Iterable, cast, IO
+from typing import Iterator, Union, Optional, Literal, Pattern, Any, Iterable, cast
 
 vi = sys.version_info
 assert (vi.major, vi.minor) >= (3, 9), 'expected Python 3.9 or higher'
@@ -150,10 +151,10 @@ level = "DEBUG_14"
 
 rumar_logging_toml_path = get_default_path(suffix='.logging.toml')
 if rumar_logging_toml_path.exists():
-    print(f":: loading logging config from {rumar_logging_toml_path}")
+    # print(f":: loading logging config from {rumar_logging_toml_path}")
     dict_config = tomllib.load(rumar_logging_toml_path.open('rb'))
 else:
-    print(':: loading default logging config')
+    # print(':: loading default logging config')
     dict_config = tomllib.loads(LOGGING_TOML_DEFAULT)
 logging.config.dictConfig(dict_config)
 logger = logging.getLogger('rumar')
@@ -166,40 +167,47 @@ UTF8 = 'UTF-8'
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-t', '--toml', type=mk_abs_path, default=get_default_path(suffix='.toml'),
-                        help='a non-default path to settings')
-    subparsers = parser.add_subparsers(dest='subparser')
+                        help=('path to settings; '
+                              'by default rumar.toml in the same directory as rumar.py or in %%APPDIR%%\\rumar\\ (on NT), ${XDG_CONFIG_HOME:-$HOME/.config}/rumar/ (on POSIX)'))
+    subparsers = parser.add_subparsers(dest='action', required=True, help='actions work on profile(s) defined in settings (TOML)')
+    # list profiles
     parser_list = subparsers.add_parser('list-profiles', aliases=['l'],
-                                        help='list all profiles defined in settings (toml)')
+                                        help='list profiles')
     parser_list.set_defaults(func=list_profiles)
     add_profile_args_to_parser(parser_list, required=False)
+    # create
     parser_create = subparsers.add_parser(Command.CREATE.value, aliases=['c'],
-                                          help='create a backup of each file, if it changed, matching the criteria in settings (toml)')
+                                          help='create a backup of each file that matches profile criteria, if the file changed')
     parser_create.set_defaults(func=create)
     add_profile_args_to_parser(parser_create, required=True)
+    # extract
     parser_extract = subparsers.add_parser(Command.EXTRACT.value, aliases=['x'],
-                                           help='extract the latest archive of each file from backup_base_dir')
+                                           help='extract [to source_dir] the latest backup of each file [in backup_base_dir]')
     parser_extract.set_defaults(func=extract)
     add_profile_args_to_parser(parser_extract, required=True)
     parser_extract.add_argument('--archive-container-dir', type=mk_abs_path,
-                                help='path to an archive-container directory from which to extract the latest archive; all other archives are ignored')
+                                help='path to an archive-container directory from which to extract the latest backup; all other backups in backup_base_dir are ignored')
     parser_extract.add_argument('--extract-base-dir', type=mk_abs_path,
                                 help="path to the target directory used for extraction; profile's source_dir by default")
     parser_extract.add_argument('--overwrite', action=store_true,
                                 help="overwrite existing files without asking")
     parser_extract.add_argument('--meta-diff', action=store_true,
-                                help="only if mtime or size differ between archive and target, if it exists")
-    parser_sweep = subparsers.add_parser(Command.SWEEP.value, aliases=['s'])
+                                help="extract only if mtime or size differ between backup and target, if it exists")
+    # sweep
+    parser_sweep = subparsers.add_parser(Command.SWEEP.value, aliases=['s'],
+                                         help='sweep old backups that match profile criteria')
     parser_sweep.set_defaults(func=sweep)
     parser_sweep.add_argument('-d', '--dry-run', action=store_true)
     add_profile_args_to_parser(parser_sweep, required=True)
     args = parser.parse_args()
+    # pass args to the appropriate function
     args.func(args)
 
 
 def add_profile_args_to_parser(parser: argparse.ArgumentParser, required: bool):
     profile_gr = parser.add_mutually_exclusive_group(required=required)
-    profile_gr.add_argument('-a', '--all', action=store_true)
-    profile_gr.add_argument('-p', '--profile')
+    profile_gr.add_argument('-a', '--all-profiles', action=store_true)
+    profile_gr.add_argument('-p', '--profile', nargs='+')
 
 
 def mk_abs_path(file_path: str) -> Path:
@@ -220,7 +228,8 @@ def create(args):
     if args.all:
         rumar.create_for_all_profiles()
     elif args.profile:
-        rumar.create_for_profile(args.profile)
+        for profile in args.profile:
+            rumar.create_for_profile(profile)
 
 
 def extract(args):
@@ -229,7 +238,8 @@ def extract(args):
     if args.all:
         rumar.extract_for_all_profiles(args.archive_container_dir, args.extract_base_dir, args.overwrite, args.meta_diff)
     elif args.profile:
-        rumar.extract_for_profile(args.profile, args.archive_container_dir, args.extract_base_dir, args.overwrite, args.meta_diff)
+        for profile in args.profile:
+            rumar.extract_for_profile(profile, args.archive_container_dir, args.extract_base_dir, args.overwrite, args.meta_diff)
 
 
 def sweep(args):
@@ -239,7 +249,8 @@ def sweep(args):
     if args.all:
         broom.sweep_all_profiles(is_dry_run=is_dry_run)
     elif args.profile:
-        broom.sweep_profile(args.profile, is_dry_run=is_dry_run)
+        for profile in args.profile:
+            broom.sweep_profile(profile, is_dry_run=is_dry_run)
 
 
 class RumarFormat(Enum):
@@ -674,7 +685,7 @@ class Rumar:
     NOCOMPRESSION_FORMAT_COMPRESSLEVEL = RumarFormat.TAR, {}
     LNK = 'LNK'
     ARCHIVE_FORMAT_TO_MODE = {RumarFormat.TAR: 'x', RumarFormat.TGZ: 'x:gz', RumarFormat.TBZ: 'x:bz2', RumarFormat.TXZ: 'x:xz'}
-    RX_ARCHIVE_SUFFIX = re.compile(r'\.(tar(\.(gz|bz2|xz))?|zipx)$')
+    RX_ARCHIVE_SUFFIX = re.compile(r'(\.(?:tar(?:\.(?:gz|bz2|xz))?|zipx))$')
     CHECKSUM_SUFFIX = '.b2'
     CHECKSUM_SIZE_THRESHOLD = 10_000_000
     STEMS = 'stems'
@@ -754,14 +765,11 @@ class Rumar:
 
     @classmethod
     def split_ext(cls, basename: str) -> tuple[str, str]:
-        """Example: 2023-04-30_09,48,20.872144+02,00~123.tar.gz => 2023-04-30_09,48,20+02,00~123 .gz"""
-        raise NotImplementedError('this method needs work after the addition of zipx')
-        try:
-            core, post_tar_ext = basename.rsplit(cls.DOT_TAR, 1)
-        except ValueError:
-            print(basename)
-            raise
-        return core, f"{cls.DOT_TAR}{post_tar_ext}"
+        """Example: 2023-04-30_09,48,20.872144+02,00~123.tar.gz => 2023-04-30_09,48,20+02,00~123 .tar.gz"""
+        cor_ext_rest = cls.RX_ARCHIVE_SUFFIX.split(basename)
+        if len(cor_ext_rest) < 3:
+            raise ValueError(basename)
+        return cor_ext_rest[0], cor_ext_rest[1]
 
     @classmethod
     def split_mtime_size(cls, core: str) -> tuple[str, int]:
@@ -827,9 +835,7 @@ class Rumar:
                                 checksum = compute_blake2b_checksum(f)
                             self._save_checksum_if_big(size, checksum, relative_p, archive_container_dir, mtime_str)
                             is_changed = checksum != latest_checksum
-                        else:
-                            pass
-                            # newer mtime, same size, not instructed to do checksum comparison => no backup
+                        # else:  # newer mtime, same size, not instructed to do checksum comparison => no backup
                 if is_changed:
                     # file has changed as compared to the last backup
                     logger.info(f":= {relative_p}  {latest_mtime_str}  {latest_size} =: last backup")
@@ -1074,7 +1080,14 @@ class Rumar:
                 logger.error(error)
 
 
-def compute_blake2b_checksum(f: IO[bytes]) -> str:
+def compute_blake2b_checksum(f: BufferedIOBase) -> str:
+    # https://docs.python.org/3/library/functions.html#open
+    # The type of file object returned by the open() function depends on the mode.
+    # When used to open a file in a binary mode with buffering, the returned class is a subclass of io.BufferedIOBase.
+    # When buffering is disabled, the raw stream, a subclass of io.RawIOBase, io.FileIO, is returned.
+    # https://docs.python.org/3/library/io.html#io.BufferedIOBase
+    # BufferedIOBase: [read(), readinto() and write(),] unlike their RawIOBase counterparts, [...] will never return None.
+    # read(): An empty bytes object is returned if the stream is already at EOF.
     b = blake2b()
     for chunk in iter(lambda: f.read(32768), b''):
         b.update(chunk)
