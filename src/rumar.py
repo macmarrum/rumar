@@ -225,7 +225,7 @@ def list_profiles(args):
 def create(args):
     profile_to_settings = create_profile_to_settings_from_toml_path(args.toml)
     rumar = Rumar(profile_to_settings)
-    if args.all:
+    if args.all_profiles:
         rumar.create_for_all_profiles()
     elif args.profile:
         for profile in args.profile:
@@ -235,7 +235,7 @@ def create(args):
 def extract(args):
     profile_to_settings = create_profile_to_settings_from_toml_path(args.toml)
     rumar = Rumar(profile_to_settings)
-    if args.all:
+    if args.all_profiles:
         rumar.extract_for_all_profiles(args.archive_container_dir, args.extract_base_dir, args.overwrite, args.meta_diff)
     elif args.profile:
         for profile in args.profile:
@@ -246,7 +246,7 @@ def sweep(args):
     profile_to_settings = create_profile_to_settings_from_toml_path(args.toml)
     broom = Broom(profile_to_settings)
     is_dry_run = args.dry_run or False
-    if args.all:
+    if args.all_profiles:
         broom.sweep_all_profiles(is_dry_run=is_dry_run)
     elif args.profile:
         for profile in args.profile:
