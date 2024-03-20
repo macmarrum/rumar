@@ -71,7 +71,7 @@ source_dir = "this setting won't be loaded"
 ### Settings details
 
 Profiles which start with a hash `#` are ignored when `rumar.toml` is loaded.\
-**version** indicates schema version and for now is always `1`.
+**version** indicates schema version and for now is always `2`.
 
 <!-- settings pydoc begin -->
 * **backup_base_dir**: str &nbsp; &nbsp; _used by: create, sweep_\
