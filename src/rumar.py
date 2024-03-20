@@ -217,7 +217,7 @@ def mk_abs_path(file_path: str) -> Path:
 def list_profiles(args):
     profile_to_settings = create_profile_to_settings_from_toml_path(args.toml)
     for profile, settings in profile_to_settings.items():
-        if args.profile and profile != args.profile:
+        if args.profile and profile not in args.profile:
             continue
         print(f"{settings}")
 
