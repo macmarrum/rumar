@@ -407,7 +407,7 @@ class Settings:
     number_of_backups_per_day_to_keep: int = 2
     number_of_backups_per_week_to_keep: int = 14
     number_of_backups_per_month_to_keep: int = 60
-    commands_which_use_filters: Union[list[str], tuple[Command]] = (Command.CREATE,)
+    commands_which_use_filters: Union[list[str], tuple[Command, ...]] = (Command.CREATE,)
     COMMA = ','
 
     @staticmethod
@@ -520,7 +520,11 @@ def create_profile_to_settings_from_toml_text(toml_str) -> ProfileToSettings:
 def verify_and_remove_version(toml_dict):
     version = toml_dict.get('version', 'missing')
     if version != 2:
-        raise ValueError(f"rumar.toml version is {version} - expected 2")
+        logger.warning(f"rumar.toml version is {version} - expected 2")
+    if any('sha256_comparison_if_same_size' in dct for dct in toml_dict.values() if isinstance(dct, dict)):
+        msg = 'found sha256_comparison_if_same_size - expected checksum_comparison_if_same_size'
+        logger.error(msg)
+        raise ValueError(msg)
     del toml_dict['version']
 
 
