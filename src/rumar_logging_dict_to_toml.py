@@ -1,3 +1,6 @@
+# Copyright © 2023, 2024 macmarrum (at) outlook (dot) ie
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 from pathlib import Path
 
 import tomli_w
@@ -35,4 +38,3 @@ dict_config = {
 
 with Path(__file__).with_suffix('.toml').open('wb') as rumar_toml:
     tomli_w.dump(dict_config, rumar_toml)
-

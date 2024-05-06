@@ -1,3 +1,6 @@
+# Copyright © 2023, 2024 macmarrum (at) outlook (dot) ie
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 from pathlib import Path
 
 me = Path(__file__)
