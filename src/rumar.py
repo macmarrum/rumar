@@ -1091,7 +1091,10 @@ class Rumar:
         with tarfile.open(archive_file) as tf:
             member = cast(tarfile.TarInfo, tf.getmembers()[0])
             if member.name == target_file.name:
-                tf.extract(member, target_file)
+                if (vi.major, vi.minor) >= (3, 12):
+                    tf.extract(member, target_file.parent, filter='tar')
+                else:
+                    tf.extract(member, target_file.parent)
             else:
                 error = f"archived-file name is different than the archive-container-directory name: {member.name} != {target_file.name}"
                 self._errors.append(error)
