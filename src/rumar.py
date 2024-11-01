@@ -542,6 +542,12 @@ BACKSLASH = '\\'
 
 def iter_all_files(top_path: Path):
     for root, dirs, files in os.walk(top_path):
+        for d in dirs.copy():
+            dir_path = Path(root, d)
+            # a symlink is a file, not a dir
+            if dir_path.is_symlink():
+                dirs.remove(d)
+                files.insert(0, d)
         for file in files:
             yield Path(root, file)
 
@@ -554,6 +560,11 @@ def iter_matching_files(top_path: Path, s: Settings):
     for root, dirs, files in os.walk(top_path):
         for d in dirs.copy():
             dir_path = Path(root, d)
+            # a symlink is a file, not a dir
+            if dir_path.is_symlink():
+                dirs.remove(d)
+                files.insert(0, d)
+                continue
             relative_p = make_relative_p(dir_path, top_path, with_leading_slash=True)
             if is_dir_matching_top_dirs(dir_path, relative_p, s):  # matches dirnames and/or top_dirs, now check regex
                 if inc_dirs_rx:  # only included paths must be considered
