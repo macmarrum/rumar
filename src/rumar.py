@@ -1073,7 +1073,7 @@ class Rumar:
             self._extract_tar(archive_file, target_file)
 
     def _extract_zipx(self, archive_file: Path, target_file: Path):
-        logger.info(f":@ {archive_file.parent.name} | {archive_file.name}")
+        logger.info(f":@ {archive_file.parent.name} | {archive_file.name} -> {target_file}")
         with pyzipper.AESZipFile(archive_file) as zf:
             zf.setpassword(self.s.password)
             member = cast(zipfile.ZipInfo, zf.infolist()[0])
@@ -1087,7 +1087,7 @@ class Rumar:
                 logger.error(error)
 
     def _extract_tar(self, archive_file: Path, target_file: Path):
-        logger.info(f":@ {archive_file.parent.name} | {archive_file.name}")
+        logger.info(f":@ {archive_file.parent.name} | {archive_file.name} -> {target_file}")
         with tarfile.open(archive_file) as tf:
             member = cast(tarfile.TarInfo, tf.getmembers()[0])
             if member.name == target_file.name:
