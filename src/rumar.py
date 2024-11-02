@@ -1010,6 +1010,8 @@ class Rumar:
         if extract_base_dir is None:
             extract_base_dir = self._profile_to_settings[profile].source_dir
         logger.info(f"{profile=} extract_base_dir={repr(str(extract_base_dir))} {overwrite=} {meta_diff=}")
+        if not self._confirm_extract_base_dir(extract_base_dir):
+            return
         self._at_beginning(profile)
         if archive_container_dir:
             if archive_container_dir.as_posix().startswith(self.s.backup_base_dir_for_profile.as_posix()):
@@ -1024,6 +1026,12 @@ class Rumar:
                     archive_container_dir = Path(dirpath)  # the original file, in the mirrored directory tree
                     self.extract_latest_file(self.s.backup_base_dir_for_profile, archive_container_dir, extract_base_dir, overwrite, meta_diff, filenames)
         self._at_end()
+
+    @staticmethod
+    def _confirm_extract_base_dir(extract_base_dir: Path):
+        answer = input(f"\n   Begin extraction into `{extract_base_dir}`?  [N/y] ")
+        logger.info(f":  {answer=}  {extract_base_dir}")
+        return answer in ['y', 'Y']
 
     def extract_latest_file(self, backup_base_dir_for_profile, archive_container_dir: Path, extract_base_dir: Path, overwrite: bool, meta_diff: bool,
                             filenames: Optional[list[str]] = None):
