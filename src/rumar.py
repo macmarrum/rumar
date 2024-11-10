@@ -185,13 +185,13 @@ def main():
     add_profile_args_to_parser(parser_create, required=True)
     # extract
     parser_extract = subparsers.add_parser(Command.EXTRACT.value, aliases=['x'],
-                                           help='extract [to source_dir] the latest backup of each file [in backup_base_dir]')
+                                           help='extract [to source_dir | --target-dir] the latest backup of each file [in backup_base_dir_for_profile | --archive-dir]')
     parser_extract.set_defaults(func=extract)
     add_profile_args_to_parser(parser_extract, required=True)
-    parser_extract.add_argument('--archive-container-dir', type=mk_abs_path,
-                                help='path to an archive-container directory from which to extract the latest backup; all other backups in backup_base_dir are ignored')
-    parser_extract.add_argument('--extract-base-dir', type=mk_abs_path,
-                                help="path to the target directory used for extraction; profile's source_dir by default")
+    parser_extract.add_argument('--archive-dir', type=Path,
+                                help='path to an archive-container directory from which to extract the latest backup; all other backups in backup_base_dir_for_profile are ignored')
+    parser_extract.add_argument('--directory', '-C', type=mk_abs_path,
+                                help="path to the base directory used for extraction; profile's source_dir by default")
     parser_extract.add_argument('--overwrite', action=store_true,
                                 help="overwrite existing files without asking")
     parser_extract.add_argument('--meta-diff', action=store_true,
@@ -239,10 +239,10 @@ def extract(args):
     profile_to_settings = create_profile_to_settings_from_toml_path(args.toml)
     rumar = Rumar(profile_to_settings)
     if args.all_profiles:
-        rumar.extract_for_all_profiles(args.archive_container_dir, args.extract_base_dir, args.overwrite, args.meta_diff)
+        rumar.extract_for_all_profiles(args.archive_dir, args.directory, args.overwrite, args.meta_diff)
     elif args.profile:
         for profile in args.profile:
-            rumar.extract_for_profile(profile, args.archive_container_dir, args.extract_base_dir, args.overwrite, args.meta_diff)
+            rumar.extract_for_profile(profile, args.archive_dir, args.directory, args.overwrite, args.meta_diff)
 
 
 def sweep(args):
@@ -817,6 +817,13 @@ class Rumar:
         """
         logger.info(f"{profile=}")
         self._at_beginning(profile)
+        errors = []
+        for d in [self.s.source_dir, self.s.backup_base_dir]:
+            if ex := try_to_iterate_dir(d):
+                errors.append(str(ex))
+        if errors:
+            logger.warning(f"SKIP {profile} - {'; '.join(errors)}")
+            return
         for p in self.source_files:
             relative_p = make_relative_p(p, self.s.source_dir)
             lstat = self.cached_lstat(p)  # don't follow symlinks - pathlib calls stat for each is_*()
@@ -1000,45 +1007,54 @@ class Rumar:
         stems_and_paths.setdefault(self.STEMS, []).append(stem)
         stems_and_paths.setdefault(self.PATHS, []).append(file_path)
 
-    def extract_for_all_profiles(self, archive_container_dir: Optional[Path], extract_base_dir: Optional[Path], overwrite: bool, meta_diff: bool):
+    def extract_for_all_profiles(self, archive_container_dir: Optional[Path], directory: Optional[Path], overwrite: bool, meta_diff: bool):
         for profile in self._profile_to_settings:
-            if extract_base_dir is None:
-                extract_base_dir = self._profile_to_settings[profile].source_dir
-            self.extract_for_profile(profile, archive_container_dir, extract_base_dir, overwrite, meta_diff)
+            if directory is None:
+                directory = self._profile_to_settings[profile].source_dir
+            self.extract_for_profile(profile, archive_container_dir, directory, overwrite, meta_diff)
 
-    def extract_for_profile(self, profile: str, archive_container_dir: Optional[Path], extract_base_dir: Optional[Path], overwrite: bool, meta_diff: bool):
-        if extract_base_dir is None:
-            extract_base_dir = self._profile_to_settings[profile].source_dir
-        logger.info(f"{profile=} extract_base_dir={repr(str(extract_base_dir))} {overwrite=} {meta_diff=}")
-        if not self._confirm_extract_base_dir(extract_base_dir):
-            return
+    def extract_for_profile(self, profile: str, archive_container_dir: Optional[Path], directory: Optional[Path], overwrite: bool, meta_diff: bool):
         self._at_beginning(profile)
+        if directory is None:
+            directory = self._profile_to_settings[profile].source_dir
+        msgs = []
+        if ex := try_to_iterate_dir(directory):
+            msgs.append(f"SKIP {profile!r} - cannot access source directory - {ex}")
         if archive_container_dir:
-            if archive_container_dir.as_posix().startswith(self.s.backup_base_dir_for_profile.as_posix()):
-                logger.info(f"archive_container_dir={repr(str(archive_container_dir))}")
-                self.extract_latest_file(self.s.backup_base_dir_for_profile, archive_container_dir, extract_base_dir, overwrite, meta_diff, None)
-            else:
-                logger.warning(f"skipping {profile=} - archive-container-dir is not under backup_base_dir_for_profile: "
-                               f"archive_container_dir={repr(str(archive_container_dir))} backup_base_dir_for_profile={repr(str(self.s.backup_base_dir_for_profile))}")
+            if not archive_container_dir.is_absolute():
+                archive_container_dir = self.s.backup_base_dir_for_profile / archive_container_dir
+            if ex := try_to_iterate_dir(archive_container_dir):
+                msgs.append(f"SKIP {profile!r} - archive-dir doesn't exist - {ex}")
+            elif not archive_container_dir.as_posix().startswith(self.s.backup_base_dir_for_profile.as_posix()):
+                msgs.append(f"SKIP {profile!r} - archive-dir is not under backup_base_dir_for_profile: "
+                            f"archive_container_dir={str(archive_container_dir)!r} backup_base_dir_for_profile={str(self.s.backup_base_dir_for_profile)!r}")
+        logger.info(f"{profile=} archive_container_dir={str(archive_container_dir) if archive_container_dir else None!r} directory={str(directory)!r} {overwrite=} {meta_diff=}")
+        if msgs:
+            logger.warning('; '.join(msgs))
+            return
+        if not self._confirm_extraction_into_directory(directory):
+            return
+        if archive_container_dir:
+            self.extract_latest_file(self.s.backup_base_dir_for_profile, archive_container_dir, directory, overwrite, meta_diff, None)
         else:
             for dirpath, dirnames, filenames in os.walk(self.s.backup_base_dir_for_profile):
                 if filenames:
                     archive_container_dir = Path(dirpath)  # the original file, in the mirrored directory tree
-                    self.extract_latest_file(self.s.backup_base_dir_for_profile, archive_container_dir, extract_base_dir, overwrite, meta_diff, filenames)
+                    self.extract_latest_file(self.s.backup_base_dir_for_profile, archive_container_dir, directory, overwrite, meta_diff, filenames)
         self._at_end()
 
     @staticmethod
-    def _confirm_extract_base_dir(extract_base_dir: Path):
-        answer = input(f"\n   Begin extraction into `{extract_base_dir}`?  [N/y] ")
-        logger.info(f":  {answer=}  {extract_base_dir}")
+    def _confirm_extraction_into_directory(directory: Path):
+        answer = input(f"\n   Begin extraction into {directory}?  [N/y] ")
+        logger.info(f":  {answer=}  {directory}")
         return answer in ['y', 'Y']
 
-    def extract_latest_file(self, backup_base_dir_for_profile, archive_container_dir: Path, extract_base_dir: Path, overwrite: bool, meta_diff: bool,
+    def extract_latest_file(self, backup_base_dir_for_profile, archive_container_dir: Path, directory: Path, overwrite: bool, meta_diff: bool,
                             filenames: Optional[list[str]] = None):
         if filenames is None:
             filenames = os.listdir(archive_container_dir)
         relative_file_parent = make_relative_p(archive_container_dir.parent, backup_base_dir_for_profile)
-        target_file = extract_base_dir / relative_file_parent / archive_container_dir.name
+        target_file = directory / relative_file_parent / archive_container_dir.name
         for f in sorted(filenames, reverse=True):
             if self.RX_ARCHIVE_SUFFIX.search(f):
                 archive_file = archive_container_dir / f
@@ -1060,7 +1076,7 @@ class Rumar:
                 should_extract = True
             else:
                 should_extract = False
-                warning = f"file exists - skipping  {target_file}"
+                warning = f"skipping {target_file} - file exists"
                 self._warnings.append(warning)
                 logger.warning(warning)
         else:
@@ -1109,6 +1125,15 @@ class Rumar:
                 logger.error(error)
 
 
+def try_to_iterate_dir(path: Path):
+    try:
+        for _ in path.iterdir():
+            break
+    except OSError as e:
+        return e
+    return None
+
+
 def compute_blake2b_checksum(f: BufferedIOBase) -> str:
     # https://docs.python.org/3/library/functions.html#open
     # The type of file object returned by the open() function depends on the mode.
@@ -1153,6 +1178,9 @@ class Broom:
     def sweep_profile(self, profile, *, is_dry_run: bool):
         logger.info(profile)
         s = self._profile_to_settings[profile]
+        if ex := try_to_iterate_dir(s.backup_base_dir_for_profile):
+            logger.warning(f"SKIP {profile} - {ex}")
+            return
         self.gather_info(s)
         self.delete_files(is_dry_run)
 
