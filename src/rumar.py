@@ -723,8 +723,8 @@ class Rumar:
         return stat.S_ISSOCK(mode) or stat.S_ISDOOR(mode)
 
     @staticmethod
-    def find_last_file_in_dir(archive_container_dir: Path, pattern: Pattern = None) -> Optional[os.DirEntry]:
-        for dir_entry in sorted(os.scandir(archive_container_dir), key=lambda x: x.name, reverse=True):
+    def find_last_file_in_dir(archive_dir: Path, pattern: Pattern = None) -> Optional[os.DirEntry]:
+        for dir_entry in sorted(os.scandir(archive_dir), key=lambda x: x.name, reverse=True):
             if dir_entry.is_file():
                 if pattern is None or pattern.search(dir_entry.name):
                     return dir_entry
@@ -798,8 +798,8 @@ class Rumar:
         return mtime_str, size
 
     @classmethod
-    def calc_archive_path(cls, archive_container_dir: Path, archive_format: RumarFormat, mtime_str: str, size: int, comment: str = None) -> Path:
-        return archive_container_dir / f"{mtime_str}{cls.MTIME_SEP}{size}{cls.MTIME_SEP + comment if comment else cls.BLANK}.{archive_format.value}"
+    def calc_archive_path(cls, archive_dir: Path, archive_format: RumarFormat, mtime_str: str, size: int, comment: str = None) -> Path:
+        return archive_dir / f"{mtime_str}{cls.MTIME_SEP}{size}{cls.MTIME_SEP + comment if comment else cls.BLANK}.{archive_format.value}"
 
     @property
     def s(self) -> Settings:
@@ -833,10 +833,10 @@ class Rumar:
             size = lstat.st_size
             latest_archive = self._find_latest_archive(relative_p)
             latest = self.extract_mtime_size(latest_archive)
-            archive_container_dir = self.calc_archive_container_dir(relative_p=relative_p)
+            archive_dir = self.calc_archive_container_dir(relative_p=relative_p)
             if latest is None:
                 # no previous backup found
-                self._create(CreateReason.NEW, p, relative_p, archive_container_dir, mtime_str, size)
+                self._create(CreateReason.NEW, p, relative_p, archive_dir, mtime_str, size)
             else:
                 latest_mtime_str, latest_size = latest
                 latest_mtime_dt = self.from_mtime_str(latest_mtime_str)
@@ -858,13 +858,13 @@ class Rumar:
                             # get checksum of the current file
                             with p.open('rb') as f:
                                 checksum = compute_blake2b_checksum(f)
-                            self._save_checksum_if_big(size, checksum, relative_p, archive_container_dir, mtime_str)
+                            self._save_checksum_if_big(size, checksum, relative_p, archive_dir, mtime_str)
                             is_changed = checksum != latest_checksum
                         # else:  # newer mtime, same size, not instructed to do checksum comparison => no backup
                 if is_changed:
                     # file has changed as compared to the last backup
                     logger.info(f":= {relative_p}  {latest_mtime_str}  {latest_size} =: last backup")
-                    self._create(CreateReason.CHANGED, p, relative_p, archive_container_dir, mtime_str, size)
+                    self._create(CreateReason.CHANGED, p, relative_p, archive_dir, mtime_str, size)
         self._at_end()
 
     def _at_beginning(self, profile: str):
@@ -882,7 +882,7 @@ class Rumar:
             for e in self._errors:
                 logger.error(e)
 
-    def _save_checksum_if_big(self, size, checksum, relative_p, archive_container_dir, mtime_str):
+    def _save_checksum_if_big(self, size, checksum, relative_p, archive_dir, mtime_str):
         """Save checksum if file is big, to save computation time in the future.
         The checksum might not be needed, therefore the cost/benefit ration needs to be considered, i.e.
         whether it's better to save an already computed checksum to disk (time to save it and delete it in the future),
@@ -904,45 +904,45 @@ class Rumar:
          |   10 MB | 0.05 | 0.02 |
         """
         if size > self.CHECKSUM_SIZE_THRESHOLD:
-            checksum_file = archive_container_dir / f"{mtime_str}{self.MTIME_SEP}{size}{self.CHECKSUM_SUFFIX}"
+            checksum_file = archive_dir / f"{mtime_str}{self.MTIME_SEP}{size}{self.CHECKSUM_SUFFIX}"
             logger.info(f':  {relative_p}  {checksum}')
-            archive_container_dir.mkdir(parents=True, exist_ok=True)
+            archive_dir.mkdir(parents=True, exist_ok=True)
             checksum_file.write_text(checksum)
 
     def _find_latest_archive(self, relative_p: str) -> Optional[Path]:
-        archive_container_dir = self.calc_archive_container_dir(relative_p=relative_p)
-        if not archive_container_dir.exists():
+        archive_dir = self.calc_archive_container_dir(relative_p=relative_p)
+        if not archive_dir.exists():
             return None
-        latest_dir_entry = self.find_last_file_in_dir(archive_container_dir, self.RX_ARCHIVE_SUFFIX)
+        latest_dir_entry = self.find_last_file_in_dir(archive_dir, self.RX_ARCHIVE_SUFFIX)
         return Path(latest_dir_entry) if latest_dir_entry else None
 
-    def _create(self, create_reason: CreateReason, path: Path, relative_p: str, archive_container_dir: Path, mtime_str: str, size: int):
+    def _create(self, create_reason: CreateReason, path: Path, relative_p: str, archive_dir: Path, mtime_str: str, size: int):
         if self.s.archive_format == RumarFormat.ZIPX:
-            self._create_zipx(create_reason, path, relative_p, archive_container_dir, mtime_str, size)
+            self._create_zipx(create_reason, path, relative_p, archive_dir, mtime_str, size)
         else:
-            self._create_tar(create_reason, path, relative_p, archive_container_dir, mtime_str, size)
+            self._create_tar(create_reason, path, relative_p, archive_dir, mtime_str, size)
 
-    def _create_tar(self, create_reason: CreateReason, path: Path, relative_p: str, archive_container_dir: Path, mtime_str: str, size: int):
-        archive_container_dir.mkdir(parents=True, exist_ok=True)
+    def _create_tar(self, create_reason: CreateReason, path: Path, relative_p: str, archive_dir: Path, mtime_str: str, size: int):
+        archive_dir.mkdir(parents=True, exist_ok=True)
         sign = create_reason.value
-        logger.info(f"{sign} {relative_p}  {mtime_str}  {size} {sign} {archive_container_dir}")
+        logger.info(f"{sign} {relative_p}  {mtime_str}  {size} {sign} {archive_dir}")
         archive_format, compresslevel_kwargs = self.calc_archive_format_and_compresslevel_kwargs(path)
         mode = self.ARCHIVE_FORMAT_TO_MODE[archive_format]
         is_lnk = stat.S_ISLNK(self.cached_lstat(path).st_mode)
-        archive_path = self.calc_archive_path(archive_container_dir, archive_format, mtime_str, size, self.LNK if is_lnk else self.BLANK)
+        archive_path = self.calc_archive_path(archive_dir, archive_format, mtime_str, size, self.LNK if is_lnk else self.BLANK)
         with tarfile.open(archive_path, mode, format=self.s.tar_format, **compresslevel_kwargs) as tf:
             tf.add(path, arcname=path.name)
 
-    def _create_zipx(self, create_reason: CreateReason, path: Path, relative_p: str, archive_container_dir: Path, mtime_str: str, size: int):
-        archive_container_dir.mkdir(parents=True, exist_ok=True)
+    def _create_zipx(self, create_reason: CreateReason, path: Path, relative_p: str, archive_dir: Path, mtime_str: str, size: int):
+        archive_dir.mkdir(parents=True, exist_ok=True)
         sign = create_reason.value
-        logger.info(f"{sign} {relative_p}  {mtime_str}  {size} {sign} {archive_container_dir}")
+        logger.info(f"{sign} {relative_p}  {mtime_str}  {size} {sign} {archive_dir}")
         if path.suffix.lower() in self.s.suffixes_without_compression:
             kwargs = {self.COMPRESSION: zipfile.ZIP_STORED}
         else:
             kwargs = {self.COMPRESSION: self.s.zip_compression_method, self.COMPRESSLEVEL: self.s.compression_level}
         is_lnk = stat.S_ISLNK(self.cached_lstat(path).st_mode)
-        archive_path = self.calc_archive_path(archive_container_dir, RumarFormat.ZIPX, mtime_str, size, self.LNK if is_lnk else self.BLANK)
+        archive_path = self.calc_archive_path(archive_dir, RumarFormat.ZIPX, mtime_str, size, self.LNK if is_lnk else self.BLANK)
         with pyzipper.AESZipFile(archive_path, 'w', encryption=pyzipper.WZ_AES, **kwargs) as zf:
             zf.setpassword(self.s.password)
             zf.write(path, arcname=path.name)
@@ -1007,40 +1007,40 @@ class Rumar:
         stems_and_paths.setdefault(self.STEMS, []).append(stem)
         stems_and_paths.setdefault(self.PATHS, []).append(file_path)
 
-    def extract_for_all_profiles(self, archive_container_dir: Optional[Path], directory: Optional[Path], overwrite: bool, meta_diff: bool):
+    def extract_for_all_profiles(self, archive_dir: Optional[Path], directory: Optional[Path], overwrite: bool, meta_diff: bool):
         for profile in self._profile_to_settings:
             if directory is None:
                 directory = self._profile_to_settings[profile].source_dir
-            self.extract_for_profile(profile, archive_container_dir, directory, overwrite, meta_diff)
+            self.extract_for_profile(profile, archive_dir, directory, overwrite, meta_diff)
 
-    def extract_for_profile(self, profile: str, archive_container_dir: Optional[Path], directory: Optional[Path], overwrite: bool, meta_diff: bool):
+    def extract_for_profile(self, profile: str, archive_dir: Optional[Path], directory: Optional[Path], overwrite: bool, meta_diff: bool):
         self._at_beginning(profile)
         if directory is None:
             directory = self._profile_to_settings[profile].source_dir
         msgs = []
         if ex := try_to_iterate_dir(directory):
             msgs.append(f"SKIP {profile!r} - cannot access source directory - {ex}")
-        if archive_container_dir:
-            if not archive_container_dir.is_absolute():
-                archive_container_dir = self.s.backup_base_dir_for_profile / archive_container_dir
-            if ex := try_to_iterate_dir(archive_container_dir):
+        if archive_dir:
+            if not archive_dir.is_absolute():
+                archive_dir = self.s.backup_base_dir_for_profile / archive_dir
+            if ex := try_to_iterate_dir(archive_dir):
                 msgs.append(f"SKIP {profile!r} - archive-dir doesn't exist - {ex}")
-            elif not archive_container_dir.as_posix().startswith(self.s.backup_base_dir_for_profile.as_posix()):
+            elif not archive_dir.as_posix().startswith(self.s.backup_base_dir_for_profile.as_posix()):
                 msgs.append(f"SKIP {profile!r} - archive-dir is not under backup_base_dir_for_profile: "
-                            f"archive_container_dir={str(archive_container_dir)!r} backup_base_dir_for_profile={str(self.s.backup_base_dir_for_profile)!r}")
-        logger.info(f"{profile=} archive_container_dir={str(archive_container_dir) if archive_container_dir else None!r} directory={str(directory)!r} {overwrite=} {meta_diff=}")
+                            f"archive_dir={str(archive_dir)!r} backup_base_dir_for_profile={str(self.s.backup_base_dir_for_profile)!r}")
+        logger.info(f"{profile=} archive_dir={str(archive_dir) if archive_dir else None!r} directory={str(directory)!r} {overwrite=} {meta_diff=}")
         if msgs:
             logger.warning('; '.join(msgs))
             return
         if not self._confirm_extraction_into_directory(directory):
             return
-        if archive_container_dir:
-            self.extract_latest_file(self.s.backup_base_dir_for_profile, archive_container_dir, directory, overwrite, meta_diff, None)
+        if archive_dir:
+            self.extract_latest_file(self.s.backup_base_dir_for_profile, archive_dir, directory, overwrite, meta_diff, None)
         else:
             for dirpath, dirnames, filenames in os.walk(self.s.backup_base_dir_for_profile):
                 if filenames:
-                    archive_container_dir = Path(dirpath)  # the original file, in the mirrored directory tree
-                    self.extract_latest_file(self.s.backup_base_dir_for_profile, archive_container_dir, directory, overwrite, meta_diff, filenames)
+                    archive_dir = Path(dirpath)  # the original file, in the mirrored directory tree
+                    self.extract_latest_file(self.s.backup_base_dir_for_profile, archive_dir, directory, overwrite, meta_diff, filenames)
         self._at_end()
 
     @staticmethod
@@ -1049,15 +1049,15 @@ class Rumar:
         logger.info(f":  {answer=}  {directory}")
         return answer in ['y', 'Y']
 
-    def extract_latest_file(self, backup_base_dir_for_profile, archive_container_dir: Path, directory: Path, overwrite: bool, meta_diff: bool,
+    def extract_latest_file(self, backup_base_dir_for_profile, archive_dir: Path, directory: Path, overwrite: bool, meta_diff: bool,
                             filenames: Optional[list[str]] = None):
         if filenames is None:
-            filenames = os.listdir(archive_container_dir)
-        relative_file_parent = make_relative_p(archive_container_dir.parent, backup_base_dir_for_profile)
-        target_file = directory / relative_file_parent / archive_container_dir.name
+            filenames = os.listdir(archive_dir)
+        relative_file_parent = make_relative_p(archive_dir.parent, backup_base_dir_for_profile)
+        target_file = directory / relative_file_parent / archive_dir.name
         for f in sorted(filenames, reverse=True):
             if self.RX_ARCHIVE_SUFFIX.search(f):
-                archive_file = archive_container_dir / f
+                archive_file = archive_dir / f
                 self.extract_archive(archive_file, target_file, overwrite, meta_diff)
                 break
 
