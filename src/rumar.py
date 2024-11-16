@@ -281,7 +281,7 @@ class Settings:
       path to the base directory used for backup; usually set in the global space, common for all profiles
       backup dir for each profile is constructed as _**backup_base_dir**_ + _**profile**_, unless _**backup_base_dir_for_profile**_ is set, which takes precedence
     backup_base_dir_for_profile: str
-      used by: create, sweep
+      used by: create, extract, sweep
       path to the base dir used for the profile; usually left unset; see _**backup_base_dir**_
     archive_format: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz'] = 'tar.gz'
       used by: create, sweep
@@ -299,7 +299,7 @@ class Settings:
       used by: create
       see also https://docs.python.org/3/library/tarfile.html#supported-tar-formats and https://www.gnu.org/software/tar/manual/html_section/Formats.html
     source_dir: str
-      used by: create
+      used by: create, extract
       path to the directory which is to be archived
     included_top_dirs: list[str]
       used by: create, sweep
@@ -376,7 +376,7 @@ class Settings:
       determines which commands can use the filters specified in the included_* and excluded_* settings
       by default, filters are used only by _**create**_, i.e. _**sweep**_ considers all created backups (no filter is applied)
       a filter for _**sweep**_ could be used to e.g. never remove backups from the first day of a month:
-      `excluded_files_as_regex = ['/\d\d\d\d-\d\d-01_\d\d,\d\d,\d\d\.\d{6}(\+|-)\d\d,\d\d\~\d+(~.+)?.tar(\.(gz|bz2|xz))?$']`
+      `excluded_files_as_regex = ['/\d\d\d\d-\d\d-01_\d\d,\d\d,\d\d(\.\d{6})?[+-]\d\d,\d\d~\d+(~.+)?\.tar(\.(gz|bz2|xz))?$']`
       it's best when the setting is part of a separate profile, i.e. a copy made for _**sweep**_,
       otherwise _**create**_ will also seek such files to be excluded
     """

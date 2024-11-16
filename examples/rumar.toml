@@ -14,5 +14,5 @@ excluded_files_as_glob = ['desktop.ini', 'Thumbs.db']
 source_dir = 'C:\Users\Mac\Desktop'
 excluded_files_as_glob = ['desktop.ini', '*.exe', '*.msi']
 
-['# this profile starts with a hash, therefore will be ignored']
+["# this profile's name starts with a hash, therefore it will be ignored"]
 source_dir = "this setting won't be loaded"

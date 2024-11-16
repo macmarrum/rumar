@@ -63,21 +63,21 @@ excluded_files_as_glob = ['desktop.ini', 'Thumbs.db']
 source_dir = 'C:\Users\Mac\Desktop'
 excluded_files_as_glob = ['desktop.ini', '*.exe', '*.msi']
 
-['# this profile starts with a hash, therefore will be ignored']
+["# this profile's name starts with a hash, therefore it will be ignored"]
 source_dir = "this setting won't be loaded"
 ```
 <!-- rumar.toml example end -->
 
 ### Settings details
 
-Profiles which start with a hash `#` are ignored when `rumar.toml` is loaded.\
+Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is loaded.\
 **version** indicates schema version and for now is always `2`.
 
 <!-- settings pydoc begin -->
 * **backup_base_dir**: str &nbsp; &nbsp; _used by: create, sweep_\
   path to the base directory used for backup; usually set in the global space, common for all profiles\
   backup dir for each profile is constructed as _**backup_base_dir**_ + _**profile**_, unless _**backup_base_dir_for_profile**_ is set, which takes precedence
-* **backup_base_dir_for_profile**: str &nbsp; &nbsp; _used by: create, sweep_\
+* **backup_base_dir_for_profile**: str &nbsp; &nbsp; _used by: create, extract, sweep_\
   path to the base dir used for the profile; usually left unset; see _**backup_base_dir**_
 * **archive_format**: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz'] = 'tar.gz' &nbsp; &nbsp; _used by: create, sweep_\
   format of archive files to be created
@@ -89,7 +89,7 @@ Profiles which start with a hash `#` are ignored when `rumar.toml` is loaded.\
   extra lower-case suffixes in addition to _**no_compression_suffixes_default**_
 * **tar_format**: Literal[0, 1, 2] = 1 (tarfile.GNU_FORMAT) &nbsp; &nbsp; _used by: create_\
   see also https://docs.python.org/3/library/tarfile.html#supported-tar-formats and https://www.gnu.org/software/tar/manual/html_section/Formats.html
-* **source_dir**: str &nbsp; &nbsp; _used by: create_\
+* **source_dir**: str &nbsp; &nbsp; _used by: create, extract_\
   path to the directory which is to be archived
 * **included_top_dirs**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
   a list of paths\
@@ -151,14 +151,14 @@ Profiles which start with a hash `#` are ignored when `rumar.toml` is loaded.\
   determines which commands can use the filters specified in the included_* and excluded_* settings\
   by default, filters are used only by _**create**_, i.e. _**sweep**_ considers all created backups (no filter is applied)\
   a filter for _**sweep**_ could be used to e.g. never remove backups from the first day of a month:\
-  `excluded_files_as_regex = ['/\d\d\d\d-\d\d-01_\d\d,\d\d,\d\d\.\d{6}(\+|-)\d\d,\d\d\~\d+(~.+)?.tar(\.(gz|bz2|xz))?$']`\
+  `excluded_files_as_regex = ['/\d\d\d\d-\d\d-01_\d\d,\d\d,\d\d(\.\d{6})?[+-]\d\d,\d\d~\d+(~.+)?\.tar(\.(gz|bz2|xz))?$']`\
   it's best when the setting is part of a separate profile, i.e. a copy made for _**sweep**_,\
   otherwise _**create**_ will also seek such files to be excluded
 <!-- settings pydoc end -->
 
 ### Settings schema version 2 vs 1
 
-Version 1 contained `sha256_comparison_if_same_size`.
+Version 1 contained `sha256_comparison_if_same_size`.\
 In version 2 it's `checksum_comparison_if_same_size`.
 
 ## Logging settings
