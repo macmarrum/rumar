@@ -227,7 +227,7 @@ def list_profiles(args):
 
 def create(args):
     profile_to_settings = create_profile_to_settings_from_toml_path(args.toml)
-    rumar = Rumar(profile_to_settings)
+    rumar = Rumar(profile_to_settings, args.toml)
     if args.all_profiles:
         rumar.create_for_all_profiles()
     elif args.profile:
@@ -727,10 +727,9 @@ class Rumar:
     CHECKSUM_SIZE_THRESHOLD = 10_000_000
     STEMS = 'stems'
     PATHS = 'paths'
-    DOT_RUMAR = '.rumar'
     RUMAR_SQLITE = 'rumar.sqlite'
 
-    def __init__(self, profile_to_settings: ProfileToSettings):
+    def __init__(self, profile_to_settings: ProfileToSettings, toml: Path):
         self._profile_to_settings = profile_to_settings
         self._profile: Optional[str] = None
         self._suffix_size_stems_and_paths: dict[str, dict[int, dict]] = {}
@@ -738,7 +737,7 @@ class Rumar:
         self._warnings = []
         self._errors = []
         self._run_at: str = ''
-        self._db: RumarDB = None
+        self._db = RumarDB(toml.with_name(self.RUMAR_SQLITE))
 
     @staticmethod
     def can_ignore_for_archive(lstat: os.stat_result) -> bool:
@@ -857,11 +856,12 @@ class Rumar:
             latest_archive = self._find_latest_archive(relative_p)
             latest = self.extract_mtime_size(latest_archive)
             archive_dir = self.calc_archive_container_dir(relative_p=relative_p)
+            # get checksum of the current file
+            with p.open('rb') as f:
+                checksum = compute_blake2b_checksum(f)
             if latest is None:
                 # no previous backup found
-                with p.open('rb') as f:
-                    b2 = compute_blake2b_checksum(f)
-                self._create(CreateReason.NEW, p, relative_p, archive_dir, mtime_str, size, b2)
+                self._create(CreateReason.NEW, p, relative_p, archive_dir, mtime_str, size, checksum)
             else:
                 latest_mtime_str, latest_size = latest
                 latest_mtime_dt = self.from_mtime_str(latest_mtime_str)
@@ -873,7 +873,9 @@ class Rumar:
                         is_changed = False
                         if self.s.checksum_comparison_if_same_size:
                             # get checksum of the latest archived file (unpacked)
-                            if not (latest_checksum := self._db.get_archive_checksum(latest_archive)):
+                            bak_dir_path = self.s.backup_base_dir_for_profile
+                            relative_a = make_relative_p(latest_archive, bak_dir_path)
+                            if not (latest_checksum := self._db.get_archive_checksum(bak_dir_path, relative_a)):
                                 checksum_file = self.calc_checksum_file_path(latest_archive)
                                 if not checksum_file.exists():
                                     latest_checksum = self.compute_checksum_of_file_in_archive(latest_archive, self.s.password)
@@ -881,9 +883,6 @@ class Rumar:
                                     checksum_file.write_text(latest_checksum)
                                 else:
                                     latest_checksum = checksum_file.read_text()
-                            # get checksum of the current file
-                            with p.open('rb') as f:
-                                checksum = compute_blake2b_checksum(f)
                             # self._save_checksum_if_big(size, checksum, relative_p, archive_dir, mtime_str)
                             is_changed = checksum != latest_checksum
                         # else:  # newer mtime, same size, not instructed to do checksum comparison => no backup
@@ -899,7 +898,6 @@ class Rumar:
         self._warnings.clear()
         self._errors.clear()
         self._run_at = self.to_mtime_str(datetime.now().astimezone().replace(microsecond=0))
-        self._db = RumarDB(self.s)
 
     def _at_end(self):
         self._profile = None  # safeguard so that self.s will complain
@@ -1187,16 +1185,16 @@ def compute_blake2b_checksum(f: BufferedIOBase) -> str:
 
 class RumarDB:
 
-    def __init__(self, settings: Settings):
-        self.s = settings
-        dot_rumar_path = self.s.backup_base_dir_for_profile / Rumar.DOT_RUMAR
-        dot_rumar_path.mkdir(exist_ok=True)
-        self._db = sqlite3.connect(dot_rumar_path / Rumar.RUMAR_SQLITE)
+    def __init__(self, db_path: Path):
+        self._db = sqlite3.connect(db_path)
         # self._db = sqlite3.connect('/home/m/tmp/rumar.sqlite')
         self._create_tables_if_not_exist()
-        self._profiles = {}
-        self._source_paths = {}
-        self._archive_paths = {}
+        self._profile_to_id = {}
+        self._creation_to_id = {}
+        self._src_dir_to_id = {}
+        self._source_to_id = {}
+        self._bak_dir_to_id = {}
+        self._backup_to_checksum = {}
         self._load_data_into_memory()
 
     def _create_tables_if_not_exist(self):
@@ -1204,15 +1202,15 @@ class RumarDB:
         ddl['source_dir'] = dedent('''\
             CREATE TABLE IF NOT EXISTS source_dir (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                src_dir_path TEXT UNIQUE NOT NULL
+                src_dir TEXT UNIQUE NOT NULL
             )
         ''')
-        ddl['origin'] = dedent('''\
-            CREATE TABLE IF NOT EXISTS origin (
+        ddl['source'] = dedent('''\
+            CREATE TABLE IF NOT EXISTS source (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                sid INTEGER NOT NULL REFERENCES source_dir (id),
-                org_path TEXT NOT NULL,
-                CONSTRAINT u_origin_sid_org_path UNIQUE (sid, org_path)
+                src_dir_id INTEGER NOT NULL REFERENCES source_dir (id),
+                src_path TEXT NOT NULL,
+                CONSTRAINT u_origin_sid_src_path UNIQUE (src_dir_id, src_path)
             )
         ''')
         ddl['profile'] = dedent('''\
@@ -1224,35 +1222,35 @@ class RumarDB:
         ddl['creation'] = dedent('''\
             CREATE TABLE IF NOT EXISTS creation (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                pid INTEGER NOT NULL REFERENCES profile (id),
+                profile_id INTEGER NOT NULL REFERENCES profile (id),
                 run_at TEXT UNIQUE NOT NULL
             )
         ''')
         ddl['backup_base_dir_for_profile'] = dedent('''\
             CREATE TABLE IF NOT EXISTS backup_base_dir_for_profile (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                bak_dir_path TEXT UNIQUE NOT NULL
+                bak_dir TEXT UNIQUE NOT NULL
             )
         ''')
-        ddl['archive'] = dedent('''\
-            CREATE TABLE IF NOT EXISTS archive (
+        ddl['backup'] = dedent('''\
+            CREATE TABLE IF NOT EXISTS backup (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                bid INTEGER NOT NULL REFERENCES backup_base_dir_for_profile (id),
-                arc_path TEXT NOT NULL,
+                bak_dir_id INTEGER NOT NULL REFERENCES backup_base_dir_for_profile (id),
+                bak_path TEXT NOT NULL,
                 mtime TEXT NOT NULL,
                 size INTEGER NOT NULL,
                 blake2b TEXT NOT NULL,
                 reason TEXT NOT NULL,
-                oid INTEGER NOT NULL REFERENCES origin (id),
-                cid INTEGER NOT NULL REFERENCES creation (id),
-                CONSTRAINT u_archive_bid_arc_path UNIQUE (bid, arc_path)
+                src_id INTEGER NOT NULL REFERENCES source (id),
+                creation_id INTEGER NOT NULL REFERENCES creation (id),
+                CONSTRAINT u_bak_dir_id_bak_path UNIQUE (bak_dir_id, bak_path)
             )
         ''')
         indexes = dedent('''\
-            CREATE INDEX IF NOT EXISTS i_archive_mtime ON archive (mtime);
-            CREATE INDEX IF NOT EXISTS i_archive_size ON archive (size);
-            CREATE INDEX IF NOT EXISTS i_archive_blake2b ON archive (blake2b);
-            CREATE INDEX IF NOT EXISTS i_archive_reason ON archive (reason);
+            CREATE INDEX IF NOT EXISTS i_backup_mtime ON backup (mtime);
+            CREATE INDEX IF NOT EXISTS i_backup_size ON backup (size);
+            CREATE INDEX IF NOT EXISTS i_backup_blake2b ON backup (blake2b);
+            CREATE INDEX IF NOT EXISTS i_backup_reason ON backup (reason);
         ''')
         cur = self._db.cursor()
         for stmt in ddl.values():
@@ -1262,42 +1260,60 @@ class RumarDB:
 
     def _load_data_into_memory(self):
         cur = self._db.cursor()
-        for row in cur.execute('SELECT profile, id FROM profile'):
-            k, v = row
-            self._profiles[k] = v
-        for row in cur.execute('SELECT src_path, id FROM source'):
-            k, v = row
-            self._source_paths[Path(k)] = v
-        for row in cur.execute('SELECT arc_path, id FROM archive'):
-            k, v = row
-            self._archive_paths[Path(k)] = v
+        for profile, id_ in cur.execute('SELECT profile, id FROM profile'):
+            self._profile_to_id[profile] = id_
+        for profile_id, run_at, id_ in cur.execute('SELECT profile_id, run_at, id FROM creation'):
+            self._creation_to_id[(profile_id, run_at)] = id_
+        for src_dir, id_ in cur.execute('SELECT src_dir, id FROM source_dir'):
+            self._src_dir_to_id[src_dir] = id_
+        for src_dir_id, src_path, id_ in cur.execute('SELECT src_dir_id, src_path, id FROM source'):
+            self._source_to_id[(src_dir_id, src_path)] = id_
+        for bak_dir, id_ in cur.execute('SELECT bak_dir, id FROM backup_base_dir_for_profile'):
+            self._bak_dir_to_id[bak_dir] = id_
+        for bak_dir_id, bak_path, blake2b_checksum in cur.execute('SELECT bak_dir_id, bak_path, blake2b FROM backup'):
+            self._backup_to_checksum[(bak_dir_id, bak_path)] = blake2b_checksum
 
     def log_creation(self, profile: str, s: Settings, run_at: str, create_reason: CreateReason, relative_p: str, relative_a: str, mtime_str: str, size: int, blake2b_checksum: str):
-        src_path = relative_p
-        arc_path = relative_a
         cur = self._db.cursor()
         reason = create_reason.name[0]
-        if not (pid := self._profiles.get(profile)):
+        # profile
+        if not (profile_id := self._profile_to_id.get(profile)):
             cur.execute('INSERT INTO profile (profile) VALUES (?)', (profile,))
-            pid = cur.execute('SELECT id FROM profile WHERE profile = ?', (profile,)).fetchone()[0]
-            self._profiles[profile] = pid
-        cur.execute('INSERT INTO creation (pid, run_at) VALUES (?,?)', (pid, run_at))
-        cid = cur.execute('SELECT id FROM creation WHERE pid = ? AND run_at = ?', (pid, run_at)).fetchone()[0]
-        # TODO origin
-        if not (sid := self._source_paths.get(src_path)):
-            cur.execute('INSERT INTO source (src_path) VALUES (?)', (src_path,))
-            sid = cur.execute('SELECT id FROM source WHERE src_path = ?', (src_path,)).fetchone()[0]
-        # TODO backup
-        if not (aid := self._archive_paths.get(arc_path)):
-            cur.execute('INSERT INTO archive (arc_path) VALUES (?)', (arc_path,))
-            aid = cur.execute('SELECT id FROM archive WHERE arc_path = ?', (arc_path,)).fetchone()[0]
-        # TODO merge clog with archive
-        cur.execute('INSERT INTO clog (cid, reason, sid, mtime, size, blake2b, aid) VALUES (?,?,?,?,?,?,?)', (cid, reason, sid, mtime_str, size, blake2b_checksum, aid))
+            profile_id = cur.execute('SELECT id FROM profile WHERE profile = ?', (profile,)).fetchone()[0]
+            self._profile_to_id[profile] = profile_id
+        # creation
+        if not (creation_id := self._creation_to_id.get((profile_id, run_at))):
+            cur.execute('INSERT INTO creation (profile_id, run_at) VALUES (?,?)', (profile_id, run_at))
+            creation_id = cur.execute('SELECT id FROM creation WHERE profile_id = ? AND run_at = ?', (profile_id, run_at)).fetchone()[0]
+            self._creation_to_id[(profile_id, run_at)] = creation_id
+        # source_dir
+        src_dir = s.source_dir.as_posix()
+        if not (src_dir_id := self._src_dir_to_id.get(src_dir)):
+            cur.execute('INSERT INTO source_dir (src_dir) VALUES (?)', (src_dir,))
+            src_dir_id = cur.execute('SELECT id FROM source_dir WHERE src_dir = ?', (src_dir,)).fetchone()[0]
+            self._src_dir_to_id[src_dir] = src_dir_id
+        # source
+        src_path = relative_p
+        if not (src_id := self._source_to_id.get((src_dir_id, src_path))):
+            cur.execute('INSERT INTO source (src_dir_id, src_path) VALUES (?, ?)', (src_dir_id, src_path))
+            src_id = cur.execute('SELECT id FROM source WHERE src_dir_id = ? AND src_path = ?', (src_dir_id, src_path)).fetchone()[0]
+            self._source_to_id[(src_dir_id, src_path)] = src_id
+        # backup_base_dir_for_profile
+        bak_dir = s.backup_base_dir_for_profile.as_posix()
+        if not (bak_dir_id := self._bak_dir_to_id.get(bak_dir)):
+            cur.execute('INSERT INTO backup_base_dir_for_profile (bak_dir) VALUES (?)', (bak_dir,))
+            bak_dir_id = cur.execute('SELECT id FROM backup_base_dir_for_profile WHERE bak_dir = ?', (bak_dir,)).fetchone()[0]
+            self._bak_dir_to_id[src_dir] = bak_dir_id
+        # backup
+        bak_path = relative_a
+        cur.execute('INSERT INTO backup (bak_dir_id, bak_path, mtime, size, blake2b, reason, src_id, creation_id) VALUES (?,?,?,?,?,?,?,?)',
+                    (bak_dir_id, bak_path, mtime_str, size, blake2b_checksum, reason, src_id, creation_id))
+        self._backup_to_checksum[(bak_dir_id, bak_path)] = blake2b_checksum
         self._db.commit()
 
-    def get_archive_checksum(self, archive_path: Path):
-        arc_path = str(archive_path)
-        for row in self._db.execute('SELECT blake2b FROM archive WHERE arc_path = ?', (arc_path,)):
+    def get_archive_checksum(self, bak_dir_path: Path, relative_a: str):
+        bak_dir = bak_dir_path.as_posix()
+        for row in self._db.execute('SELECT blake2b FROM backup JOIN backup_base_dir_for_profile d ON bak_dir_id = d.id WHERE bak_dir = ? AND bak_path = ?', (bak_dir, relative_a)):
             return row[0]
 
 
@@ -1591,6 +1607,6 @@ class BroomDB:
 
 
 if __name__ == '__main__':
-    # main()
-    profile_to_settings = create_profile_to_settings_from_toml_path(get_appdata() / 'rumar' / 'rumar.toml')
-    RumarDB(profile_to_settings['m/Documents'])
+    main()
+    # profile_to_settings = create_profile_to_settings_from_toml_path(get_appdata() / 'rumar' / 'rumar.toml')
+    # RumarDB(profile_to_settings['m/Documents'])
