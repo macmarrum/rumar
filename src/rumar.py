@@ -1302,7 +1302,7 @@ class RumarDB:
         if not (bak_dir_id := self._bak_dir_to_id.get(bak_dir)):
             cur.execute('INSERT INTO backup_base_dir_for_profile (bak_dir) VALUES (?)', (bak_dir,))
             bak_dir_id = cur.execute('SELECT id FROM backup_base_dir_for_profile WHERE bak_dir = ?', (bak_dir,)).fetchone()[0]
-            self._bak_dir_to_id[src_dir] = bak_dir_id
+            self._bak_dir_to_id[bak_dir] = bak_dir_id
         # backup
         bak_path = relative_a
         cur.execute('INSERT INTO backup (bak_dir_id, bak_path, mtime, size, blake2b, reason, src_id, creation_id) VALUES (?,?,?,?,?,?,?,?)',
