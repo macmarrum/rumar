@@ -908,7 +908,6 @@ class Rumar:
             for e in self._errors:
                 logger.error(e)
         self._run_at = ''
-        self._db = None
 
     def _get_checksum(self, path: Path):
         b2 = self._db.get_archive_checksum(path)
