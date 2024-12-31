@@ -743,7 +743,7 @@ class Rumar:
         self._path_to_lstat: dict[Path, os.stat_result] = {}
         self._warnings = []
         self._errors = []
-        self._db = None
+        self._db: RumarDB = None
 
     @staticmethod
     def can_ignore_for_archive(lstat: os.stat_result) -> bool:
@@ -861,8 +861,11 @@ class Rumar:
             latest = self.extract_mtime_size(latest_archive)
             archive_dir = self.calc_archive_container_dir(relative_p=relative_p)
             # get checksum of the current file
-            with p.open('rb') as f:
-                checksum = compute_blake2b_checksum(f)
+            if self.s.checksum_comparison_if_same_size:
+                with p.open('rb') as f:
+                    checksum = compute_blake2b_checksum(f)
+            else:
+                checksum = None
             if latest is None:
                 # no previous backup found
                 self._create(CreateReason.CREATE, p, relative_p, archive_dir, mtime_str, size, checksum)
@@ -876,18 +879,8 @@ class Rumar:
                     else:
                         is_changed = False
                         if self.s.checksum_comparison_if_same_size:
-                            # get checksum of the latest archived file (unpacked)
-                            bak_dir_path = self.s.backup_base_dir_for_profile
-                            relative_a = make_relative_p(latest_archive, bak_dir_path)
-                            if not (latest_checksum := self._db.get_archive_checksum(bak_dir_path, relative_a)):
-                                checksum_file = self.calc_checksum_file_path(latest_archive)
-                                if not checksum_file.exists():
-                                    latest_checksum = self.compute_checksum_of_file_in_archive(latest_archive, self.s.password)
-                                    logger.info(f':- {relative_p}  {latest_mtime_str}  {latest_checksum}')
-                                    checksum_file.write_text(latest_checksum)
-                                else:
-                                    latest_checksum = checksum_file.read_text()
-                            # self._save_checksum_if_big(size, checksum, relative_p, archive_dir, mtime_str)
+                            latest_checksum = self._get_archive_checksum(latest_archive)
+                            logger.info(f':- {relative_p}  {latest_mtime_str}  {latest_checksum}')
                             is_changed = checksum != latest_checksum
                         # else:  # newer mtime, same size, not instructed to do checksum comparison => no backup
                 if is_changed:
@@ -913,9 +906,16 @@ class Rumar:
                 logger.error(e)
         self._db.close()
 
-    def _get_checksum(self, path: Path):
-        # TODO
-        b2 = self._db.get_archive_checksum(path)
+    def _get_archive_checksum(self, archive_path: Path):
+        if not (latest_checksum := self._db.get_blake2b_checksum(archive_path)):
+            checksum_file = self.calc_checksum_file_path(archive_path)
+            if not checksum_file.exists():
+                latest_checksum = self.compute_checksum_of_file_in_archive(archive_path, self.s.password)
+                # checksum_file.write_text(latest_checksum)
+            else:
+                latest_checksum = checksum_file.read_text()
+            self._db.set_blake2b_checksum(archive_path, latest_checksum)
+        return latest_checksum
 
     def _save_checksum_if_big(self, size, checksum, relative_p, archive_dir, mtime_str):
         """Save checksum if file is big, to save computation time in the future.
@@ -1193,6 +1193,11 @@ def compute_blake2b_checksum(f: BufferedIOBase) -> str:
 
 
 class RumarDB:
+    """
+    all dirs/paths in the DB are represented as_posix()
+    xxx_dir := the base directory
+    xxx_path := the remaining path, relative to the base directory
+    """
     SPACE = ' '
 
     def __init__(self, profile: str, s: Settings):
@@ -1257,7 +1262,7 @@ class RumarDB:
                 bak_path TEXT NOT NULL,
                 mtime_iso TEXT NOT NULL,
                 size INTEGER NOT NULL,
-                blake2b TEXT NOT NULL,
+                blake2b TEXT,
                 src_id INTEGER NOT NULL REFERENCES source (id),
                 CONSTRAINT u_bak_dir_id_bak_path UNIQUE (bak_dir_id, bak_path)
             )
@@ -1265,7 +1270,7 @@ class RumarDB:
         indexes = dedent('''\
             CREATE INDEX IF NOT EXISTS i_backup_mtime_iso ON backup (mtime_iso);
             CREATE INDEX IF NOT EXISTS i_backup_size ON backup (size);
-            CREATE INDEX IF NOT EXISTS i_backup_blake2b ON backup (blake2b);
+            --CREATE INDEX IF NOT EXISTS i_backup_blake2b ON backup (blake2b);
             CREATE INDEX IF NOT EXISTS i_backup_reason ON backup (reason);
         ''')
         cur = self._db.cursor()
@@ -1315,20 +1320,20 @@ class RumarDB:
         print(self._backup_to_checksum)
 
     def _save_initial_state(self):
-        logger.info(str(self.s.backup_base_dir_for_profile))
+        # logger.info(str(self.s.backup_base_dir_for_profile))
         # persist path info for each path having backup(s)
         for root, dirs, files in os.walk(self.s.backup_base_dir_for_profile):
             for d in dirs:
                 archive_dir = Path(root, d)
-                logger.info(str(archive_dir))
+                # logger.info(str(archive_dir))
                 latest_archive = Rumar.get_latest_archive_in_dir(archive_dir)
-                logger.info(str(latest_archive))
+                # logger.info(str(latest_archive))
                 if not latest_archive:
                     continue
                 # check if original file exists
                 relative_archive_dir = make_relative_p(latest_archive.parent, self.s.backup_base_dir_for_profile)
                 file_path = self.s.source_dir / relative_archive_dir
-                logger.info(str(file_path))
+                # logger.info(str(file_path))
                 if not file_path.exists():
                     continue
                 relative_p = make_relative_p(file_path, self.s.source_dir)
@@ -1343,7 +1348,7 @@ class RumarDB:
                 self.save(CreateReason.INIT, relative_p, relative_a, mtime_str, size, blake2b_checksum)
 
     def save(self, create_reason: CreateReason, relative_p: str, relative_a: str, mtime_str: str, size: int, blake2b_checksum: str):
-        logger.info(f"{create_reason}, {relative_p}, {relative_a}, {mtime_str}, {size}, {blake2b_checksum})")
+        # logger.debug(f"{create_reason}, {relative_p}, {relative_a}, {mtime_str}, {size}, {blake2b_checksum})")
         s = self.s
         run_datetime_iso = self._run_datetime_iso
         cur = self._db.cursor()
@@ -1386,10 +1391,23 @@ class RumarDB:
         cur.close()
         self._db.commit()
 
-    def get_archive_checksum(self, bak_dir_path: Path, relative_a: str):
-        bak_dir = bak_dir_path.as_posix()
-        for row in self._db.execute('SELECT blake2b FROM backup JOIN backup_base_dir_for_profile d ON bak_dir_id = d.id WHERE bak_dir = ? AND bak_path = ?', (bak_dir, relative_a)):
-            return row[0]
+    def get_blake2b_checksum(self, archive_path: Path) -> Optional[str]:
+        bak_dir = self.s.backup_base_dir_for_profile.as_posix()
+        bak_dir_id = self._bak_dir_to_id[bak_dir]
+        bak_path = make_relative_p(archive_path, self.s.backup_base_dir_for_profile)
+        return self._backup_to_checksum[(bak_dir_id, bak_path)]
+
+    def set_blake2b_checksum(self, archive_path: Path, blake2b_checksum: str):
+        bak_dir = self.s.backup_base_dir_for_profile.as_posix()
+        bak_dir_id = self._bak_dir_to_id[bak_dir]
+        bak_path = make_relative_p(archive_path, self.s.backup_base_dir_for_profile)
+        key = (bak_dir_id, bak_path)
+        old_blake2b_checksum = self._backup_to_checksum[key]
+        if old_blake2b_checksum and old_blake2b_checksum != blake2b_checksum:
+            raise ValueError(f"{key} already in backup with a different blake2b_checksum: {old_blake2b_checksum}")
+        self._db.execute('UPDATE backup SET blake2b = ? WHERE bak_dir_id = ? AND bak_path = ?', (blake2b_checksum, bak_dir_id, bak_path))
+        self._db.commit()
+        self._backup_to_checksum[key] = blake2b_checksum
 
     def close(self):
         self._db.close()
