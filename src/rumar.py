@@ -557,6 +557,7 @@ def iter_matching_files(top_path: Path, s: Settings):
     exc_dirs_rx = s.excluded_dirs_as_regex
     inc_files_rx = s.included_files_as_regex
     exc_files_rx = s.excluded_files_as_regex
+    dir_paths__skip_files = []
     for root, dirs, files in os.walk(top_path):
         for d in dirs.copy():
             dir_path = Path(root, d)
@@ -565,34 +566,40 @@ def iter_matching_files(top_path: Path, s: Settings):
                 dirs.remove(d)
                 files.insert(0, d)
                 continue
-            relative_p = make_relative_p(dir_path, top_path, with_leading_slash=True)
-            if is_dir_matching_top_dirs(dir_path, relative_p, s):  # matches dirnames and/or top_dirs, now check regex
+            relative_dir_p = make_relative_p(dir_path, top_path, with_leading_slash=True)
+            is_dir_matching_top_dirs, skip_files = calc_dir_matches_top_dirs(dir_path, relative_dir_p, s)
+            if skip_files:
+                dir_paths__skip_files.append(dir_path)
+            if is_dir_matching_top_dirs:  # matches dirnames and/or top_dirs, now check regex
                 if inc_dirs_rx:  # only included paths must be considered
-                    if not find_matching_pattern(relative_p, inc_dirs_rx):
+                    if not find_matching_pattern(relative_dir_p, inc_dirs_rx):
                         dirs.remove(d)
-                        logger.log(DEBUG_13, f"|d ...{relative_p}  -- skipping dir (none of included_dirs_as_regex matches)")
-                if d in dirs and (exc_rx := find_matching_pattern(relative_p, exc_dirs_rx)):
+                        logger.log(DEBUG_13, f"|d ...{relative_dir_p}  -- skipping dir (none of included_dirs_as_regex matches)")
+                if d in dirs and (exc_rx := find_matching_pattern(relative_dir_p, exc_dirs_rx)):
                     dirs.remove(d)
-                    logger.log(DEBUG_14, f"|d ...{relative_p}  -- skipping dir (matches '{exc_rx}')")
+                    logger.log(DEBUG_14, f"|d ...{relative_dir_p}  -- skipping dir (matches '{exc_rx}')")
             else:  # doesn't match dirnames and/or top_dirs
                 dirs.remove(d)
         for f in files:
             file_path = Path(root, f)
-            relative_p = make_relative_p(file_path, top_path, with_leading_slash=True)
-            if is_file_matching_glob(file_path, relative_p, s):  # matches glob, now check regex
+            if (dir_path := file_path.parent) in dir_paths__skip_files:
+                continue
+            relative_file_p = make_relative_p(file_path, top_path, with_leading_slash=True)
+            if is_file_matching_glob(file_path, relative_file_p, s):  # matches glob, now check regex
                 if inc_files_rx:  # only included paths must be considered
-                    if not find_matching_pattern(relative_p, inc_files_rx):
-                        logger.log(DEBUG_13, f"|f ...{relative_p}  -- skipping (none of included_files_as_regex matches)")
+                    if not find_matching_pattern(relative_file_p, inc_files_rx):
+                        logger.log(DEBUG_13, f"|f ...{relative_file_p}  -- skipping (none of included_files_as_regex matches)")
                 else:  # no incl filtering; checking exc_files_rx
-                    if exc_rx := find_matching_pattern(relative_p, exc_files_rx):
-                        logger.log(DEBUG_14, f"|f ...{relative_p}  -- skipping (matches '{exc_rx}')")
+                    if exc_rx := find_matching_pattern(relative_file_p, exc_files_rx):
+                        logger.log(DEBUG_14, f"|f ...{relative_file_p}  -- skipping (matches '{exc_rx}')")
                     else:
                         yield file_path
             else:  # doesn't match glob
                 pass
 
 
-def is_dir_matching_top_dirs(dir_path: Path, relative_p: str, s: Settings) -> bool:
+def calc_dir_matches_top_dirs(dir_path: Path, relative_dir_p: str, s: Settings) -> tuple[bool, bool]:
+    """It's used for os.walk() to decide whether to remove dir_path from the list before files are processed in each (remaining) dir_path"""
     # remove the file part by splitting at the rightmost sep, making sure not to split at the root sep
     inc_file_dirnames_as_glob = {f.rsplit(sep, 1)[0] for f in s.included_files_as_glob if (sep := find_sep(f)) and sep in f.lstrip(sep)}
     inc_top_dirs_psx = [p.as_posix() for p in s.included_top_dirs]
@@ -600,21 +607,33 @@ def is_dir_matching_top_dirs(dir_path: Path, relative_p: str, s: Settings) -> bo
     dir_path_psx = dir_path.as_posix()
     for exc_top_psx in exc_top_dirs_psx:
         if dir_path_psx.startswith(exc_top_psx):
-            logger.log(DEBUG_14, f"|D ...{relative_p}  -- skipping (matches excluded_top_dirs)")
-            return False
+            logger.log(DEBUG_14, f"|D ...{relative_dir_p}  -- skipping (matches excluded_top_dirs)")
+            return False, False
     if not (s.included_top_dirs or s.included_files_as_glob):
-        logger.log(DEBUG_11, f"=D ...{relative_p}  -- including all (no included_top_dirs or included_files_as_glob)")
-        return True
+        logger.log(DEBUG_11, f"=D ...{relative_dir_p}  -- including all (no included_top_dirs or included_files_as_glob)")
+        return True, False
     for dirname_glob in inc_file_dirnames_as_glob:
         if dir_path.match(dirname_glob):
-            logger.log(DEBUG_12, f"=D ...{relative_p}  -- matches included_file_as_glob's dirname")
-            return True
+            logger.log(DEBUG_12, f"=D ...{relative_dir_p}  -- matches included_file_as_glob's dirname")
+            return True, False
     for inc_top_psx in inc_top_dirs_psx:
-        if dir_path_psx.startswith(inc_top_psx) or inc_top_psx.startswith(dir_path_psx):
-            logger.log(DEBUG_12, f"=D ...{relative_p}  -- matches included_top_dirs")
-            return True
-    logger.log(DEBUG_13, f"|D ...{relative_p}  -- skipping (doesn't match dirnames and/or top_dirs)")
-    return False
+        # Example
+        # source_dir = '/home'
+        # included_top_dirs = ['/home/docs', '/home/pics']
+        if dir_path_psx.startswith(inc_top_psx):
+            # current dir_path_psx = '/home/docs/med'
+            # '/home/docs/med'.startswith('/home/docs')
+            logger.log(DEBUG_12, f"=D ...{relative_dir_p}  -- matches included_top_dirs")
+            return True, False
+        if inc_top_psx.startswith(dir_path_psx):
+            # current dir_path_psx = '/home'
+            # '/home/docs'.startswith('/home')
+            # this is to keep the path in dirs of os.walk(), i.e. to avoid excluding the entire tree
+            # but not for files, i.e. files in '/home' must be skipped
+            # no logging - dir_path is included for technical reasons only
+            return True, True  # skip_files
+    logger.log(DEBUG_13, f"|D ...{relative_dir_p}  -- skipping (doesn't match dirnames and/or top_dirs)")
+    return False, False
 
 
 def is_file_matching_glob(file_path: Path, relative_p: str, s: Settings) -> bool:
