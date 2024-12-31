@@ -1193,12 +1193,15 @@ def compute_blake2b_checksum(f: BufferedIOBase) -> str:
 
 
 class RumarDB:
+    SPACE = ' '
 
     def __init__(self, profile: str, s: Settings):
         self._profile = profile
         self.s = s
         self._db = sqlite3.connect(s.db_path)
+        self._db.execute('PRAGMA foreign_keys = ON')
         self._create_tables_if_not_exist()
+        self._create_views_if_not_exist()
         self._profile_to_id = {}
         self._run_to_id = {}
         self._src_dir_to_id = {}
@@ -1206,7 +1209,7 @@ class RumarDB:
         self._bak_dir_to_id = {}
         self._backup_to_checksum = {}
         self._load_data_into_memory()
-        self._run_datetime_iso = datetime.now().astimezone().isoformat(sep=' ', timespec='seconds')
+        self._run_datetime_iso = datetime.now().astimezone().isoformat(sep=self.SPACE, timespec='seconds')
         if self._profile not in self._profile_to_id:
             self._save_initial_state()
 
@@ -1252,7 +1255,7 @@ class RumarDB:
                 reason TEXT NOT NULL,
                 bak_dir_id INTEGER NOT NULL REFERENCES backup_base_dir_for_profile (id),
                 bak_path TEXT NOT NULL,
-                mtime TEXT NOT NULL,
+                mtime_iso TEXT NOT NULL,
                 size INTEGER NOT NULL,
                 blake2b TEXT NOT NULL,
                 src_id INTEGER NOT NULL REFERENCES source (id),
@@ -1260,7 +1263,7 @@ class RumarDB:
             )
         ''')
         indexes = dedent('''\
-            CREATE INDEX IF NOT EXISTS i_backup_mtime ON backup (mtime);
+            CREATE INDEX IF NOT EXISTS i_backup_mtime_iso ON backup (mtime_iso);
             CREATE INDEX IF NOT EXISTS i_backup_size ON backup (size);
             CREATE INDEX IF NOT EXISTS i_backup_blake2b ON backup (blake2b);
             CREATE INDEX IF NOT EXISTS i_backup_reason ON backup (reason);
@@ -1269,6 +1272,21 @@ class RumarDB:
         for stmt in ddl.values():
             cur.execute(stmt)
         cur.executescript(indexes)
+        cur.close()
+
+    def _create_views_if_not_exist(self):
+        ddl = {}
+        ddl['v_backup'] = dedent('''\
+            CREATE VIEW IF NOT EXISTS v_backup AS
+            SELECT run_datetime_iso, profile, reason, src_path, mtime_iso, "size"
+            FROM backup
+            JOIN run ON run_id = run.id
+            JOIN profile ON run.profile_id = profile.id
+            JOIN "source" ON src_id = "source".id
+        ''')
+        cur = self._db.cursor()
+        for stmt in ddl.values():
+            cur.execute(stmt)
         cur.close()
 
     def _load_data_into_memory(self):
@@ -1361,8 +1379,9 @@ class RumarDB:
             self._bak_dir_to_id[bak_dir] = bak_dir_id
         # backup
         bak_path = relative_a
-        execute(cur, 'INSERT INTO backup (bak_dir_id, bak_path, mtime, size, blake2b, reason, src_id, run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                    (bak_dir_id, bak_path, mtime_str, size, blake2b_checksum, reason, src_id, run_id))
+        mtime_iso = mtime_str.replace(Rumar.UNDERSCORE, self.SPACE).replace(Rumar.COMMA, Rumar.COLON)
+        execute(cur, 'INSERT INTO backup (bak_dir_id, bak_path, mtime_iso, size, blake2b, reason, src_id, run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    (bak_dir_id, bak_path, mtime_iso, size, blake2b_checksum, reason, src_id, run_id))
         self._backup_to_checksum[(bak_dir_id, bak_path)] = blake2b_checksum
         cur.close()
         self._db.commit()
