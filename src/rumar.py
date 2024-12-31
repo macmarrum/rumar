@@ -1200,7 +1200,7 @@ class RumarDB:
         self._db = sqlite3.connect(s.db_path)
         self._create_tables_if_not_exist()
         self._profile_to_id = {}
-        self._creation_to_id = {}
+        self._run_to_id = {}
         self._src_dir_to_id = {}
         self._source_to_id = {}
         self._bak_dir_to_id = {}
@@ -1232,11 +1232,11 @@ class RumarDB:
                 profile TEXT UNIQUE NOT NULL
             )
         ''')
-        ddl['creation'] = dedent('''\
-            CREATE TABLE IF NOT EXISTS creation (
+        ddl['run'] = dedent('''\
+            CREATE TABLE IF NOT EXISTS run (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                profile_id INTEGER NOT NULL REFERENCES profile (id),
-                run_datetime_iso TEXT UNIQUE NOT NULL
+                run_datetime_iso TEXT UNIQUE NOT NULL,
+                profile_id INTEGER NOT NULL REFERENCES profile (id)
             )
         ''')
         ddl['backup_base_dir_for_profile'] = dedent('''\
@@ -1248,14 +1248,14 @@ class RumarDB:
         ddl['backup'] = dedent('''\
             CREATE TABLE IF NOT EXISTS backup (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL REFERENCES run (id),
+                reason TEXT NOT NULL,
                 bak_dir_id INTEGER NOT NULL REFERENCES backup_base_dir_for_profile (id),
                 bak_path TEXT NOT NULL,
                 mtime TEXT NOT NULL,
                 size INTEGER NOT NULL,
                 blake2b TEXT NOT NULL,
-                reason TEXT NOT NULL,
                 src_id INTEGER NOT NULL REFERENCES source (id),
-                creation_id INTEGER NOT NULL REFERENCES creation (id),
                 CONSTRAINT u_bak_dir_id_bak_path UNIQUE (bak_dir_id, bak_path)
             )
         ''')
@@ -1275,8 +1275,8 @@ class RumarDB:
         cur = self._db.cursor()
         for profile, id_ in cur.execute('SELECT profile, id FROM profile'):
             self._profile_to_id[profile] = id_
-        for profile_id, run_datetime_iso, id_ in cur.execute('SELECT profile_id, run_datetime_iso, id FROM creation'):
-            self._creation_to_id[(profile_id, run_datetime_iso)] = id_
+        for run_datetime_iso, id_ in cur.execute('SELECT run_datetime_iso, id FROM run'):
+            self._run_to_id[run_datetime_iso] = id_
         for src_dir, id_ in cur.execute('SELECT src_dir, id FROM source_dir'):
             self._src_dir_to_id[src_dir] = id_
         for src_dir_id, src_path, id_ in cur.execute('SELECT src_dir_id, src_path, id FROM source'):
@@ -1290,7 +1290,7 @@ class RumarDB:
     def _print_dicts(self):
         print(str(self.s.db_path))
         print(self._profile_to_id)
-        print(self._creation_to_id)
+        print(self._run_to_id)
         print(self._src_dir_to_id)
         print(self._source_to_id)
         print(self._bak_dir_to_id)
@@ -1336,11 +1336,11 @@ class RumarDB:
             execute(cur,'INSERT INTO profile (profile) VALUES (?)', (profile,))
             profile_id = cur.execute('SELECT id FROM profile WHERE profile = ?', (profile,)).fetchone()[0]
             self._profile_to_id[profile] = profile_id
-        # creation
-        if not (creation_id := self._creation_to_id.get((profile_id, run_datetime_iso))):
-            execute(cur, 'INSERT INTO creation (profile_id, run_datetime_iso) VALUES (?,?)', (profile_id, run_datetime_iso))
-            creation_id = cur.execute('SELECT id FROM creation WHERE profile_id = ? AND run_datetime_iso = ?', (profile_id, run_datetime_iso)).fetchone()[0]
-            self._creation_to_id[(profile_id, run_datetime_iso)] = creation_id
+        # run
+        if not (run_id := self._run_to_id.get((profile_id, run_datetime_iso))):
+            execute(cur, 'INSERT INTO run (profile_id, run_datetime_iso) VALUES (?,?)', (profile_id, run_datetime_iso))
+            run_id = cur.execute('SELECT id FROM run WHERE profile_id = ? AND run_datetime_iso = ?', (profile_id, run_datetime_iso)).fetchone()[0]
+            self._run_to_id[(profile_id, run_datetime_iso)] = run_id
         # source_dir
         src_dir = s.source_dir.as_posix()
         if not (src_dir_id := self._src_dir_to_id.get(src_dir)):
@@ -1361,8 +1361,8 @@ class RumarDB:
             self._bak_dir_to_id[bak_dir] = bak_dir_id
         # backup
         bak_path = relative_a
-        execute(cur, 'INSERT INTO backup (bak_dir_id, bak_path, mtime, size, blake2b, reason, src_id, creation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                    (bak_dir_id, bak_path, mtime_str, size, blake2b_checksum, reason, src_id, creation_id))
+        execute(cur, 'INSERT INTO backup (bak_dir_id, bak_path, mtime, size, blake2b, reason, src_id, run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    (bak_dir_id, bak_path, mtime_str, size, blake2b_checksum, reason, src_id, run_id))
         self._backup_to_checksum[(bak_dir_id, bak_path)] = blake2b_checksum
         cur.close()
         self._db.commit()
