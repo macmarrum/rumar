@@ -166,6 +166,7 @@ store_true = 'store_true'
 PathAlike = Union[str, PathLike[str]]
 UTF8 = 'UTF-8'
 RUMAR_SQLITE = 'rumar.sqlite'
+RX_ARCHIVE_SUFFIX = re.compile(r'(\.(?:tar(?:\.(?:gz|bz2|xz))?|zipx))$')
 
 
 def main():
@@ -733,12 +734,10 @@ class Rumar:
     NOCOMPRESSION_FORMAT_COMPRESSLEVEL = RumarFormat.TAR, {}
     LNK = 'LNK'
     ARCHIVE_FORMAT_TO_MODE = {RumarFormat.TAR: 'x', RumarFormat.TGZ: 'x:gz', RumarFormat.TBZ: 'x:bz2', RumarFormat.TXZ: 'x:xz'}
-    RX_ARCHIVE_SUFFIX = re.compile(r'(\.(?:tar(?:\.(?:gz|bz2|xz))?|zipx))$')
     CHECKSUM_SUFFIX = '.b2'
     CHECKSUM_SIZE_THRESHOLD = 10_000_000
     STEMS = 'stems'
     PATHS = 'paths'
-    RUMAR_SQLITE = 'rumar.sqlite'
 
     def __init__(self, profile_to_settings: ProfileToSettings, toml: Path):
         self._profile_to_settings = profile_to_settings
@@ -753,29 +752,6 @@ class Rumar:
     def can_ignore_for_archive(lstat: os.stat_result) -> bool:
         mode = lstat.st_mode
         return stat.S_ISSOCK(mode) or stat.S_ISDOOR(mode)
-
-    @staticmethod
-    def find_last_file_in_dir(archive_dir: Path, pattern: Pattern | None = None, nonzero=True) -> Path | None:
-        try:
-            for dir_entry in sorted(os.scandir(archive_dir), key=lambda x: x.name, reverse=True):
-                if dir_entry.is_file() and (pattern is None or pattern.search(dir_entry.name)) and (not nonzero or dir_entry.stat().st_size > 0):
-                    return Path(dir_entry)
-        except FileNotFoundError as ex:
-            # logger.warning(ex)
-            pass
-
-    @staticmethod
-    def find_last_file_in_basedir(basedir: str | Path, filenames: list[str] | None = None, pattern: Pattern | None = None, nonzero=True) -> Path | None:
-        """As in: `for basedir, dirnames, filenames in os.walk(top_dir):`
-        :return: Path of `filename` matching `pattern`, and of size > 0 if nonzero
-        """
-        if filenames is None:
-            filenames = [de.name for de in os.scandir(basedir) if de.is_file()]
-        for file in sorted(filenames, reverse=True):
-            if pattern is None or pattern.search(file):
-                path = Path(basedir, file)
-                if not nonzero or path.stat().st_size > 0:
-                    return path
 
     @staticmethod
     def compute_checksum_of_file_in_archive(archive: Path, password: bytes) -> str:
@@ -819,18 +795,18 @@ class Rumar:
         core = cls.extract_core(archive_path.name)
         return cls.split_mtime_size(core)
 
-    @classmethod
-    def extract_core(cls, basename: str) -> str:
+    @staticmethod
+    def extract_core(basename: str) -> str:
         """Example: 2023-04-30_09,48,20.872144+02,00~123#a7b6de.tar.gz => 2023-04-30_09,48,20+02,00~123#a7b6de"""
-        core = cls.RX_ARCHIVE_SUFFIX.sub('', basename)
+        core = RX_ARCHIVE_SUFFIX.sub('', basename)
         if core == basename:
             raise RuntimeError('basename: ' + basename)
         return core
 
-    @classmethod
-    def split_ext(cls, basename: str) -> tuple[str, str]:
+    @staticmethod
+    def split_ext(basename: str) -> tuple[str, str]:
         """Example: 2023-04-30_09,48,20.872144+02,00~123.tar.gz => 2023-04-30_09,48,20+02,00~123 .tar.gz"""
-        cor_ext_rest = cls.RX_ARCHIVE_SUFFIX.split(basename)
+        cor_ext_rest = RX_ARCHIVE_SUFFIX.split(basename)
         if len(cor_ext_rest) < 3:
             raise ValueError(basename)
         return cor_ext_rest[0], cor_ext_rest[1]
@@ -884,7 +860,7 @@ class Rumar:
                     checksum = compute_blake2b_checksum(f)
             else:
                 checksum = None
-            latest_archive = self.find_last_file_in_dir(archive_dir, self.RX_ARCHIVE_SUFFIX)
+            latest_archive = find_last_file_in_dir(archive_dir, RX_ARCHIVE_SUFFIX)
             if latest_archive is None:
                 # no previous backup found
                 self._create(CreateReason.CREATE, p, relative_p, archive_dir, mtime_str, size, checksum)
@@ -1104,7 +1080,7 @@ class Rumar:
 
     def extract_latest_file(self, backup_base_dir_for_profile, archive_dir: Path, directory: Path, overwrite: bool, meta_diff: bool,
                             filenames: list[str] | None = None):
-        archive_file = self.find_last_file_in_basedir(archive_dir, filenames, self.RX_ARCHIVE_SUFFIX)
+        archive_file = find_last_file_in_basedir(archive_dir, filenames, RX_ARCHIVE_SUFFIX)
         if archive_file:
             relative_file_parent = make_relative_p(archive_dir.parent, backup_base_dir_for_profile)
             target_file = directory / relative_file_parent / archive_dir.name
@@ -1198,6 +1174,29 @@ def compute_blake2b_checksum(f: BufferedIOBase) -> str:
     for chunk in iter(lambda: f.read(32768), b''):
         b.update(chunk)
     return b.hexdigest()
+
+
+def find_last_file_in_dir(archive_dir: Path, pattern: Pattern | None = None, nonzero=True) -> Path | None:
+    try:
+        for dir_entry in sorted(os.scandir(archive_dir), key=lambda x: x.name, reverse=True):
+            if dir_entry.is_file() and (pattern is None or pattern.search(dir_entry.name)) and (not nonzero or dir_entry.stat().st_size > 0):
+                return Path(dir_entry)
+    except FileNotFoundError as ex:
+        # logger.warning(ex)
+        pass
+
+
+def find_last_file_in_basedir(basedir: str | Path, filenames: list[str] | None = None, pattern: Pattern | None = None, nonzero=True) -> Path | None:
+    """As in: `for basedir, dirnames, filenames in os.walk(top_dir):`
+    :return: Path of `filename` matching `pattern`, and of size > 0 if nonzero
+    """
+    if filenames is None:
+        filenames = [de.name for de in os.scandir(basedir) if de.is_file()]
+    for file in sorted(filenames, reverse=True):
+        if pattern is None or pattern.search(file):
+            path = Path(basedir, file)
+            if not nonzero or path.stat().st_size > 0:
+                return path
 
 
 class RumarDB:
@@ -1336,7 +1335,7 @@ class RumarDB:
     def _save_initial_state(self):
         """Walks `backup_base_dir_for_profile` and saves latest archive of each source, whether the source file currently exists or not"""
         for basedir, dirnames, filenames in os.walk(self.s.backup_base_dir_for_profile):
-            if latest_archive := Rumar.find_last_file_in_basedir(basedir, filenames, Rumar.RX_ARCHIVE_SUFFIX):
+            if latest_archive := find_last_file_in_basedir(basedir, filenames, RX_ARCHIVE_SUFFIX):
                 relative_archive_dir = make_relative_p(latest_archive.parent, self.s.backup_base_dir_for_profile)
                 file_path = self.s.source_dir / relative_archive_dir
                 relative_p = make_relative_p(file_path, self.s.source_dir)
