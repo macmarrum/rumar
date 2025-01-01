@@ -755,26 +755,27 @@ class Rumar:
         return stat.S_ISSOCK(mode) or stat.S_ISDOOR(mode)
 
     @staticmethod
-    def find_last_file_in_dir(archive_dir: Path, pattern: Pattern | None = None) -> Path | None:
+    def find_last_file_in_dir(archive_dir: Path, pattern: Pattern | None = None, nonzero=True) -> Path | None:
         try:
             for dir_entry in sorted(os.scandir(archive_dir), key=lambda x: x.name, reverse=True):
-                if dir_entry.is_file():
-                    if pattern is None or pattern.search(dir_entry.name):
-                        return Path(dir_entry)
+                if dir_entry.is_file() and (pattern is None or pattern.search(dir_entry.name)) and (not nonzero or dir_entry.stat().st_size > 0):
+                    return Path(dir_entry)
         except FileNotFoundError as ex:
             # logger.warning(ex)
             pass
 
     @staticmethod
-    def find_last_file_in_basedir(basedir: str | Path, filenames: list[str] | None = None, pattern: Pattern | None = None) -> Path | None:
+    def find_last_file_in_basedir(basedir: str | Path, filenames: list[str] | None = None, pattern: Pattern | None = None, nonzero=True) -> Path | None:
         """As in: `for basedir, dirnames, filenames in os.walk(top_dir):`
-        :return: Path of `filename` matching `pattern`
+        :return: Path of `filename` matching `pattern`, and of size > 0 if nonzero
         """
         if filenames is None:
             filenames = [de.name for de in os.scandir(basedir) if de.is_file()]
         for file in sorted(filenames, reverse=True):
             if pattern is None or pattern.search(file):
-                return Path(basedir, file)
+                path = Path(basedir, file)
+                if not nonzero or path.stat().st_size > 0:
+                    return path
 
     @staticmethod
     def compute_checksum_of_file_in_archive(archive: Path, password: bytes) -> str:
@@ -1298,7 +1299,7 @@ class RumarDB:
         ''')
         ddl['v_run'] = dedent('''\
             CREATE VIEW IF NOT EXISTS v_run AS
-            SELECT run_datetime_iso, profile
+            SELECT run.id run_id, run_datetime_iso, profile_id, profile
             FROM run
             JOIN profile ON profile_id = profile.id
         ''')
