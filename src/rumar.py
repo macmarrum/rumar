@@ -548,83 +548,86 @@ SLASH = '/'
 BACKSLASH = '\\'
 
 
-def iter_all_files(top_path: Path):
-    for root, dirs, files in os.walk(top_path):
-        for d in dirs.copy():
-            dir_path = Path(root, d)
-            # a symlink is a file, not a dir
-            if dir_path.is_symlink():
-                dirs.remove(d)
-                files.insert(0, d)
-        for file in files:
-            yield Path(root, file)
+def iter_all_files(top_path: Path | PathLike) -> Iterator[os.DirEntry]:
+    de_directories = []
+    for de in os.scandir(top_path):
+        if de.is_dir(follow_symlinks=False):
+            de_directories.append(de)
+        else:
+            yield de
+    for de_dir in de_directories:
+        yield from iter_all_files(de_dir)
 
 
-def iter_matching_files(top_path: Path, s: Settings):
+def iter_matching_files(top_path: Path, s: Settings) -> Iterator[os.DirEntry]:
     inc_dirs_rx = s.included_dirs_as_regex
     exc_dirs_rx = s.excluded_dirs_as_regex
     inc_files_rx = s.included_files_as_regex
     exc_files_rx = s.excluded_files_as_regex
-    dir_paths__skip_files = []
-    for root, dirs, files in os.walk(top_path):
-        for d in dirs.copy():
-            dir_path = Path(root, d)
-            # a symlink is a file, not a dir
-            if dir_path.is_symlink():
-                dirs.remove(d)
-                files.insert(0, d)
-                continue
-            relative_dir_p = make_relative_p(dir_path, top_path, with_leading_slash=True)
-            is_dir_matching_top_dirs, skip_files = calc_dir_matches_top_dirs(dir_path, relative_dir_p, s)
-            if skip_files:
-                dir_paths__skip_files.append(dir_path)
-            if is_dir_matching_top_dirs:  # matches dirnames and/or top_dirs, now check regex
-                if inc_dirs_rx:  # only included paths must be considered
-                    if not find_matching_pattern(relative_dir_p, inc_dirs_rx):
-                        dirs.remove(d)
-                        logger.log(DEBUG_13, f"|d ...{relative_dir_p}  -- skipping dir (none of included_dirs_as_regex matches)")
-                if d in dirs and (exc_rx := find_matching_pattern(relative_dir_p, exc_dirs_rx)):
-                    dirs.remove(d)
-                    logger.log(DEBUG_14, f"|d ...{relative_dir_p}  -- skipping dir (matches '{exc_rx}')")
-            else:  # doesn't match dirnames and/or top_dirs
-                dirs.remove(d)
-        for f in files:
-            file_path = Path(root, f)
-            if (dir_path := file_path.parent) in dir_paths__skip_files:
-                continue
-            relative_file_p = make_relative_p(file_path, top_path, with_leading_slash=True)
-            if is_file_matching_glob(file_path, relative_file_p, s):  # matches glob, now check regex
-                if inc_files_rx:  # only included paths must be considered
-                    if not find_matching_pattern(relative_file_p, inc_files_rx):
-                        logger.log(DEBUG_13, f"|f ...{relative_file_p}  -- skipping (none of included_files_as_regex matches)")
-                else:  # no incl filtering; checking exc_files_rx
-                    if exc_rx := find_matching_pattern(relative_file_p, exc_files_rx):
+
+    def _iter(directory: os.DirEntry | Path) -> os.DirEntry:
+        dir_paths__skip_files = []
+        de_directories = {}  # to preserve order
+        de_files = {}  # to preserve order
+        for de in os.scandir(directory):
+            if de.is_dir(follow_symlinks=False):
+                dir_path = Path(de)
+                relative_dir_p = make_relative_p(dir_path, top_path, with_leading_slash=True)
+                is_dir_matching_top_dirs, skip_files = calc_dir_matches_top_dirs(dir_path, relative_dir_p, s)
+                if skip_files:
+                    dir_paths__skip_files.append(dir_path)
+                if is_dir_matching_top_dirs:  # matches dirnames and/or top_dirs, now check regex
+                    if inc_dirs_rx:  # only included paths must be considered
+                        if find_matching_pattern(relative_dir_p, inc_dirs_rx):
+                            de_directories[de] = None
+                        else:
+                            logger.log(DEBUG_13, f"|d ...{relative_dir_p}  -- skipping dir (none of included_dirs_as_regex matches)")
+                    if exc_dirs_rx and de in de_directories and (exc_rx := find_matching_pattern(relative_dir_p, exc_dirs_rx)):
+                        del de_directories[de]
+                        logger.log(DEBUG_14, f"|d ...{relative_dir_p}  -- skipping dir (matches '{exc_rx}')")
+                else:  # doesn't match dirnames and/or top_dirs
+                    pass
+            else:  # a file
+                file_path = Path(de)
+                relative_file_p = make_relative_p(file_path, top_path, with_leading_slash=True)
+                if is_file_matching_glob(file_path, relative_file_p, s):  # matches glob, now check regex
+                    if inc_files_rx:  # only included paths must be considered
+                        if find_matching_pattern(relative_file_p, inc_files_rx):
+                            de_files[de] = None
+                        else:
+                            logger.log(DEBUG_13, f"|f ...{relative_file_p}  -- skipping (none of included_files_as_regex matches)")
+                    if exc_files_rx and de in de_files and (exc_rx := find_matching_pattern(relative_file_p, exc_files_rx)):
+                        del de_files[de]
                         logger.log(DEBUG_14, f"|f ...{relative_file_p}  -- skipping (matches '{exc_rx}')")
-                    else:
-                        yield file_path
-            else:  # doesn't match glob
-                pass
+                else:  # doesn't match glob
+                    pass
+        for de_file in de_files:
+            dir_path = Path(de_file).parent
+            if dir_path not in dir_paths__skip_files:
+                yield de_file
+        for de_dir in de_directories:
+            yield from _iter(de_dir)
+
+    yield from _iter(top_path)
 
 
 def calc_dir_matches_top_dirs(dir_path: Path, relative_dir_p: str, s: Settings) -> tuple[bool, bool]:
     """It's used for os.walk() to decide whether to remove dir_path from the list before files are processed in each (remaining) dir_path"""
-    # remove the file part by splitting at the rightmost sep, making sure not to split at the root sep
-    inc_file_dirnames_as_glob = {f.rsplit(sep, 1)[0] for f in s.included_files_as_glob if (sep := find_sep(f)) and sep in f.lstrip(sep)}
-    inc_top_dirs_psx = [p.as_posix() for p in s.included_top_dirs]
-    exc_top_dirs_psx = [p.as_posix() for p in s.excluded_top_dirs]
     dir_path_psx = dir_path.as_posix()
-    for exc_top_psx in exc_top_dirs_psx:
+    for exc_top_psx in (p.as_posix() for p in s.excluded_top_dirs):
         if dir_path_psx.startswith(exc_top_psx):
             logger.log(DEBUG_14, f"|D ...{relative_dir_p}  -- skipping (matches excluded_top_dirs)")
             return False, False
     if not (s.included_top_dirs or s.included_files_as_glob):
         logger.log(DEBUG_11, f"=D ...{relative_dir_p}  -- including all (no included_top_dirs or included_files_as_glob)")
         return True, False
+    # remove the file part by splitting at the rightmost sep, making sure not to split at the root sep
+    inc_file_dirnames_as_glob = {f.rsplit(sep, 1)[0]: None for f in s.included_files_as_glob if (sep := find_sep(f)) and sep in f.lstrip(sep)}
     for dirname_glob in inc_file_dirnames_as_glob:
         if dir_path.match(dirname_glob):
             logger.log(DEBUG_12, f"=D ...{relative_dir_p}  -- matches included_file_as_glob's dirname")
             return True, False
-    for inc_top_psx in inc_top_dirs_psx:
+    for inc_top_psx in (p.as_posix() for p in s.included_top_dirs):
         # Example
         # source_dir = '/home'
         # included_top_dirs = ['/home/docs', '/home/pics']
@@ -645,27 +648,24 @@ def calc_dir_matches_top_dirs(dir_path: Path, relative_dir_p: str, s: Settings) 
 
 
 def is_file_matching_glob(file_path: Path, relative_p: str, s: Settings) -> bool:
-    inc_top_dirs_psx = [p.as_posix() for p in s.included_top_dirs]
-    inc_files = s.included_files_as_glob
-    exc_files = s.excluded_files_as_glob
-    file_path_psx = file_path.as_posix()
     # interestingly, the following expression doesn't have the same effect as the below for-loops - why?
     # not any(file_path.match(file_as_glob) for file_as_glob in exc_files) and (
     #         any(file_path.match(file_as_glob) for file_as_glob in inc_files)
     #         or any(file_path_psx.startswith(top_dir) for top_dir in inc_top_dirs_psx)
     # )
-    for file_as_glob in exc_files:
+    for file_as_glob in s.excluded_files_as_glob:
         if file_path.match(file_as_glob):
             logger.log(DEBUG_14, f"|F ...{relative_p}  -- skipping (matches excluded_files_as_glob {file_as_glob!r})")
             return False
     if not (s.included_top_dirs or s.included_files_as_glob):
         logger.log(DEBUG_11, f"=F ...{relative_p}  -- including all (no included_top_dirs or included_files_as_glob)")
         return True
-    for file_as_glob in inc_files:
+    for file_as_glob in s.included_files_as_glob:
         if file_path.match(file_as_glob):
             logger.log(DEBUG_12, f"=F ...{relative_p}  -- matches included_files_as_glob {file_as_glob!r}")
             return True
-    for inc_top_psx in inc_top_dirs_psx:
+    file_path_psx = file_path.as_posix()
+    for inc_top_psx in (p.as_posix() for p in s.included_top_dirs):
         if file_path_psx.startswith(inc_top_psx):
             logger.log(DEBUG_12, f"=F ...{relative_p}  -- matches included_top_dirs {inc_top_psx!r}")
             return True
@@ -827,8 +827,13 @@ class Rumar:
     def s(self) -> Settings:
         return self._profile_to_settings[self._profile]
 
-    def cached_lstat(self, path: Path):
-        return self._path_to_lstat.setdefault(path, path.lstat())
+    def get_cached_lstat(self, path: Path):
+        lstat = self._path_to_lstat.get(path)
+        if not lstat:
+            logger.debug(f"call lstat() on {str(path)}")
+            lstat = path.lstat()
+            self._path_to_lstat[path] = lstat
+        return lstat
 
     def create_for_all_profiles(self):
         for profile in self._profile_to_settings:
@@ -848,7 +853,7 @@ class Rumar:
             return
         for p in self.source_files:
             relative_p = make_relative_p(p, self.s.source_dir)
-            lstat = self.cached_lstat(p)  # don't follow symlinks - pathlib calls stat for each is_*()
+            lstat = self.get_cached_lstat(p)  # don't follow symlinks - pathlib calls stat for each is_*()
             mtime = lstat.st_mtime
             mtime_dt = datetime.fromtimestamp(mtime).astimezone()
             mtime_str = self.to_mtime_str(mtime_dt)
@@ -952,7 +957,7 @@ class Rumar:
         logger.info(f"{sign} {relative_p}  {mtime_str}  {size} {reason} {archive_dir}")
         archive_format, compresslevel_kwargs = self.calc_archive_format_and_compresslevel_kwargs(path)
         mode = self.ARCHIVE_FORMAT_TO_MODE[archive_format]
-        is_lnk = stat.S_ISLNK(self.cached_lstat(path).st_mode)
+        is_lnk = stat.S_ISLNK(self.get_cached_lstat(path).st_mode)
         archive_path = self.calc_archive_path(archive_dir, archive_format, mtime_str, size, self.LNK if is_lnk else self.BLANK)
         with tarfile.open(archive_path, mode, format=self.s.tar_format, **compresslevel_kwargs) as tf:
             tf.add(path, arcname=path.name)
@@ -968,7 +973,7 @@ class Rumar:
             kwargs = {self.COMPRESSION: zipfile.ZIP_STORED}
         else:
             kwargs = {self.COMPRESSION: self.s.zip_compression_method, self.COMPRESSLEVEL: self.s.compression_level}
-        is_lnk = stat.S_ISLNK(self.cached_lstat(path).st_mode)
+        is_lnk = stat.S_ISLNK(self.get_cached_lstat(path).st_mode)
         archive_path = self.calc_archive_path(archive_dir, RumarFormat.ZIPX, mtime_str, size, self.LNK if is_lnk else self.BLANK)
         with pyzipper.AESZipFile(archive_path, 'w', encryption=pyzipper.WZ_AES, **kwargs) as zf:
             zf.setpassword(self.s.password)
@@ -985,7 +990,7 @@ class Rumar:
     def calc_archive_format_and_compresslevel_kwargs(self, path: Path) -> tuple[RumarFormat, dict]:
         if (
                 path.is_absolute() and  # for gardner.repack, which has only arc_name
-                stat.S_ISLNK(self.cached_lstat(path).st_mode)
+                stat.S_ISLNK(self.get_cached_lstat(path).st_mode)
         ):
             return self.SYMLINK_FORMAT_COMPRESSLEVEL
         elif path.suffix.lower() in self.s.suffixes_without_compression or self.s.archive_format == RumarFormat.TAR:
@@ -1007,8 +1012,14 @@ class Rumar:
         else:
             iterator = iter_all_files(top_path)
             logger.debug(f"{s.commands_which_use_filters=} => iter_all_files")
-        for file_path in iterator:
-            lstat = self.cached_lstat(file_path)
+        for dir_entry in iterator:
+            file_path = Path(dir_entry)
+            if self._path_to_lstat.get(file_path):
+                raise RuntimeError(f"_path_to_lstat exists for {str(file_path)} -- this is unexpected")
+            else:
+                # pupulate lstat cache
+                lstat = dir_entry.stat(follow_symlinks=False)
+                self._path_to_lstat[file_path] = lstat
             if self.can_ignore_for_archive(lstat):
                 logger.info(f"-| {file_path}  -- ignoring file for archiving: socket/door")
                 continue
@@ -1023,7 +1034,7 @@ class Rumar:
         a duplicate file has the same suffix and size and part of its name, case-insensitive (suffix, name)
         """
         stem, suffix = os.path.splitext(file_path.name.lower())
-        size = self.cached_lstat(file_path).st_size
+        size = self.get_cached_lstat(file_path).st_size
         if size_to_stems_and_paths := self._suffix_size_stems_and_paths.get(suffix):
             if stems_and_paths := size_to_stems_and_paths.get(size):
                 if stems_and_paths:
@@ -1476,13 +1487,14 @@ class Broom:
             iterator = iter_all_files(s.backup_base_dir_for_profile)
             logger.debug(f"{s.commands_which_use_filters=} => iter_all_files")
         old_enough_file_to_mdate = {}
-        for path in iterator:
+        for dir_entry in iterator:
+            path = Path(dir_entry)
             if self.is_archive(path.name, archive_format):
                 mdate = self.extract_date_from_name(path.name)
                 if mdate <= date_older_than_x_days:
                     old_enough_file_to_mdate[path] = mdate
             elif not self.is_checksum(path.name):
-                logger.warning(f":! {path.as_posix()}  is unexpected (not an archive)")
+                logger.warning(f":! {str(path)}  is unexpected (not an archive)")
         for path in sorted_files_by_stem_then_suffix_ignoring_case(old_enough_file_to_mdate):
             self._db.insert(path, mdate=old_enough_file_to_mdate[path])
         self._db.commit()
