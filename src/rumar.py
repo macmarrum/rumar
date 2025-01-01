@@ -690,7 +690,11 @@ def find_sep(g: str) -> str:
 
 
 def make_relative_p(path: Path, base_dir: Path, with_leading_slash=False) -> str:
-    relative_p = path.as_posix().removeprefix(base_dir.as_posix())
+    path_psx = path.as_posix()
+    base_dir_psx = base_dir.as_posix()
+    if not path_psx.startswith(base_dir_psx):
+        raise ValueError(f"{str(path)} doesn't start with {str(base_dir)}")
+    relative_p = path_psx.removeprefix(base_dir_psx)
     return relative_p.removeprefix(SLASH) if not with_leading_slash else relative_p
 
 
@@ -1292,6 +1296,12 @@ class RumarDB:
             JOIN profile ON run.profile_id = profile.id
             JOIN "source" ON src_id = "source".id
         ''')
+        ddl['v_run'] = dedent('''\
+            CREATE VIEW IF NOT EXISTS v_run AS
+            SELECT run_datetime_iso, profile
+            FROM run
+            JOIN profile ON profile_id = profile.id
+        ''')
         cur = self._db.cursor()
         for stmt in ddl.values():
             cur.execute(stmt)
@@ -1388,9 +1398,9 @@ class RumarDB:
 
     def get_blake2b_checksum(self, archive_path: Path) -> str | None:
         bak_dir = self.s.backup_base_dir_for_profile.as_posix()
-        bak_dir_id = self._bak_dir_to_id[bak_dir]
-        bak_path = make_relative_p(archive_path, self.s.backup_base_dir_for_profile)
-        return self._backup_to_checksum[(bak_dir_id, bak_path)]
+        if bak_dir_id := self._bak_dir_to_id.get(bak_dir):
+            bak_path = make_relative_p(archive_path, self.s.backup_base_dir_for_profile)
+            return self._backup_to_checksum.get((bak_dir_id, bak_path))
 
     def set_blake2b_checksum(self, archive_path: Path, blake2b_checksum: str):
         bak_dir = self.s.backup_base_dir_for_profile.as_posix()
