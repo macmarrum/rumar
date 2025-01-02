@@ -32,6 +32,7 @@ from io import BufferedIOBase
 from os import PathLike
 from pathlib import Path
 from textwrap import dedent
+from time import sleep
 from typing import Iterator, Union, Literal, Pattern, Any, Iterable, cast
 
 vi = sys.version_info
@@ -754,7 +755,9 @@ class Rumar:
         return stat.S_ISSOCK(mode) or stat.S_ISDOOR(mode)
 
     @staticmethod
-    def compute_checksum_of_file_in_archive(archive: Path, password: bytes) -> str:
+    def compute_checksum_of_file_in_archive(archive: Path, password: bytes) -> str | None:
+        if Rumar.extract_core(archive.name).endswith(f"~{Rumar.LNK}"):
+            return None
         if archive.suffix == Rumar.DOT_ZIPX:
             with pyzipper.AESZipFile(archive) as zf:
                 zf.setpassword(password)
@@ -859,6 +862,7 @@ class Rumar:
             mtime_str = self.to_mtime_str(mtime_dt)
             size = lstat.st_size
             archive_dir = self.calc_archive_container_dir(relative_p=relative_p)
+            # TODO handle LNK target changes, don't blake2b LNKs
             # get checksum of the current file
             if self.s.checksum_comparison_if_same_size:
                 with p.open('rb') as f:
@@ -1232,7 +1236,9 @@ class RumarDB:
         self._bak_dir_to_id = {}
         self._backup_to_checksum = {}
         self._load_data_into_memory()
-        self._run_datetime_iso = datetime.now().astimezone().isoformat(sep=self.SPACE, timespec='seconds')
+        while (run_datetime_iso := datetime.now().astimezone().isoformat(sep=self.SPACE, timespec='seconds')) in self._run_to_id:
+            sleep(0.25)
+        self._run_datetime_iso = run_datetime_iso
         if self._profile not in self._profile_to_id:
             self._save_initial_state()
 
@@ -1357,7 +1363,7 @@ class RumarDB:
                     blake2b_checksum = checksum_file.read_text(UTF8)
                 except FileNotFoundError:
                     # blake2b_checksum = Rumar.compute_checksum_of_file_in_archive(latest_archive, self.s.password)
-                    blake2b_checksum = None
+                        blake2b_checksum = None
                 create_reason = CreateReason.INIT
                 sign = create_reason.value
                 reason = create_reason.name
