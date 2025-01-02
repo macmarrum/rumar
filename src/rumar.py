@@ -15,7 +15,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import argparse
-import contextlib
 import logging
 import logging.config
 import os
@@ -25,6 +24,7 @@ import stat
 import sys
 import tarfile
 import zipfile
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, date
 from enum import Enum
@@ -551,6 +551,10 @@ BACKSLASH = '\\'
 
 
 def iter_all_files(top_path: Path | PathLike) -> Iterator[os.DirEntry]:
+    """
+    Note: symlinks to directories are considered files
+    :param top_path: usually `s.source_dir` or `s.backup_base_dir_for_profile`
+    """
     de_directories = []
     for de in os.scandir(top_path):
         if de.is_dir(follow_symlinks=False):
@@ -562,6 +566,10 @@ def iter_all_files(top_path: Path | PathLike) -> Iterator[os.DirEntry]:
 
 
 def iter_matching_files(top_path: Path, s: Settings) -> Iterator[os.DirEntry]:
+    """
+    Note: symlinks to directories are considered files
+    :param top_path: usually `s.source_dir` or `s.backup_base_dir_for_profile`
+    """
     inc_dirs_rx = s.included_dirs_as_regex
     exc_dirs_rx = s.excluded_dirs_as_regex
     inc_files_rx = s.included_files_as_regex
@@ -921,7 +929,7 @@ class Rumar:
                     # transfer blake2b checksum from .b2 to RumarDB
                     self._db.set_blake2b_checksum(archive_path, latest_checksum)
                 else:
-                    with contextlib.suppress(OSError):
+                    with suppress(OSError):
                         checksum_file.unlink()
         return latest_checksum
 
