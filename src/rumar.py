@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import argparse
+import contextlib
 import logging
 import logging.config
 import os
@@ -863,16 +864,10 @@ class Rumar:
             size = lstat.st_size
             archive_dir = self.calc_archive_container_dir(relative_p=relative_p)
             # TODO handle LNK target changes, don't blake2b LNKs
-            # get checksum of the current file
-            if self.s.checksum_comparison_if_same_size:
-                with p.open('rb') as f:
-                    checksum = compute_blake2b_checksum(f)
-            else:
-                checksum = None
             latest_archive = find_last_file_in_dir(archive_dir, RX_ARCHIVE_SUFFIX)
             if latest_archive is None:
                 # no previous backup found
-                self._create(CreateReason.CREATE, p, relative_p, archive_dir, mtime_str, size, checksum)
+                self._create(CreateReason.CREATE, p, relative_p, archive_dir, mtime_str, size, checksum=None)
             else:
                 latest_mtime_str, latest_size = self.extract_mtime_size(latest_archive)
                 latest_mtime_dt = self.from_mtime_str(latest_mtime_str)
@@ -883,6 +878,8 @@ class Rumar:
                     else:
                         is_changed = False
                         if self.s.checksum_comparison_if_same_size:
+                            with p.open('rb') as f:
+                                checksum = compute_blake2b_checksum(f)
                             latest_checksum = self._get_archive_checksum(latest_archive)
                             logger.info(f':- {relative_p}  {latest_mtime_str}  {latest_checksum}')
                             is_changed = checksum != latest_checksum
@@ -911,14 +908,21 @@ class Rumar:
         self._db.close()
 
     def _get_archive_checksum(self, archive_path: Path):
+        """Gets checksum from .b2 file or from RumarDB. Removes .b2 if zero-size"""
         if not (latest_checksum := self._db.get_blake2b_checksum(archive_path)):
             checksum_file = self.calc_checksum_file_path(archive_path)
-            if not checksum_file.exists():
+            try:
+                st = checksum_file.stat()
+            except OSError:  # includes FileNotFoundError, PermissionError
                 latest_checksum = self.compute_checksum_of_file_in_archive(archive_path, self.s.password)
-                # checksum_file.write_text(latest_checksum)
-            else:
-                latest_checksum = checksum_file.read_text()
-            self._db.set_blake2b_checksum(archive_path, latest_checksum)
+            else:  # no exception
+                if st.st_size > 0:
+                    latest_checksum = checksum_file.read_text()
+                    # transfer blake2b checksum from .b2 to RumarDB
+                    self._db.set_blake2b_checksum(archive_path, latest_checksum)
+                else:
+                    with contextlib.suppress(OSError):
+                        checksum_file.unlink()
         return latest_checksum
 
     def _save_checksum_if_big(self, size, checksum, relative_p, archive_dir, mtime_str):
@@ -948,13 +952,13 @@ class Rumar:
             archive_dir.mkdir(parents=True, exist_ok=True)
             checksum_file.write_text(checksum)
 
-    def _create(self, create_reason: CreateReason, path: Path, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: str):
+    def _create(self, create_reason: CreateReason, path: Path, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: str | None):
         if self.s.archive_format == RumarFormat.ZIPX:
             self._create_zipx(create_reason, path, relative_p, archive_dir, mtime_str, size, checksum)
         else:
             self._create_tar(create_reason, path, relative_p, archive_dir, mtime_str, size, checksum)
 
-    def _create_tar(self, create_reason: CreateReason, path: Path, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: str):
+    def _create_tar(self, create_reason: CreateReason, path: Path, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: str | None):
         archive_dir.mkdir(parents=True, exist_ok=True)
         sign = create_reason.value
         reason = create_reason.name
@@ -968,7 +972,7 @@ class Rumar:
         relative_a = make_relative_p(archive_path, self.s.backup_base_dir_for_profile)
         self._db.save(create_reason, relative_p, relative_a, mtime_str, size, checksum)
 
-    def _create_zipx(self, create_reason: CreateReason, path: Path, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: str):
+    def _create_zipx(self, create_reason: CreateReason, path: Path, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: str | None):
         archive_dir.mkdir(parents=True, exist_ok=True)
         sign = create_reason.value
         reason = create_reason.name
@@ -1370,7 +1374,7 @@ class RumarDB:
                 logger.info(f"{sign} {relative_p}  {mtime_str}  {size} {reason} {latest_archive.parent}")
                 self.save(create_reason, relative_p, relative_a, mtime_str, size, blake2b_checksum)
 
-    def save(self, create_reason: CreateReason, relative_p: str, relative_a: str, mtime_str: str, size: int, blake2b_checksum: str):
+    def save(self, create_reason: CreateReason, relative_p: str, relative_a: str, mtime_str: str, size: int, blake2b_checksum: str | None):
         # logger.debug(f"{create_reason}, {relative_p}, {relative_a}, {mtime_str}, {size}, {blake2b_checksum})")
         cur = self._db.cursor()
         # profile
