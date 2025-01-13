@@ -307,13 +307,16 @@ class Settings:
       path to the directory which is to be archived
     included_top_dirs: list[str]
       used by: create, sweep
-      a list of paths
+      a list of top-directory paths
       if present, only files from those dirs and their descendant subdirs will be considered, together with _**included_files_as_glob**_
       the paths can be relative to _**source_dir**_ or absolute, but always under _**source_dir**_
+      absolute paths start with a root (`/` or `{drive}:\`), unlike relative paths
       if missing, _**source_dir**_ and all its descendant subdirs will be considered
     excluded_top_dirs: list[str]
       used by: create, sweep
       like _**included_top_dirs**_, but for exclusion
+      a list of paths under any of _**included_top_dirs**_, that are to be excluded
+      e.g. included_top_dirs = ['Project1', 'Project3']; excluded_top_dirs = ['Project1/Vision/Pictures']
     included_dirs_as_regex: list[str]
       used by: create, sweep
       a list of regex patterns, applied after _**..._top_dirs**_ and dirnames of _**..._files_as_glob**_

@@ -92,12 +92,15 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
 * **source_dir**: str &nbsp; &nbsp; _used by: create, extract_\
   path to the directory which is to be archived
 * **included_top_dirs**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
-  a list of paths\
+  a list of top-directory paths\
   if present, only files from those dirs and their descendant subdirs will be considered, together with _**included_files_as_glob**_\
   the paths can be relative to _**source_dir**_ or absolute, but always under _**source_dir**_\
+  absolute paths start with a root (`/` or `{drive}:\`), unlike relative paths\
   if missing, _**source_dir**_ and all its descendant subdirs will be considered
 * **excluded_top_dirs**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
-  like _**included_top_dirs**_, but for exclusion
+  like _**included_top_dirs**_, but for exclusion\
+  a list of paths under any of _**included_top_dirs**_, that are to be excluded\
+  e.g. included_top_dirs = ['Project1', 'Project3']; excluded_top_dirs = ['Project1/Vision/Pictures']
 * **included_dirs_as_regex**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
   a list of regex patterns, applied after _**..._top_dirs**_ and dirnames of _**..._files_as_glob**_\
   if present, only matching directories will be included\
@@ -154,6 +157,7 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
   `excluded_files_as_regex = ['/\d\d\d\d-\d\d-01_\d\d,\d\d,\d\d(\.\d{6})?[+-]\d\d,\d\d~\d+(~.+)?\.tar(\.(gz|bz2|xz))?$']`\
   it's best when the setting is part of a separate profile, i.e. a copy made for _**sweep**_,\
   otherwise _**create**_ will also seek such files to be excluded
+* **db_path**: str = _**backup_base_dir**_/rumar.sqlite
 <!-- settings pydoc end -->
 
 ### Settings schema version 2 vs 1
