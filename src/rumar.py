@@ -682,9 +682,9 @@ def is_file_matching_glob(file_path: Path, relative_p: str, s: Settings) -> bool
             logger.log(DEBUG_12, f"=F ...{relative_p}  -- matches included_files_as_glob {file_as_glob!r}")
             return True
     file_path_psx = file_path.as_posix()
-    for inc_top_psx in (p.as_posix() for p in s.included_top_dirs):
-        if file_path_psx.startswith(inc_top_psx):
-            logger.log(DEBUG_12, f"=F ...{relative_p}  -- matches included_top_dirs {inc_top_psx!r}")
+    for inc_top_psx_ in (p.as_posix() + '/' for p in s.included_top_dirs):
+        if file_path_psx.startswith(inc_top_psx_):
+            logger.log(DEBUG_12, f"=F ...{relative_p}  -- matches included_top_dirs {inc_top_psx_!r}")
             return True
     logger.log(DEBUG_13, f"|F ...{relative_p}  -- skipping file (doesn't match top dir or file glob)")
     return False
