@@ -575,7 +575,7 @@ def iter_matching_files(top_path: Path, s: Settings) -> Iterator[os.DirEntry]:
     inc_files_rx = s.included_files_as_regex
     exc_files_rx = s.excluded_files_as_regex
 
-    def _iter(directory: os.DirEntry | Path) -> os.DirEntry:
+    def _iter_matching_files(directory: os.DirEntry | Path) -> os.DirEntry:
         dir_paths__skip_files = []
         de_directories = {}  # to preserve order
         de_files = {}  # to preserve order
@@ -592,6 +592,8 @@ def iter_matching_files(top_path: Path, s: Settings) -> Iterator[os.DirEntry]:
                             de_directories[de] = None
                         else:
                             logger.log(DEBUG_13, f"|d ...{relative_dir_p}  -- skipping dir (none of included_dirs_as_regex matches)")
+                    else:
+                        de_directories[de] = None
                     if exc_dirs_rx and de in de_directories and (exc_rx := find_matching_pattern(relative_dir_p, exc_dirs_rx)):
                         del de_directories[de]
                         logger.log(DEBUG_14, f"|d ...{relative_dir_p}  -- skipping dir (matches '{exc_rx}')")
@@ -606,6 +608,8 @@ def iter_matching_files(top_path: Path, s: Settings) -> Iterator[os.DirEntry]:
                             de_files[de] = None
                         else:
                             logger.log(DEBUG_13, f"|f ...{relative_file_p}  -- skipping (none of included_files_as_regex matches)")
+                    else:
+                        de_files[de] = None
                     if exc_files_rx and de in de_files and (exc_rx := find_matching_pattern(relative_file_p, exc_files_rx)):
                         del de_files[de]
                         logger.log(DEBUG_14, f"|f ...{relative_file_p}  -- skipping (matches '{exc_rx}')")
@@ -616,9 +620,9 @@ def iter_matching_files(top_path: Path, s: Settings) -> Iterator[os.DirEntry]:
             if dir_path not in dir_paths__skip_files:
                 yield de_file
         for de_dir in de_directories:
-            yield from _iter(de_dir)
+            yield from _iter_matching_files(de_dir)
 
-    yield from _iter(top_path)
+    yield from _iter_matching_files(top_path)
 
 
 def calc_dir_matches_top_dirs(dir_path: Path, relative_dir_p: str, s: Settings) -> tuple[bool, bool]:
@@ -931,6 +935,7 @@ class Rumar:
                 else:
                     with suppress(OSError):
                         checksum_file.unlink()
+                        logger.debug(f':- remove {str(checksum_file)}')
         return latest_checksum
 
     def _save_checksum_if_big(self, size, checksum, relative_p, archive_dir, mtime_str):
