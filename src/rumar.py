@@ -890,6 +890,7 @@ class Rumar:
                 if mtime_dt > latest_mtime_dt:
                     if size != latest_size:
                         is_changed = True
+                        checksum = None
                     else:
                         is_changed = False
                         if self.s.checksum_comparison_if_same_size:
