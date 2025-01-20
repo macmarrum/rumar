@@ -241,7 +241,7 @@ def create(args):
 
 def extract(args):
     profile_to_settings = create_profile_to_settings_from_toml_path(args.toml)
-    rumar = Rumar(profile_to_settings)
+    rumar = Rumar(profile_to_settings, args.toml)
     if args.all_profiles:
         rumar.extract_for_all_profiles(args.archive_dir, args.directory, args.overwrite, args.meta_diff)
     elif args.profile:
