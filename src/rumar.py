@@ -192,8 +192,8 @@ def main():
                                            help='extract [to source_dir | --target-dir] the latest backup of each file [in backup_base_dir_for_profile | --archive-dir]')
     parser_extract.set_defaults(func=extract)
     add_profile_args_to_parser(parser_extract, required=True)
-    parser_extract.add_argument('--archive-dir', type=Path,
-                                help='path to an archive-container directory from which to extract the latest backup; all other backups in backup_base_dir_for_profile are ignored')
+    parser_extract.add_argument('--top-archive-dir', type=Path,
+                                help='path to a top directory from which to extract the latest backups, recursively; all other backups in backup_base_dir_for_profile are ignored')
     parser_extract.add_argument('--directory', '-C', type=mk_abs_path,
                                 help="path to the base directory used for extraction; profile's source_dir by default")
     parser_extract.add_argument('--overwrite', action=store_true,
@@ -243,10 +243,10 @@ def extract(args):
     profile_to_settings = create_profile_to_settings_from_toml_path(args.toml)
     rumar = Rumar(profile_to_settings, args.toml)
     if args.all_profiles:
-        rumar.extract_for_all_profiles(args.archive_dir, args.directory, args.overwrite, args.meta_diff)
+        rumar.extract_for_all_profiles(args.top_archive_dir, args.directory, args.overwrite, args.meta_diff)
     elif args.profile:
         for profile in args.profile:
-            rumar.extract_for_profile(profile, args.archive_dir, args.directory, args.overwrite, args.meta_diff)
+            rumar.extract_for_profile(profile, args.top_archive_dir, args.directory, args.overwrite, args.meta_diff)
 
 
 def sweep(args):
@@ -1072,51 +1072,64 @@ class Rumar:
         stems_and_paths.setdefault(self.STEMS, []).append(stem)
         stems_and_paths.setdefault(self.PATHS, []).append(file_path)
 
-    def extract_for_all_profiles(self, archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
+    def extract_for_all_profiles(self, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
         for profile in self._profile_to_settings:
             if directory is None:
                 directory = self._profile_to_settings[profile].source_dir
-            self.extract_for_profile(profile, archive_dir, directory, overwrite, meta_diff)
+            self.extract_for_profile(profile, top_archive_dir, directory, overwrite, meta_diff)
 
-    def extract_for_profile(self, profile: str, archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
+    def extract_for_profile(self, profile: str, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
         self._at_beginning(profile)
         if directory is None:
             directory = self._profile_to_settings[profile].source_dir
         msgs = []
         if ex := try_to_iterate_dir(directory):
             msgs.append(f"SKIP {profile!r} - cannot access source directory - {ex}")
-        if archive_dir:
-            if not archive_dir.is_absolute():
-                archive_dir = self.s.backup_base_dir_for_profile / archive_dir
-            if ex := try_to_iterate_dir(archive_dir):
+        if top_archive_dir:
+            if not top_archive_dir.is_absolute():
+                top_archive_dir = self.s.backup_base_dir_for_profile / top_archive_dir
+            if ex := try_to_iterate_dir(top_archive_dir):
                 msgs.append(f"SKIP {profile!r} - archive-dir doesn't exist - {ex}")
-            elif not archive_dir.as_posix().startswith(self.s.backup_base_dir_for_profile.as_posix()):
+            elif not top_archive_dir.as_posix().startswith(self.s.backup_base_dir_for_profile.as_posix()):
                 msgs.append(f"SKIP {profile!r} - archive-dir is not under backup_base_dir_for_profile: "
-                            f"archive_dir={str(archive_dir)!r} backup_base_dir_for_profile={str(self.s.backup_base_dir_for_profile)!r}")
-        logger.info(f"{profile=} archive_dir={str(archive_dir) if archive_dir else None!r} directory={str(directory)!r} {overwrite=} {meta_diff=}")
+                            f"top_archive_dir={str(top_archive_dir)!r} backup_base_dir_for_profile={str(self.s.backup_base_dir_for_profile)!r}")
+        logger.info(f"{profile=} top_archive_dir={str(top_archive_dir) if top_archive_dir else None!r} directory={str(directory)!r} {overwrite=} {meta_diff=}")
         if msgs:
             logger.warning('; '.join(msgs))
             return
-        if not self._confirm_extraction_into_directory(directory):
+        if not self._confirm_extraction_into_directory(directory, top_archive_dir, self.s.backup_base_dir_for_profile):
             return
-        if archive_dir:
-            self.extract_latest_file(self.s.backup_base_dir_for_profile, archive_dir, directory, overwrite, meta_diff, None)
+        if top_archive_dir:
+            should_attempt_recursive = False
+            for dirpath, dirnames, filenames in os.walk(top_archive_dir):
+                if archive_file := find_last_file_in_basedir(top_archive_dir, filenames, RX_ARCHIVE_SUFFIX, nonzero=True):
+                    self.extract_latest_file(self.s.backup_base_dir_for_profile, top_archive_dir, directory, overwrite, meta_diff, filenames, archive_file)
+                else:
+                    should_attempt_recursive = True
+                break
+            if should_attempt_recursive:
+                for dirpath, dirnames, filenames in os.walk(top_archive_dir):
+                    self.extract_latest_file(self.s.backup_base_dir_for_profile, Path(dirpath), directory, overwrite, meta_diff, filenames)
         else:
             for basedir, dirnames, filenames in os.walk(self.s.backup_base_dir_for_profile):
                 if filenames:
-                    archive_dir = Path(basedir)  # the original file, in the mirrored directory tree
-                    self.extract_latest_file(self.s.backup_base_dir_for_profile, archive_dir, directory, overwrite, meta_diff, filenames)
+                    top_archive_dir = Path(basedir)  # the original file, in the mirrored directory tree
+                    self.extract_latest_file(self.s.backup_base_dir_for_profile, top_archive_dir, directory, overwrite, meta_diff, filenames)
         self._at_end()
 
     @staticmethod
-    def _confirm_extraction_into_directory(directory: Path):
-        answer = input(f"\n   Begin extraction into {directory}?  [N/y] ")
-        logger.info(f":  {answer=}  {directory}")
+    def _confirm_extraction_into_directory(directory: Path, archive_dir: Path, backup_base_dir_for_profile: Path):
+        relative_file_parent = make_relative_p(archive_dir.parent, backup_base_dir_for_profile)
+        target_file = directory / relative_file_parent / archive_dir.name
+        target = str(target_file)
+        answer = input(f"\n   Begin extraction into {target}?  [N/y] ")
+        logger.info(f":  {answer=}  {target}")
         return answer in ['y', 'Y']
 
     def extract_latest_file(self, backup_base_dir_for_profile, archive_dir: Path, directory: Path, overwrite: bool, meta_diff: bool,
-                            filenames: list[str] | None = None):
-        archive_file = find_last_file_in_basedir(archive_dir, filenames, RX_ARCHIVE_SUFFIX)
+                            filenames: list[str] | None = None, archive_file: Path | None = None):
+        if archive_file is None:
+            archive_file = find_last_file_in_basedir(archive_dir, filenames, RX_ARCHIVE_SUFFIX)
         if archive_file:
             relative_file_parent = make_relative_p(archive_dir.parent, backup_base_dir_for_profile)
             target_file = directory / relative_file_parent / archive_dir.name
