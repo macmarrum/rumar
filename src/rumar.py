@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # rumar – a file-backup utility
-# Copyright (C) 2023, 2024  macmarrum (at) outlook (dot) ie
+# Copyright (C) 2023-2025  macmarrum (at) outlook (dot) ie
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -34,7 +34,7 @@ from os import PathLike
 from pathlib import Path
 from textwrap import dedent
 from time import sleep
-from typing import Iterator, Union, Literal, Pattern, Any, Iterable, cast
+from typing import Union, Literal, Pattern, Any, Iterable, cast, Generator
 
 vi = sys.version_info
 assert (vi.major, vi.minor) >= (3, 10), 'expected Python 3.10 or higher'
@@ -457,13 +457,13 @@ class Settings:
     def _setify(self, attribute_name: str):
         attr = getattr(self, attribute_name)
         if attr is None:
-            return set()
+            setattr(self, attribute_name, set())
         setattr(self, attribute_name, set(attr))
 
     def _absolutopathosetify(self, attribute_name: str):
         attr = getattr(self, attribute_name)
         if attr is None:
-            return set()
+            setattr(self, attribute_name, set())
         lst = []
         for elem in attr:
             p = Path(elem)
@@ -477,7 +477,7 @@ class Settings:
     def _pathlify(self, attribute_name: str):
         attr = getattr(self, attribute_name)
         if not attr:
-            return attr
+            return
         if isinstance(attr, list):
             if not self.is_each_elem_of_type(attr, Path):
                 setattr(self, attribute_name, [Path(elem) for elem in attr])
@@ -488,7 +488,7 @@ class Settings:
     def _patternify(self, attribute_name: str):
         attr = getattr(self, attribute_name)
         if not attr:
-            return attr
+            return
         if not isinstance(attr, list):
             raise AttributeError(f"expected a list of values, got {attr!r}")
         setattr(self, attribute_name, [re.compile(elem) for elem in attr])
@@ -553,7 +553,7 @@ SLASH = '/'
 BACKSLASH = '\\'
 
 
-def iter_all_files(top_path: Path | PathLike) -> Iterator[os.DirEntry]:
+def iter_all_files(top_path: Path | PathLike) -> Generator[os.DirEntry]:
     """
     Note: symlinks to directories are considered files
     :param top_path: usually `s.source_dir` or `s.backup_base_dir_for_profile`
@@ -568,7 +568,7 @@ def iter_all_files(top_path: Path | PathLike) -> Iterator[os.DirEntry]:
         yield from iter_all_files(de_dir)
 
 
-def iter_matching_files(top_path: Path, s: Settings) -> Iterator[os.DirEntry]:
+def iter_matching_files(top_path: Path, s: Settings) -> Generator[os.DirEntry]:
     """
     Note: symlinks to directories are considered files
     :param top_path: usually `s.source_dir` or `s.backup_base_dir_for_profile`
@@ -578,7 +578,7 @@ def iter_matching_files(top_path: Path, s: Settings) -> Iterator[os.DirEntry]:
     inc_files_rx = s.included_files_as_regex
     exc_files_rx = s.excluded_files_as_regex
 
-    def _iter_matching_files(directory: os.DirEntry | Path) -> os.DirEntry:
+    def _iter_matching_files(directory: os.DirEntry | Path) -> Generator[os.DirEntry]:
         dir_paths__skip_files = []
         de_directories = {}  # to preserve order
         de_files = {}  # to preserve order
@@ -721,6 +721,7 @@ def find_matching_pattern(relative_p: str, patterns: list[Pattern]):
     for rx in patterns:
         if rx.search(relative_p):
             return rx.pattern
+    return None
 
 
 def sorted_files_by_stem_then_suffix_ignoring_case(matching_files: Iterable[Path]):
@@ -1071,6 +1072,7 @@ class Rumar:
         stems_and_paths = self._suffix_size_stems_and_paths.setdefault(suffix, {}).setdefault(size, {})
         stems_and_paths.setdefault(self.STEMS, []).append(stem)
         stems_and_paths.setdefault(self.PATHS, []).append(file_path)
+        return None
 
     def extract_for_all_profiles(self, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
         for profile in self._profile_to_settings:
@@ -1233,6 +1235,7 @@ def find_last_file_in_dir(archive_dir: Path, pattern: Pattern | None = None, non
     except FileNotFoundError as ex:
         # logger.warning(ex)
         pass
+    return None
 
 
 def find_last_file_in_basedir(basedir: str | Path, filenames: list[str] | None = None, pattern: Pattern | None = None, nonzero=True) -> Path | None:
@@ -1246,6 +1249,7 @@ def find_last_file_in_basedir(basedir: str | Path, filenames: list[str] | None =
             path = Path(basedir, file)
             if not nonzero or path.stat().st_size > 0:
                 return path
+    return None
 
 
 class RumarDB:
@@ -1270,6 +1274,7 @@ class RumarDB:
         self._bak_dir_to_id = {}
         self._backup_to_checksum = {}
         self._load_data_into_memory()
+        # make sure run_datetime_iso is unique
         while (run_datetime_iso := datetime.now().astimezone().isoformat(sep=self.SPACE, timespec='seconds')) in self._run_to_id:
             sleep(0.25)
         self._run_datetime_iso = run_datetime_iso
@@ -1397,7 +1402,7 @@ class RumarDB:
                     blake2b_checksum = checksum_file.read_text(UTF8)
                 except FileNotFoundError:
                     # blake2b_checksum = Rumar.compute_checksum_of_file_in_archive(latest_archive, self.s.password)
-                        blake2b_checksum = None
+                    blake2b_checksum = None
                 create_reason = CreateReason.INIT
                 sign = create_reason.value
                 reason = create_reason.name
@@ -1452,6 +1457,7 @@ class RumarDB:
         if bak_dir_id := self._bak_dir_to_id.get(bak_dir):
             bak_path = make_relative_p(archive_path, self.s.backup_base_dir_for_profile)
             return self._backup_to_checksum.get((bak_dir_id, bak_path))
+        return None
 
     def set_blake2b_checksum(self, archive_path: Path, blake2b_checksum: str):
         bak_dir = self.s.backup_base_dir_for_profile.as_posix()
@@ -1759,7 +1765,7 @@ class BroomDB:
             cur.execute(updt_stmt, (broom_id,))
         db.commit()
 
-    def iter_marked_for_removal(self) -> Iterator[tuple[str, str, str, str, str, str, str, str]]:
+    def iter_marked_for_removal(self) -> Generator[tuple[str, str, str, str, str, str, str, str]]:
         stmt = dedent(f"""\
             SELECT dirname, basename, d, w, m, d_rm, w_rm, m_rm
             FROM {self._table}
