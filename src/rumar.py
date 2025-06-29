@@ -797,11 +797,11 @@ class Rumar:
     @classmethod
     def to_mtime_str(cls, dt: datetime) -> str:
         """archive-file stem - first part"""
-        return dt.astimezone().isoformat().replace(cls.COLON, cls.COMMA).replace(cls.T, cls.UNDERSCORE)
+        return dt.astimezone().isoformat(sep=cls.UNDERSCORE).replace(cls.COLON, cls.COMMA)
 
     @classmethod
-    def from_mtime_str(cls, s: str) -> datetime:
-        return datetime.fromisoformat(s.replace(cls.UNDERSCORE, cls.T).replace(cls.COMMA, cls.COLON))
+    def from_mtime_str(cls, mtime_str: str) -> datetime:
+        return datetime.fromisoformat(mtime_str.replace(cls.COMMA, cls.COLON))
 
     @classmethod
     def calc_checksum_file_path(cls, archive_path: Path) -> Path:
