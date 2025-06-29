@@ -222,7 +222,7 @@ def mk_abs_path(file_path: str) -> Path:
 
 
 def list_profiles(args):
-    profile_to_settings = create_profile_to_settings_from_toml_path(args.toml)
+    profile_to_settings = make_profile_to_settings_from_toml_path(args.toml)
     for profile, settings in profile_to_settings.items():
         if args.profile and profile not in args.profile:
             continue
@@ -230,7 +230,7 @@ def list_profiles(args):
 
 
 def create(args):
-    profile_to_settings = create_profile_to_settings_from_toml_path(args.toml)
+    profile_to_settings = make_profile_to_settings_from_toml_path(args.toml)
     rumar = Rumar(profile_to_settings, args.toml)
     if args.all_profiles:
         rumar.create_for_all_profiles()
@@ -240,7 +240,7 @@ def create(args):
 
 
 def extract(args):
-    profile_to_settings = create_profile_to_settings_from_toml_path(args.toml)
+    profile_to_settings = make_profile_to_settings_from_toml_path(args.toml)
     rumar = Rumar(profile_to_settings, args.toml)
     if args.all_profiles:
         rumar.extract_for_all_profiles(args.top_archive_dir, args.directory, args.overwrite, args.meta_diff)
@@ -250,7 +250,7 @@ def extract(args):
 
 
 def sweep(args):
-    profile_to_settings = create_profile_to_settings_from_toml_path(args.toml)
+    profile_to_settings = make_profile_to_settings_from_toml_path(args.toml)
     broom = Broom(profile_to_settings)
     is_dry_run = args.dry_run or False
     if args.all_profiles:
@@ -504,13 +504,13 @@ class Settings:
 ProfileToSettings = dict[str, Settings]
 
 
-def create_profile_to_settings_from_toml_path(toml_file: Path) -> ProfileToSettings:
+def make_profile_to_settings_from_toml_path(toml_file: Path) -> ProfileToSettings:
     logger.log(DEBUG_11, f"{toml_file=}")
     toml_str = toml_file.read_text(encoding=UTF8)
-    return create_profile_to_settings_from_toml_text(toml_str)
+    return make_profile_to_settings_from_toml_text(toml_str)
 
 
-def create_profile_to_settings_from_toml_text(toml_str) -> ProfileToSettings:
+def make_profile_to_settings_from_toml_text(toml_str) -> ProfileToSettings:
     profile_to_settings: ProfileToSettings = {}
     toml_dict = tomllib.loads(toml_str)
     verify_and_remove_version(toml_dict)
@@ -585,7 +585,7 @@ def iter_matching_files(top_path: Path, s: Settings) -> Generator[os.DirEntry]:
         for de in os.scandir(directory):
             if de.is_dir(follow_symlinks=False):
                 dir_path = Path(de)
-                relative_dir_p = make_relative_p(dir_path, top_path, with_leading_slash=True)
+                relative_dir_p = derive_relative_p(dir_path, top_path, with_leading_slash=True)
                 is_dir_matching_top_dirs, skip_files = calc_dir_matches_top_dirs(dir_path, relative_dir_p, s)
                 if skip_files:
                     dir_paths__skip_files.append(dir_path)
@@ -604,7 +604,7 @@ def iter_matching_files(top_path: Path, s: Settings) -> Generator[os.DirEntry]:
                     pass
             else:  # a file
                 file_path = Path(de)
-                relative_file_p = make_relative_p(file_path, top_path, with_leading_slash=True)
+                relative_file_p = derive_relative_p(file_path, top_path, with_leading_slash=True)
                 if is_file_matching_glob(file_path, relative_file_p, s):  # matches glob, now check regex
                     if inc_files_rx:  # only included paths must be considered
                         if find_matching_pattern(relative_file_p, inc_files_rx):
@@ -707,7 +707,7 @@ def find_sep(g: str) -> str:
     return sep
 
 
-def make_relative_p(path: Path, base_dir: Path, with_leading_slash=False) -> str:
+def derive_relative_p(path: Path, base_dir: Path, with_leading_slash=False) -> str:
     path_psx = path.as_posix()
     base_dir_psx = base_dir.as_posix()
     if not path_psx.startswith(base_dir_psx):
@@ -767,13 +767,13 @@ class Rumar:
         self._db: RumarDB = None
 
     @staticmethod
-    def can_ignore_for_archive(lstat: os.stat_result) -> bool:
+    def should_ignore_for_archive(lstat: os.stat_result) -> bool:
         mode = lstat.st_mode
         return stat.S_ISSOCK(mode) or stat.S_ISDOOR(mode)
 
     @staticmethod
     def compute_checksum_of_file_in_archive(archive: Path, password: bytes) -> str | None:
-        if Rumar.extract_core(archive.name).endswith(f"~{Rumar.LNK}"):
+        if Rumar.derive_stem(archive.name).endswith(f"~{Rumar.LNK}"):
             return None
         if archive.suffix == Rumar.DOT_ZIPX:
             with pyzipper.AESZipFile(archive) as zf:
@@ -795,33 +795,33 @@ class Rumar:
             logger.error(f">> error setting mtime -> {sys.exc_info()}")
 
     @classmethod
-    def to_mtime_str(cls, dt: datetime) -> str:
+    def calc_mtime_str(cls, dt: datetime) -> str:
         """archive-file stem - first part"""
         return dt.astimezone().isoformat(sep=cls.UNDERSCORE).replace(cls.COLON, cls.COMMA)
 
     @classmethod
-    def from_mtime_str(cls, mtime_str: str) -> datetime:
+    def calc_mtime_dt(cls, mtime_str: str) -> datetime:
         return datetime.fromisoformat(mtime_str.replace(cls.COMMA, cls.COLON))
 
     @classmethod
-    def calc_checksum_file_path(cls, archive_path: Path) -> Path:
-        core = cls.extract_core(archive_path.name)
-        return archive_path.with_name(f"{core}{cls.CHECKSUM_SUFFIX}")
+    def compose_checksum_file_path(cls, archive_path: Path) -> Path:
+        stem = cls.derive_stem(archive_path.name)
+        return archive_path.with_name(f"{stem}{cls.CHECKSUM_SUFFIX}")
 
     @classmethod
-    def extract_mtime_size(cls, archive_path: Path | None) -> tuple[str, int] | None:
+    def derive_mtime_size(cls, archive_path: Path | None) -> tuple[str, int] | None:
         if archive_path is None:
             return None
-        core = cls.extract_core(archive_path.name)
-        return cls.split_mtime_size(core)
+        stem = cls.derive_stem(archive_path.name)
+        return cls.split_mtime_size(stem)
 
     @staticmethod
-    def extract_core(basename: str) -> str:
+    def derive_stem(basename: str) -> str:
         """Example: 2023-04-30_09,48,20.872144+02,00~123#a7b6de.tar.gz => 2023-04-30_09,48,20+02,00~123#a7b6de"""
-        core = RX_ARCHIVE_SUFFIX.sub('', basename)
-        if core == basename:
+        stem = RX_ARCHIVE_SUFFIX.sub('', basename)
+        if stem == basename:
             raise RuntimeError('basename: ' + basename)
-        return core
+        return stem
 
     @staticmethod
     def split_ext(basename: str) -> tuple[str, str]:
@@ -832,15 +832,15 @@ class Rumar:
         return cor_ext_rest[0], cor_ext_rest[1]
 
     @classmethod
-    def split_mtime_size(cls, core: str) -> tuple[str, int]:
+    def split_mtime_size(cls, stem: str) -> tuple[str, int]:
         """Example: 2023-04-30_09,48,20.872144+02,00~123~ab12~LNK => 2023-04-30_09,48,20.872144+02,00 123 ab12 LNK"""
-        split_result = core.split(cls.MTIME_SEP)
+        split_result = stem.split(cls.MTIME_SEP)
         mtime_str = split_result[0]
         size = int(split_result[1])
         return mtime_str, size
 
     @classmethod
-    def calc_archive_path(cls, archive_dir: Path, archive_format: RumarFormat, mtime_str: str, size: int, comment: str | None = None) -> Path:
+    def compose_archive_path(cls, archive_dir: Path, archive_format: RumarFormat, mtime_str: str, size: int, comment: str | None = None) -> Path:
         return archive_dir / f"{mtime_str}{cls.MTIME_SEP}{size}{cls.MTIME_SEP + comment if comment else cls.BLANK}.{archive_format.value}"
 
     @property
@@ -872,21 +872,21 @@ class Rumar:
             logger.warning(f"SKIP {profile} - {'; '.join(errors)}")
             return
         for p in self.source_files:
-            relative_p = make_relative_p(p, self.s.source_dir)
+            relative_p = derive_relative_p(p, self.s.source_dir)
             lstat = self.get_cached_lstat(p)  # don't follow symlinks - pathlib calls stat for each is_*()
             mtime = lstat.st_mtime
             mtime_dt = datetime.fromtimestamp(mtime).astimezone()
-            mtime_str = self.to_mtime_str(mtime_dt)
+            mtime_str = self.calc_mtime_str(mtime_dt)
             size = lstat.st_size
-            archive_dir = self.calc_archive_container_dir(relative_p=relative_p)
+            archive_dir = self.compose_archive_container_dir(relative_p=relative_p)
             # TODO handle LNK target changes, don't blake2b LNKs
             latest_archive = find_last_file_in_dir(archive_dir, RX_ARCHIVE_SUFFIX)
             if latest_archive is None:
                 # no previous backup found
                 self._create(CreateReason.CREATE, p, relative_p, archive_dir, mtime_str, size, checksum=None)
             else:
-                latest_mtime_str, latest_size = self.extract_mtime_size(latest_archive)
-                latest_mtime_dt = self.from_mtime_str(latest_mtime_str)
+                latest_mtime_str, latest_size = self.derive_mtime_size(latest_archive)
+                latest_mtime_dt = self.calc_mtime_dt(latest_mtime_str)
                 is_changed = False
                 if mtime_dt > latest_mtime_dt:
                     if size != latest_size:
@@ -927,7 +927,7 @@ class Rumar:
     def _get_archive_checksum(self, archive_path: Path):
         """Gets checksum from .b2 file or from RumarDB. Removes .b2 if zero-size"""
         if not (latest_checksum := self._db.get_blake2b_checksum(archive_path)):
-            checksum_file = self.calc_checksum_file_path(archive_path)
+            checksum_file = self.compose_checksum_file_path(archive_path)
             try:
                 st = checksum_file.stat()
             except OSError:  # includes FileNotFoundError, PermissionError
@@ -984,10 +984,10 @@ class Rumar:
         archive_format, compresslevel_kwargs = self.calc_archive_format_and_compresslevel_kwargs(path)
         mode = self.ARCHIVE_FORMAT_TO_MODE[archive_format]
         is_lnk = stat.S_ISLNK(self.get_cached_lstat(path).st_mode)
-        archive_path = self.calc_archive_path(archive_dir, archive_format, mtime_str, size, self.LNK if is_lnk else self.BLANK)
+        archive_path = self.compose_archive_path(archive_dir, archive_format, mtime_str, size, self.LNK if is_lnk else self.BLANK)
         with tarfile.open(archive_path, mode, format=self.s.tar_format, **compresslevel_kwargs) as tf:
             tf.add(path, arcname=path.name)
-        relative_a = make_relative_p(archive_path, self.s.backup_base_dir_for_profile)
+        relative_a = derive_relative_p(archive_path, self.s.backup_base_dir_for_profile)
         self._db.save(create_reason, relative_p, relative_a, mtime_str, size, checksum)
 
     def _create_zipx(self, create_reason: CreateReason, path: Path, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: str | None):
@@ -1000,17 +1000,17 @@ class Rumar:
         else:
             kwargs = {self.COMPRESSION: self.s.zip_compression_method, self.COMPRESSLEVEL: self.s.compression_level}
         is_lnk = stat.S_ISLNK(self.get_cached_lstat(path).st_mode)
-        archive_path = self.calc_archive_path(archive_dir, RumarFormat.ZIPX, mtime_str, size, self.LNK if is_lnk else self.BLANK)
+        archive_path = self.compose_archive_path(archive_dir, RumarFormat.ZIPX, mtime_str, size, self.LNK if is_lnk else self.BLANK)
         with pyzipper.AESZipFile(archive_path, 'w', encryption=pyzipper.WZ_AES, **kwargs) as zf:
             zf.setpassword(self.s.password)
             zf.write(path, arcname=path.name)
-        relative_a = make_relative_p(archive_path, self.s.backup_base_dir_for_profile)
+        relative_a = derive_relative_p(archive_path, self.s.backup_base_dir_for_profile)
         self._db.save(create_reason, relative_p, relative_a, mtime_str, size, checksum)
 
-    def calc_archive_container_dir(self, *, relative_p: str | None = None, path: Path | None = None) -> Path:
+    def compose_archive_container_dir(self, *, relative_p: str | None = None, path: Path | None = None) -> Path:
         assert relative_p or path, '** either relative_p or path must be provided'
         if not relative_p:
-            relative_p = make_relative_p(path, self.s.source_dir)
+            relative_p = derive_relative_p(path, self.s.source_dir)
         return self.s.backup_base_dir_for_profile / relative_p
 
     def calc_archive_format_and_compresslevel_kwargs(self, path: Path) -> tuple[RumarFormat, dict]:
@@ -1027,9 +1027,9 @@ class Rumar:
 
     @property
     def source_files(self):
-        return self.create_optionally_deduped_list_of_matching_files(self.s.source_dir, self.s)
+        return self.make_optionally_deduped_list_of_matching_files(self.s.source_dir, self.s)
 
-    def create_optionally_deduped_list_of_matching_files(self, top_path: Path, s: Settings):
+    def make_optionally_deduped_list_of_matching_files(self, top_path: Path, s: Settings):
         matching_files = []
         # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
         if Command.CREATE in s.commands_which_use_filters:
@@ -1046,11 +1046,11 @@ class Rumar:
                 # pupulate lstat cache
                 lstat = dir_entry.stat(follow_symlinks=False)
                 self._path_to_lstat[file_path] = lstat
-            if self.can_ignore_for_archive(lstat):
+            if self.should_ignore_for_archive(lstat):
                 logger.info(f"-| {file_path}  -- ignoring file for archiving: socket/door")
                 continue
             if s.file_deduplication and (duplicate := self.find_duplicate(file_path)):
-                logger.info(f"{make_relative_p(file_path, top_path)!r} -- skipping: duplicate of {make_relative_p(duplicate, top_path)!r}")
+                logger.info(f"{derive_relative_p(file_path, top_path)!r} -- skipping: duplicate of {derive_relative_p(duplicate, top_path)!r}")
                 continue
             matching_files.append(file_path)
         return sorted_files_by_stem_then_suffix_ignoring_case(matching_files)
@@ -1121,7 +1121,7 @@ class Rumar:
 
     @staticmethod
     def _confirm_extraction_into_directory(directory: Path, archive_dir: Path, backup_base_dir_for_profile: Path):
-        relative_file_parent = make_relative_p(archive_dir.parent, backup_base_dir_for_profile)
+        relative_file_parent = derive_relative_p(archive_dir.parent, backup_base_dir_for_profile)
         target_file = directory / relative_file_parent / archive_dir.name
         target = str(target_file)
         answer = input(f"\n   Begin extraction into {target}?  [N/y] ")
@@ -1133,7 +1133,7 @@ class Rumar:
         if archive_file is None:
             archive_file = find_last_file_in_basedir(archive_dir, filenames, RX_ARCHIVE_SUFFIX)
         if archive_file:
-            relative_file_parent = make_relative_p(archive_dir.parent, backup_base_dir_for_profile)
+            relative_file_parent = derive_relative_p(archive_dir.parent, backup_base_dir_for_profile)
             target_file = directory / relative_file_parent / archive_dir.name
             self.extract_archive(archive_file, target_file, overwrite, meta_diff)
         else:
@@ -1148,9 +1148,9 @@ class Rumar:
             st_stat = None
             target_file_exists = False
         if target_file_exists:
-            if meta_diff and self.extract_mtime_size(archive_file) == (self.to_mtime_str(datetime.fromtimestamp(st_stat.st_mtime)), st_stat.st_size):
+            if meta_diff and self.derive_mtime_size(archive_file) == (self.calc_mtime_str(datetime.fromtimestamp(st_stat.st_mtime)), st_stat.st_size):
                 should_extract = False
-                logger.info(f"skipping {make_relative_p(archive_file.parent, self.s.backup_base_dir_for_profile)} - mtime and size are the same as in the target file")
+                logger.info(f"skipping {derive_relative_p(archive_file.parent, self.s.backup_base_dir_for_profile)} - mtime and size are the same as in the target file")
             elif overwrite or self._ask_to_overwrite(target_file):
                 should_extract = True
             else:
@@ -1182,8 +1182,8 @@ class Rumar:
             member = cast(zipfile.ZipInfo, zf.infolist()[0])
             if member.filename == target_file.name:
                 zf.extract(member, target_file.parent)
-                mtime_str, _ = self.extract_mtime_size(archive_file)
-                self.set_mtime(target_file, self.from_mtime_str(mtime_str))
+                mtime_str, _ = self.derive_mtime_size(archive_file)
+                self.set_mtime(target_file, self.calc_mtime_dt(mtime_str))
             else:
                 error = f"archived-file name is different than the archive-container-directory name: {member.filename} != {target_file.name}"
                 self._errors.append(error)
@@ -1392,12 +1392,12 @@ class RumarDB:
         """Walks `backup_base_dir_for_profile` and saves latest archive of each source, whether the source file currently exists or not"""
         for basedir, dirnames, filenames in os.walk(self.s.backup_base_dir_for_profile):
             if latest_archive := find_last_file_in_basedir(basedir, filenames, RX_ARCHIVE_SUFFIX):
-                relative_archive_dir = make_relative_p(latest_archive.parent, self.s.backup_base_dir_for_profile)
+                relative_archive_dir = derive_relative_p(latest_archive.parent, self.s.backup_base_dir_for_profile)
                 file_path = self.s.source_dir / relative_archive_dir
-                relative_p = make_relative_p(file_path, self.s.source_dir)
-                relative_a = make_relative_p(latest_archive, self.s.backup_base_dir_for_profile)
-                mtime_str, size = Rumar.extract_mtime_size(latest_archive)
-                checksum_file = Rumar.calc_checksum_file_path(latest_archive)
+                relative_p = derive_relative_p(file_path, self.s.source_dir)
+                relative_a = derive_relative_p(latest_archive, self.s.backup_base_dir_for_profile)
+                mtime_str, size = Rumar.derive_mtime_size(latest_archive)
+                checksum_file = Rumar.compose_checksum_file_path(latest_archive)
                 try:
                     blake2b_checksum = checksum_file.read_text(UTF8)
                 except FileNotFoundError:
@@ -1455,14 +1455,14 @@ class RumarDB:
     def get_blake2b_checksum(self, archive_path: Path) -> str | None:
         bak_dir = self.s.backup_base_dir_for_profile.as_posix()
         if bak_dir_id := self._bak_dir_to_id.get(bak_dir):
-            bak_path = make_relative_p(archive_path, self.s.backup_base_dir_for_profile)
+            bak_path = derive_relative_p(archive_path, self.s.backup_base_dir_for_profile)
             return self._backup_to_checksum.get((bak_dir_id, bak_path))
         return None
 
     def set_blake2b_checksum(self, archive_path: Path, blake2b_checksum: str):
         bak_dir = self.s.backup_base_dir_for_profile.as_posix()
         bak_dir_id = self._bak_dir_to_id[bak_dir]
-        bak_path = make_relative_p(archive_path, self.s.backup_base_dir_for_profile)
+        bak_path = derive_relative_p(archive_path, self.s.backup_base_dir_for_profile)
         key = (bak_dir_id, bak_path)
         old_blake2b_checksum = self._backup_to_checksum[key]
         if old_blake2b_checksum and old_blake2b_checksum != blake2b_checksum:
@@ -1504,7 +1504,7 @@ class Broom:
         return name.endswith(Rumar.CHECKSUM_SUFFIX)
 
     @classmethod
-    def extract_date_from_name(cls, name: str) -> date:
+    def derive_date(cls, name: str) -> date:
         iso_date_string = name[:10]
         y, m, d = iso_date_string.split(cls.DASH)
         return date(int(y), int(m), int(d))
@@ -1536,7 +1536,7 @@ class Broom:
         for dir_entry in iterator:
             path = Path(dir_entry)
             if self.is_archive(path.name, archive_format):
-                mdate = self.extract_date_from_name(path.name)
+                mdate = self.derive_date(path.name)
                 if mdate <= date_older_than_x_days:
                     old_enough_file_to_mdate[path] = mdate
             elif not self.is_checksum(path.name):
@@ -1778,5 +1778,5 @@ class BroomDB:
 
 if __name__ == '__main__':
     main()
-    # profile_to_settings = create_profile_to_settings_from_toml_path(get_appdata() / 'rumar' / 'rumar.toml')
+    # profile_to_settings = make_profile_to_settings_from_toml_path(get_appdata() / 'rumar' / 'rumar.toml')
     # RumarDB(profile_to_settings['m/Documents'])
