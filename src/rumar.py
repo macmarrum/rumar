@@ -197,9 +197,9 @@ def main():
     parser_extract.add_argument('--directory', '-C', type=mk_abs_path,
                                 help="path to the base directory used for extraction; profile's source_dir by default")
     parser_extract.add_argument('--overwrite', action=store_true,
-                                help="overwrite existing files without asking")
+                                help="overwrite target files without asking")
     parser_extract.add_argument('--meta-diff', action=store_true,
-                                help="extract only if mtime or size differ between backup and target, if it exists")
+                                help="overwrite target files without asking if mtime or size differ between backup and target")
     # sweep
     parser_sweep = subparsers.add_parser(Command.SWEEP.value, aliases=['s'],
                                          help='sweep old backups that match profile criteria')
@@ -1086,7 +1086,7 @@ class Rumar:
             directory = self._profile_to_settings[profile].source_dir
         msgs = []
         if ex := try_to_iterate_dir(directory):
-            msgs.append(f"SKIP {profile!r} - cannot access source directory - {ex}")
+            msgs.append(f"SKIP {profile!r} - cannot access target directory - {ex}")
         if top_archive_dir:
             if not top_archive_dir.is_absolute():
                 top_archive_dir = self.s.backup_base_dir_for_profile / top_archive_dir
