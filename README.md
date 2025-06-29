@@ -207,5 +207,5 @@ level = "DEBUG_14"
 More information: <https://docs.python.org/3/library/logging.config.html#logging-config-dictschema>
 
 ---
-Copyright © 2023, 2024 [macmarrum](https://github.com/macmarrum)\
+Copyright © 2023-2025 [macmarrum](https://github.com/macmarrum)\
 SPDX-License-Identifier: [GPL-3.0-or-later](/LICENSE)
