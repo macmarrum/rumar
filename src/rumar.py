@@ -1427,8 +1427,8 @@ class RumarDB:
                 logger.info(f"{sign} {relative_p}  {latest_archive.name}  {reason} {latest_archive.parent}")
                 self.save(create_reason, relative_p, latest_archive, blake2b_checksum)
 
-    def save(self, create_reason: CreateReason, relative_p: str, archive_path: Path, blake2b_checksum: str | None):
-        # logger.debug(f"{create_reason}, {relative_p}, {relative_a}, {mtime_str}, {size}, {blake2b_checksum})")
+    def save(self, create_reason: CreateReason, relative_p: str, archive_path: Path | None, blake2b_checksum: str | None):
+        # logger.debug(f"{create_reason}, {relative_p}, {archive_path.name if archive_path else None}, {blake2b_checksum})")
         cur = self._db.cursor()
         # profile
         profile = self._profile
@@ -1463,8 +1463,8 @@ class RumarDB:
         # backup
         reason = create_reason.name[0]
         bak_name = archive_path.name
-        execute(cur, 'INSERT INTO backup (bak_dir_id, bak_name, blake2b, reason, src_id, run_id) VALUES (?, ?, ?, ?, ?, ?)',
-                (bak_dir_id, bak_name, blake2b_checksum, reason, src_id, run_id))
+        execute(cur, 'INSERT INTO backup (run_id, reason, bak_dir_id, src_id, bak_name, blake2b) VALUES (?, ?, ?, ?, ?, ?)',
+                (run_id, reason, bak_dir_id, src_id, bak_name, blake2b_checksum))
         self._backup_to_checksum[(bak_dir_id, src_id, bak_name)] = blake2b_checksum
         cur.close()
         self._db.commit()
