@@ -1417,16 +1417,20 @@ class RumarDB:
         cur.close()
 
     def _migrate_to_bak_name(self, cur):
-        cur.execute('DROP VIEW v_backup')
-        cur.execute('DROP VIEW v_run')
-        cur.execute('DROP INDEX i_backup_mtime_iso')
-        cur.execute('DROP INDEX i_backup_size')
-        cur.execute('ALTER TABLE backup ADD bak_name TEXT')
-        for row in self._db.execute('SELECT id, bak_path FROM backup'):
-            lst = row[1].rsplit('/', 1)
-            bak_name = lst[1] if len(lst) == 2 else lst[0]
-            cur.execute('UPDATE backup SET bak_name = ? WHERE id = ?', (bak_name, row[0]))
-        self._db.commit()
+        cur.execute('DROP VIEW IF EXISTS v_backup')
+        cur.execute('DROP VIEW IF EXISTS v_run')
+        cur.execute('DROP INDEX IF EXISTS i_backup_mtime_iso')
+        cur.execute('DROP INDEX IF EXISTS i_backup_size')
+        bak_name_missing = True
+        for _ in cur.execute("SELECT 1 FROM pragma_table_info('backup') WHERE name = 'bak_name'"):
+            bak_name_missing = False
+        if bak_name_missing:
+            cur.execute('ALTER TABLE backup ADD bak_name TEXT')
+            for row in self._db.execute('SELECT id, bak_path FROM backup'):
+                lst = row[1].rsplit('/', 1)
+                bak_name = lst[1] if len(lst) == 2 else lst[0]
+                cur.execute('UPDATE backup SET bak_name = ? WHERE id = ?', (bak_name, row[0]))
+            self._db.commit()
         cur.execute('ALTER TABLE backup RENAME TO backup_old')
         cur.execute(self.ddl['table']['backup'])
         cur.execute(dedent('''\
@@ -1435,7 +1439,10 @@ class RumarDB:
         FROM backup_old
         ORDER BY id'''))
         cur.execute('DROP TABLE backup_old')
-        cur.execute('VACUUM')
+        try:
+            cur.execute('VACUUM')
+        except sqlite3.OperationalError as e:
+            print(type(e).__name__, e)
 
     def _load_data_into_memory(self):
         cur = self._db.cursor()
