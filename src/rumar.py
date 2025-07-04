@@ -729,8 +729,10 @@ def sorted_files_by_stem_then_suffix_ignoring_case(matching_files: Iterable[Path
     """sort by stem then suffix, i.e. 'abc.txt' before 'abc(2).txt'; ignore case"""
     return sorted(matching_files, key=lambda x: (x.stem.lower(), x.suffix.lower()))
 
+
 def compose_archive_path(archive_dir: Path, archive_format: RumarFormat, mtime_str: str, size: int, comment: str | None = None) -> Path:
     return archive_dir / f"{mtime_str}{Rumar.MTIME_SEP}{size}{Rumar.MTIME_SEP + comment if comment else Rumar.BLANK}.{archive_format.value}"
+
 
 class Rumar:
     """
@@ -1302,6 +1304,76 @@ class RumarDB:
     xxx_name := the name, like Path.name
     """
     SPACE = ' '
+    ddl = {
+    'table': {
+        'source_dir': dedent('''\
+            CREATE TABLE IF NOT EXISTS source_dir (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                src_dir TEXT UNIQUE NOT NULL
+            )
+        '''),
+        'source': dedent('''\
+            CREATE TABLE IF NOT EXISTS source (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                src_dir_id INTEGER NOT NULL REFERENCES source_dir (id),
+                src_path TEXT NOT NULL,
+                CONSTRAINT u_origin_sid_src_path UNIQUE (src_dir_id, src_path)
+            )
+        '''),
+        'profile': dedent('''\
+            CREATE TABLE IF NOT EXISTS profile (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile TEXT UNIQUE NOT NULL
+            )
+        '''),
+        'run': dedent('''\
+            CREATE TABLE IF NOT EXISTS run (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_datetime_iso TEXT UNIQUE NOT NULL,
+                profile_id INTEGER NOT NULL REFERENCES profile (id)
+            )
+        '''),
+        'backup_base_dir_for_profile': dedent('''\
+            CREATE TABLE IF NOT EXISTS backup_base_dir_for_profile (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bak_dir TEXT UNIQUE NOT NULL
+            )
+        '''),
+        'backup': dedent('''\
+            CREATE TABLE IF NOT EXISTS backup (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL REFERENCES run (id),
+                reason TEXT NOT NULL,
+                bak_dir_id INTEGER NOT NULL REFERENCES backup_base_dir_for_profile (id),
+                src_id INTEGER NOT NULL REFERENCES source (id),
+                bak_name TEXT,
+                blake2b TEXT,
+                CONSTRAINT u_bak_dir_id_src_id_bak_name UNIQUE (bak_dir_id, src_id, bak_name)
+            )
+        '''),
+    },
+    'indexes': dedent('''\
+        --CREATE INDEX IF NOT EXISTS i_backup_blake2b ON backup (blake2b);
+        CREATE INDEX IF NOT EXISTS i_backup_reason ON backup (reason);
+    '''),
+    'view': {
+        'v_backup': dedent('''\
+            CREATE VIEW IF NOT EXISTS v_backup AS
+            SELECT substr(run_datetime_iso, 1, 10) _run_datetime, profile, reason, bak_dir, src_path, bak_name, substr(blake2b, 1, 10) _blake2b
+            FROM backup
+            JOIN backup_base_dir_for_profile bd ON bak_dir_id = bd.id
+            JOIN run ON run_id = run.id
+            JOIN profile ON run.profile_id = profile.id
+            JOIN "source" ON src_id = "source".id
+        '''),
+        'v_run': dedent('''\
+            CREATE VIEW IF NOT EXISTS v_run AS
+            SELECT run.id run_id, profile_id, run_datetime_iso, profile
+            FROM run
+            JOIN profile ON profile_id = profile.id
+        '''),
+        },
+    }
 
     def __init__(self, profile: str, s: Settings):
         self._profile = profile
@@ -1326,81 +1398,15 @@ class RumarDB:
             self._save_initial_state()
 
     def _create_tables_if_not_exist(self):
-        ddl = {}
-        ddl['source_dir'] = dedent('''\
-            CREATE TABLE IF NOT EXISTS source_dir (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                src_dir TEXT UNIQUE NOT NULL
-            )
-        ''')
-        ddl['source'] = dedent('''\
-            CREATE TABLE IF NOT EXISTS source (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                src_dir_id INTEGER NOT NULL REFERENCES source_dir (id),
-                src_path TEXT NOT NULL,
-                CONSTRAINT u_origin_sid_src_path UNIQUE (src_dir_id, src_path)
-            )
-        ''')
-        ddl['profile'] = dedent('''\
-            CREATE TABLE IF NOT EXISTS profile (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                profile TEXT UNIQUE NOT NULL
-            )
-        ''')
-        ddl['run'] = dedent('''\
-            CREATE TABLE IF NOT EXISTS run (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                run_datetime_iso TEXT UNIQUE NOT NULL,
-                profile_id INTEGER NOT NULL REFERENCES profile (id)
-            )
-        ''')
-        ddl['backup_base_dir_for_profile'] = dedent('''\
-            CREATE TABLE IF NOT EXISTS backup_base_dir_for_profile (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                bak_dir TEXT UNIQUE NOT NULL
-            )
-        ''')
-        ddl['backup'] = dedent('''\
-            CREATE TABLE IF NOT EXISTS backup (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                run_id INTEGER NOT NULL REFERENCES run (id),
-                reason TEXT NOT NULL,
-                bak_dir_id INTEGER NOT NULL REFERENCES backup_base_dir_for_profile (id),
-                src_id INTEGER NOT NULL REFERENCES source (id),
-                bak_name TEXT,
-                blake2b TEXT,
-                CONSTRAINT u_bak_dir_id_src_id_bak_name UNIQUE (bak_dir_id, src_id, bak_name)
-            )
-        ''')
-        indexes = dedent('''\
-            --CREATE INDEX IF NOT EXISTS i_backup_blake2b ON backup (blake2b);
-            CREATE INDEX IF NOT EXISTS i_backup_reason ON backup (reason);
-        ''')
         cur = self._db.cursor()
-        for stmt in ddl.values():
+        for stmt in self.ddl['table'].values():
             cur.execute(stmt)
-        cur.executescript(indexes)
+        cur.executescript(self.ddl['indexes'])
         cur.close()
 
     def _create_views_if_not_exist(self):
-        ddl = {}
-        ddl['v_backup'] = dedent('''\
-            CREATE VIEW IF NOT EXISTS v_backup AS
-            SELECT substr(run_datetime_iso, 1, 10) _run_datetime, profile, reason, bak_dir, src_path, bak_name, substr(blake2b, 1, 10) _blake2b
-            FROM backup
-            JOIN backup_base_dir_for_profile bd ON bak_dir_id = bd.id
-            JOIN run ON run_id = run.id
-            JOIN profile ON run.profile_id = profile.id
-            JOIN "source" ON src_id = "source".id
-        ''')
-        ddl['v_run'] = dedent('''\
-            CREATE VIEW IF NOT EXISTS v_run AS
-            SELECT run.id run_id, profile_id, run_datetime_iso, profile
-            FROM run
-            JOIN profile ON profile_id = profile.id
-        ''')
         cur = self._db.cursor()
-        for stmt in ddl.values():
+        for stmt in self.ddl['view'].values():
             cur.execute(stmt)
         cur.close()
 
@@ -1421,9 +1427,14 @@ class RumarDB:
             bak_name = lst[1] if len(lst) == 2 else lst[0]
             cur.execute('UPDATE backup SET bak_name = ? WHERE id = ?', (bak_name, row[0]))
         self._db.commit()
-        cur.execute('ALTER TABLE backup DROP bak_path')
-        cur.execute('ALTER TABLE backup DROP mtime_iso')
-        cur.execute('ALTER TABLE backup DROP size')
+        cur.execute('ALTER TABLE backup RENAME TO backup_old')
+        cur.execute(self.ddl['table']['backup'])
+        cur.execute(dedent('''\
+        INSERT INTO backup (id, run_id, reason, bak_dir_id, src_id, bak_name, blake2b)
+        SELECT id, run_id, reason, bak_dir_id, src_id, bak_name, blake2b
+        FROM backup_old
+        ORDER BY id'''))
+        cur.execute('DROP TABLE backup_old')
         cur.execute('VACUUM')
 
     def _load_data_into_memory(self):
