@@ -554,7 +554,7 @@ SLASH = '/'
 BACKSLASH = '\\'
 
 
-def iter_all_files(top_path: Path | PathLike) -> Generator[os.DirEntry]:
+def iter_all_files(top_path: Path | PathLike) -> Generator[os.DirEntry[str], None, None]:
     """
     Note: symlinks to directories are considered files
     :param top_path: usually `s.source_dir` or `s.backup_base_dir_for_profile`
@@ -569,7 +569,7 @@ def iter_all_files(top_path: Path | PathLike) -> Generator[os.DirEntry]:
         yield from iter_all_files(de_dir)
 
 
-def iter_matching_files(top_path: Path, s: Settings) -> Generator[os.DirEntry]:
+def iter_matching_files(top_path: Path, s: Settings) -> Generator[os.DirEntry[str], None, None]:
     """
     Note: symlinks to directories are considered files
     :param top_path: usually `s.source_dir` or `s.backup_base_dir_for_profile`
@@ -579,7 +579,7 @@ def iter_matching_files(top_path: Path, s: Settings) -> Generator[os.DirEntry]:
     inc_files_rx = s.included_files_as_regex
     exc_files_rx = s.excluded_files_as_regex
 
-    def _iter_matching_files(directory: os.DirEntry | Path) -> Generator[os.DirEntry]:
+    def _iter_matching_files(directory: os.DirEntry | Path) -> Generator[os.DirEntry[str], None, None]:
         dir_paths__skip_files = []
         de_directories = {}  # to preserve order
         de_files = {}  # to preserve order
@@ -1080,7 +1080,49 @@ class Rumar:
                 directory = self._profile_to_settings[profile].source_dir
             self.extract_for_profile(profile, top_archive_dir, directory, overwrite, meta_diff)
 
+    def extract_for_run(self, run_datetime_iso: str, top_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
+        """Extract files backed up during a particular run (datetime) as recorded in rumardb
+
+        :param run_datetime_iso:
+        :param top_dir: (optional) limit files to be extracted to the top dir; can be relative; in the backup tree if absolute - all files for the run_datetime_iso if missing
+        :param directory: (optional) target directory - settings.source_dir if missing
+        :param overwrite: whether to overwrite target files without asking
+        :param meta_diff: whether to overwrite target files without asking if mtime or size differ between backup and target
+        """
+        run_present = self._rdb.is_run_present(run_datetime_iso)
+        profile = dict(self._rdb.get_run_datetime_isos()).get(run_datetime_iso) if run_present else None
+        logger.info(f"{run_datetime_iso=} {profile=} top_dir={str(top_dir)!r} directory={str(directory)!r} {overwrite=} {meta_diff=}")
+        if not run_present or not profile:
+            logger.warning(f"SKIP {run_datetime_iso!r} - no corresponding profile found")
+            return
+        self._at_beginning(profile)
+        msgs = []
+        if directory and (ex := try_to_iterate_dir(directory)):
+            msgs.append(f"SKIP {run_datetime_iso!r} - cannot access target directory - {ex}")
+        if top_dir:
+            if not top_dir.is_absolute():
+                top_dir = self.s.source_dir / top_dir
+            relative_top_dir = derive_relative_p(top_dir, self.s.source_dir)  # includes validation
+        else:
+            relative_top_dir = None  # no filtering
+        if msgs:
+            logger.warning('; '.join(msgs))
+            return
+        # iter files in top_dir for the run and extract each one
+        for bak_path, src_path in self._rdb.iter_bak_src_paths(run_datetime_iso, relative_top_dir):
+            backup_path = self.s.backup_base_dir_for_profile / bak_path
+            original_source_path = self.s.source_dir / src_path
+            if directory:  # different target dir requested
+                relative_target_file = derive_relative_p(original_source_path, self.s.backup_base_dir_for_profile)  # includes validation
+                target_path = directory / relative_target_file
+            else:
+                target_path = original_source_path
+            self.extract_archive(backup_path, target_path, overwrite, meta_diff)
+        self._at_end()
+
     def extract_for_profile(self, profile: str, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
+        """Extract the lastest version of each file in backup hierarchy for profile
+        """
         self._at_beginning(profile)
         if directory is None:
             directory = self._profile_to_settings[profile].source_dir
@@ -1257,6 +1299,7 @@ class RumarDB:
     all dirs/paths in the DB are represented as_posix()
     xxx_dir := the base directory
     xxx_path := the remaining path, relative to the base directory
+    xxx_name := the name, like Path.name
     """
     SPACE = ' '
 
@@ -1498,6 +1541,42 @@ class RumarDB:
 
     def close(self):
         self._db.close()
+
+    def is_run_present(self, run_datetime_iso):
+        return run_datetime_iso in self._run_to_id
+
+    def get_run_datetime_isos(self, profile: str = None):
+        where = f"WHERE profile = '{profile}'" if profile else ''
+        query = dedent(f"""\
+        SELECT run_datetime_iso, profile
+        FROM run
+        JOIN profile ON profile_id = profile.id
+        {where}
+        ORDER BY 1""")
+        return self._db.execute(query).fetchall()
+
+    def iter_path_for_run(self, top_archive_dir):
+        query = dedent(f"""\
+        SELECT 
+        """)
+
+    def iter_bak_src_paths(self, run_datetime_iso: str, relative_top_dir: str = None):
+        if relative_top_dir:
+            and_src_path_like = 'AND s.src_path LIKE ?'
+            params = (run_datetime_iso, f"{relative_top_dir}/%")
+        else:
+            and_src_path_like = ''
+            params = (run_datetime_iso,)
+        query = dedent(f"""\
+        SELECT s.src_path
+        FROM backup b
+        JOIN run r ON b.run_id = r.id
+        JOIN source s ON b.src_id = s.id
+        WHERE r.run_datetime_iso = ?
+        {and_src_path_like}
+        """)
+        for row in self._db.execute(query, params):
+            yield row[0]
 
 
 def execute(cur: sqlite3.Cursor, stmt: str, params: tuple | None = None, log=logger.debug):
@@ -1790,7 +1869,7 @@ class BroomDB:
             cur.execute(updt_stmt, (broom_id,))
         db.commit()
 
-    def iter_marked_for_removal(self) -> Generator[tuple[str, str, str, str, str, str, str, str]]:
+    def iter_marked_for_removal(self) -> Generator[tuple[str, str, str, str, str, str, str, str], None, None]:
         stmt = dedent(f"""\
             SELECT dirname, basename, d, w, m, d_rm, w_rm, m_rm
             FROM {self._table}
@@ -1803,5 +1882,3 @@ class BroomDB:
 
 if __name__ == '__main__':
     main()
-    # profile_to_settings = make_profile_to_settings_from_toml_path(get_appdata() / 'rumar' / 'rumar.toml')
-    # RumarDB(profile_to_settings['m/Documents'])
