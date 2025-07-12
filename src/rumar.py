@@ -769,7 +769,7 @@ class Rumar:
         self._path_to_lstat: dict[Path, os.stat_result] = {}
         self._warnings = []
         self._errors = []
-        self._rdb: RumarDB = None
+        self._rdb: RumarDB = None  # initiated per profile in _at_beginning to support db_path per profile
 
     @staticmethod
     def should_ignore_for_archive(lstat: os.stat_result) -> bool:
@@ -1305,41 +1305,41 @@ class RumarDB:
     """
     SPACE = ' '
     ddl = {
-    'table': {
-        'source_dir': dedent('''\
+        'table': {
+            'source_dir': dedent('''\
             CREATE TABLE IF NOT EXISTS source_dir (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 src_dir TEXT UNIQUE NOT NULL
             ) STRICT
         '''),
-        'source': dedent('''\
+            'source': dedent('''\
             CREATE TABLE IF NOT EXISTS source (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 src_dir_id INTEGER NOT NULL REFERENCES source_dir (id),
                 src_path TEXT NOT NULL,
-                CONSTRAINT u_origin_sid_src_path UNIQUE (src_dir_id, src_path)
+                CONSTRAINT u_source_src_dir_id_src_path UNIQUE (src_dir_id, src_path)
             ) STRICT
         '''),
-        'profile': dedent('''\
+            'profile': dedent('''\
             CREATE TABLE IF NOT EXISTS profile (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 profile TEXT UNIQUE NOT NULL
             ) STRICT
         '''),
-        'run': dedent('''\
+            'run': dedent('''\
             CREATE TABLE IF NOT EXISTS run (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 run_datetime_iso TEXT UNIQUE NOT NULL,
                 profile_id INTEGER NOT NULL REFERENCES profile (id)
             ) STRICT
         '''),
-        'backup_base_dir_for_profile': dedent('''\
+            'backup_base_dir_for_profile': dedent('''\
             CREATE TABLE IF NOT EXISTS backup_base_dir_for_profile (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 bak_dir TEXT UNIQUE NOT NULL
             ) STRICT
         '''),
-        'backup': dedent('''\
+            'backup': dedent('''\
             CREATE TABLE IF NOT EXISTS backup (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 run_id INTEGER NOT NULL REFERENCES run (id),
@@ -1351,13 +1351,13 @@ class RumarDB:
                 CONSTRAINT u_bak_dir_id_src_id_bak_name UNIQUE (bak_dir_id, src_id, bak_name)
             ) STRICT
         '''),
-    },
-    'indexes': dedent('''\
+        },
+        'indexes': dedent('''\
         --CREATE INDEX IF NOT EXISTS i_backup_blake2b ON backup (blake2b);
         CREATE INDEX IF NOT EXISTS i_backup_reason ON backup (reason);
     '''),
-    'view': {
-        'v_backup': dedent('''\
+        'view': {
+            'v_backup': dedent('''\
             CREATE VIEW IF NOT EXISTS v_backup AS
             SELECT substr(run_datetime_iso, 1, 10) _run_datetime, profile, reason, bak_dir, src_path, bak_name, substr(blake2b, 1, 10) _blake2b
             FROM backup
@@ -1366,7 +1366,7 @@ class RumarDB:
             JOIN profile ON run.profile_id = profile.id
             JOIN "source" ON src_id = "source".id
         '''),
-        'v_run': dedent('''\
+            'v_run': dedent('''\
             CREATE VIEW IF NOT EXISTS v_run AS
             SELECT run.id run_id, profile_id, run_datetime_iso, profile
             FROM run
@@ -1378,11 +1378,12 @@ class RumarDB:
     def __init__(self, profile: str, s: Settings):
         self._profile = profile
         self.s = s
-        self._db = sqlite3.connect(s.db_path)
-        self._db.execute('PRAGMA foreign_keys = ON')
-        self._migrate_backup_to_bak_name_if_required()
-        self._create_tables_if_not_exist()
-        self._create_views_if_not_exist()
+        db = sqlite3.connect(s.db_path)
+        db.execute('PRAGMA foreign_keys = ON')
+        self._migrate_backup_to_bak_name_if_required(db)
+        self._create_tables_and_indexes_if_not_exist(db)
+        self._create_views_if_not_exist(db)
+        self._db = db
         self._profile_to_id = {}
         self._run_to_id = {}
         self._src_dir_to_id = {}
@@ -1397,26 +1398,29 @@ class RumarDB:
         if self._profile not in self._profile_to_id:
             self._save_initial_state()
 
-    def _create_tables_if_not_exist(self):
-        cur = self._db.cursor()
-        for stmt in self.ddl['table'].values():
+    @classmethod
+    def _create_tables_and_indexes_if_not_exist(cls, db):
+        cur = db.cursor()
+        for stmt in cls.ddl['table'].values():
             cur.execute(stmt)
-        cur.executescript(self.ddl['indexes'])
+        cur.executescript(cls.ddl['indexes'])
         cur.close()
 
-    def _create_views_if_not_exist(self):
-        cur = self._db.cursor()
-        for stmt in self.ddl['view'].values():
+    @classmethod
+    def _create_views_if_not_exist(cls, db):
+        cur = db.cursor()
+        for stmt in cls.ddl['view'].values():
             cur.execute(stmt)
         cur.close()
 
-    def _migrate_backup_to_bak_name_if_required(self):
-        cur = self._db.cursor()
-        for _ in cur.execute("SELECT 1 FROM pragma_table_info('backup') WHERE name = 'bak_path'"):
-            self._migrate_to_bak_name(cur)
-        cur.close()
+    @classmethod
+    def _migrate_backup_to_bak_name_if_required(cls, db):
+        for _ in db.execute("SELECT 1 FROM pragma_table_info('backup') WHERE name = 'bak_path'"):
+            cls._migrate_to_bak_name(db)
 
-    def _migrate_to_bak_name(self, cur):
+    @classmethod
+    def _migrate_to_bak_name(cls, db):
+        cur = db.cursor()
         cur.execute('DROP VIEW IF EXISTS v_backup')
         cur.execute('DROP VIEW IF EXISTS v_run')
         cur.execute('DROP INDEX IF EXISTS i_backup_mtime_iso')
@@ -1426,23 +1430,22 @@ class RumarDB:
             bak_name_missing = False
         if bak_name_missing:
             cur.execute('ALTER TABLE backup ADD bak_name TEXT')
-            for row in self._db.execute('SELECT id, bak_path FROM backup'):
+            for row in db.execute('SELECT id, bak_path FROM backup'):
                 lst = row[1].rsplit('/', 1)
                 bak_name = lst[1] if len(lst) == 2 else lst[0]
                 cur.execute('UPDATE backup SET bak_name = ? WHERE id = ?', (bak_name, row[0]))
-            self._db.commit()
+            db.commit()
         cur.execute('ALTER TABLE backup RENAME TO backup_old')
-        cur.execute(self.ddl['table']['backup'])
+        cur.execute(cls.ddl['table']['backup'])
         cur.execute(dedent('''\
         INSERT INTO backup (id, run_id, reason, bak_dir_id, src_id, bak_name, blake2b)
         SELECT id, run_id, reason, bak_dir_id, src_id, bak_name, blake2b
         FROM backup_old
         ORDER BY id'''))
         cur.execute('DROP TABLE backup_old')
-        try:
-            cur.execute('VACUUM')
-        except sqlite3.OperationalError as e:
-            print(type(e).__name__, e)
+        cur.close()
+        db.commit()
+        db.execute('VACUUM')
 
     def _load_data_into_memory(self):
         cur = self._db.cursor()
