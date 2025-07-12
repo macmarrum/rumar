@@ -534,7 +534,7 @@ def make_profile_to_settings_from_toml_text(toml_str) -> ProfileToSettings:
 def verify_and_remove_version(toml_dict):
     version = toml_dict.get('version', 'missing')
     if version != 2:
-        logger.warning(f"rumar.toml version is {version} - expected 2")
+        logger.warning(f"rumar.toml version is {version} - expected `version = 2`")
     if any('sha256_comparison_if_same_size' in dct for dct in toml_dict.values() if isinstance(dct, dict)):
         msg = 'found sha256_comparison_if_same_size - expected checksum_comparison_if_same_size'
         logger.error(msg)
@@ -1310,7 +1310,7 @@ class RumarDB:
             CREATE TABLE IF NOT EXISTS source_dir (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 src_dir TEXT UNIQUE NOT NULL
-            )
+            ) STRICT
         '''),
         'source': dedent('''\
             CREATE TABLE IF NOT EXISTS source (
@@ -1318,26 +1318,26 @@ class RumarDB:
                 src_dir_id INTEGER NOT NULL REFERENCES source_dir (id),
                 src_path TEXT NOT NULL,
                 CONSTRAINT u_origin_sid_src_path UNIQUE (src_dir_id, src_path)
-            )
+            ) STRICT
         '''),
         'profile': dedent('''\
             CREATE TABLE IF NOT EXISTS profile (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 profile TEXT UNIQUE NOT NULL
-            )
+            ) STRICT
         '''),
         'run': dedent('''\
             CREATE TABLE IF NOT EXISTS run (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 run_datetime_iso TEXT UNIQUE NOT NULL,
                 profile_id INTEGER NOT NULL REFERENCES profile (id)
-            )
+            ) STRICT
         '''),
         'backup_base_dir_for_profile': dedent('''\
             CREATE TABLE IF NOT EXISTS backup_base_dir_for_profile (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 bak_dir TEXT UNIQUE NOT NULL
-            )
+            ) STRICT
         '''),
         'backup': dedent('''\
             CREATE TABLE IF NOT EXISTS backup (
@@ -1349,7 +1349,7 @@ class RumarDB:
                 bak_name TEXT,
                 blake2b TEXT,
                 CONSTRAINT u_bak_dir_id_src_id_bak_name UNIQUE (bak_dir_id, src_id, bak_name)
-            )
+            ) STRICT
         '''),
     },
     'indexes': dedent('''\
