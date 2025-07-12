@@ -909,6 +909,8 @@ class Rumar:
                     # file has changed as compared to the last backup
                     logger.info(f":= {relative_p}  {latest_mtime_str}  {latest_size} =: last backup")
                     self._create(CreateReason.UPDATE, p, relative_p, archive_dir, mtime_str, size, checksum)
+                else:
+                    self._rdb.record_unchanged(relative_p)
         self._at_end()
 
     def _at_beginning(self, profile: str):
@@ -919,6 +921,7 @@ class Rumar:
         self._rdb = RumarDB(self._profile, self.s)
 
     def _at_end(self):
+        self._rdb.identify_and_save_deleted()
         self._profile = None  # safeguard so that self.s will complain
         if self._warnings:
             for w in self._warnings:
@@ -1310,35 +1313,30 @@ class RumarDB:
             CREATE TABLE IF NOT EXISTS source_dir (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 src_dir TEXT UNIQUE NOT NULL
-            ) STRICT
-        '''),
+            ) STRICT;'''),
             'source': dedent('''\
             CREATE TABLE IF NOT EXISTS source (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 src_dir_id INTEGER NOT NULL REFERENCES source_dir (id),
                 src_path TEXT NOT NULL,
                 CONSTRAINT u_source_src_dir_id_src_path UNIQUE (src_dir_id, src_path)
-            ) STRICT
-        '''),
+            ) STRICT;'''),
             'profile': dedent('''\
             CREATE TABLE IF NOT EXISTS profile (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 profile TEXT UNIQUE NOT NULL
-            ) STRICT
-        '''),
+            ) STRICT;'''),
             'run': dedent('''\
             CREATE TABLE IF NOT EXISTS run (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 run_datetime_iso TEXT UNIQUE NOT NULL,
                 profile_id INTEGER NOT NULL REFERENCES profile (id)
-            ) STRICT
-        '''),
+            ) STRICT;'''),
             'backup_base_dir_for_profile': dedent('''\
             CREATE TABLE IF NOT EXISTS backup_base_dir_for_profile (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 bak_dir TEXT UNIQUE NOT NULL
-            ) STRICT
-        '''),
+            ) STRICT;'''),
             'backup': dedent('''\
             CREATE TABLE IF NOT EXISTS backup (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1349,13 +1347,11 @@ class RumarDB:
                 bak_name TEXT,
                 blake2b TEXT,
                 CONSTRAINT u_bak_dir_id_src_id_bak_name UNIQUE (bak_dir_id, src_id, bak_name)
-            ) STRICT
-        '''),
+            ) STRICT;'''),
         },
         'indexes': dedent('''\
         --CREATE INDEX IF NOT EXISTS i_backup_blake2b ON backup (blake2b);
-        CREATE INDEX IF NOT EXISTS i_backup_reason ON backup (reason);
-    '''),
+        CREATE INDEX IF NOT EXISTS i_backup_reason ON backup (reason);'''),
         'view': {
             'v_backup': dedent('''\
             CREATE VIEW IF NOT EXISTS v_backup AS
@@ -1364,15 +1360,22 @@ class RumarDB:
             JOIN backup_base_dir_for_profile bd ON bak_dir_id = bd.id
             JOIN run ON run_id = run.id
             JOIN profile ON run.profile_id = profile.id
-            JOIN "source" ON src_id = "source".id
-        '''),
+            JOIN "source" ON src_id = "source".id;'''),
             'v_run': dedent('''\
             CREATE VIEW IF NOT EXISTS v_run AS
             SELECT run.id run_id, profile_id, run_datetime_iso, profile
             FROM run
-            JOIN profile ON profile_id = profile.id
-        '''),
+            JOIN profile ON profile_id = profile.id;'''),
         },
+        'temp': {
+            'temp_unchanged_source': dedent('''\
+            CREATE TEMP TABLE temp_unchanged_source (
+                src_id INTEGER PRIMARY KEY REFERENCES source (id)
+            ) STRICT;'''),
+        },
+        'temp.drop': {
+            'temp_unchanged_source': 'DROP TABLE IF EXISTS temp_unchanged_source;',
+        }
     }
 
     def __init__(self, profile: str, s: Settings):
@@ -1383,6 +1386,7 @@ class RumarDB:
         self._migrate_backup_to_bak_name_if_required(db)
         self._create_tables_and_indexes_if_not_exist(db)
         self._create_views_if_not_exist(db)
+        self._create_temp_tables(db)
         self._db = db
         self._profile_to_id = {}
         self._run_to_id = {}
@@ -1397,6 +1401,7 @@ class RumarDB:
         self._run_datetime_iso = run_datetime_iso
         if self._profile not in self._profile_to_id:
             self._save_initial_state()
+        self._unchanged_paths = {}
 
     @classmethod
     def _create_tables_and_indexes_if_not_exist(cls, db):
@@ -1446,6 +1451,13 @@ class RumarDB:
         cur.close()
         db.commit()
         db.execute('VACUUM')
+
+    @classmethod
+    def _create_temp_tables(cls, db):
+        cur = db.cursor()
+        for stmt in cls.ddl['temp'].values():
+            cur.execute(stmt)
+        cur.close()
 
     def _load_data_into_memory(self):
         cur = self._db.cursor()
@@ -1532,6 +1544,39 @@ class RumarDB:
         self._backup_to_checksum[(bak_dir_id, src_id, bak_name)] = blake2b_checksum
         cur.close()
         self._db.commit()
+
+    def record_unchanged(self, relative_p: str):
+        src_dir = self.s.source_dir.as_posix()
+        src_dir_id = self._src_dir_to_id[src_dir]
+        src_path = relative_p
+        self._db.execute('INSERT INTO temp_unchanged_source (src_id) SELECT id FROM source WHERE src_dir_id = ? AND src_path = ?', (src_dir_id, src_path))
+        self._db.commit()
+
+    def identify_and_save_deleted(self):
+        """
+        Calls save DELETED for each path in the DB that's no longer available in source_dir files.
+        Selects from backup all non-deleted src_paths for the profile, then subtracts src_paths in temp_unchanged_source.
+        The result is a list of deleted src_paths.
+        For each resulting src_path, calls save(DELETED, src_path)
+        """
+        query = dedent('''\
+        SELECT src_path
+        FROM source s
+        JOIN (
+            SELECT src_id 
+            FROM backup b
+            JOIN run r ON r.id = b.run_id 
+            WHERE r.profile = ? AND reason != ?
+            EXCEPT
+            SELECT src_id
+            FROM temp_unchanged_source
+        ) x ON s.id = x.src_id
+        ''')
+        cur = self._db.cursor()
+        execute(cur, query, (self._profile_to_id[self._profile], CreateReason.DELETE.name[0]))
+        for row in cur:
+            self.save(CreateReason.DELETE, row[0], None, None)
+        cur.close()
 
     def get_blake2b_checksum(self, archive_path: Path) -> str | None:
         bak_dir = self.s.backup_base_dir_for_profile.as_posix()
