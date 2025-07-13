@@ -554,25 +554,49 @@ SLASH = '/'
 BACKSLASH = '\\'
 
 
-class Rath(Path):
+class Rath:
 
-    def __init__(self, *args, rumar):
+    def __init__(self, path: Path, rumar):
+        self._path = path
         self._rumar = rumar
-        super().__init__(*args)
 
-    @override
+    def __fspath__(self):
+        return self._path.as_posix()
+
     def lstat(self):
         path_to_lstat = self._rumar._path_to_lstat
         if lstat := path_to_lstat.get(self):
             return lstat
         else:
-            lstat = self.lstat()
+            lstat = self._path.lstat()
             path_to_lstat[self] = lstat
             return lstat
 
+    def as_posix(self):
+        return self._path.as_posix()
+
+    def is_absolute(self):
+        return self._path.is_absolute()
+
     @property
     def parent(self):
-        return Rath(self.parent, self._rumar)
+        parent = self._path.parent
+        return Rath(parent, rumar=self._rumar)
+
+    @property
+    def name(self):
+        return self._path.name
+
+    @property
+    def stem(self):
+        return self._path.stem
+
+    @property
+    def suffix(self):
+        return self._path.suffix
+
+    def open(self, *args, **kwargs):
+        return self._path.open(*args, **kwargs)
 
 
 def calc_dir_matches_top_dirs(dir_path: Path, relative_dir_p: str, s: Settings) -> tuple[bool, bool]:
@@ -1008,7 +1032,6 @@ class Rumar:
         for dir_rath in dir_raths:
             yield from self.iter_all_files(dir_rath)
 
-
     def iter_matching_files(self, top_path: Path) -> Generator[Rath, None, None]:
         """
         Note: symlinks to directories are considered files
@@ -1019,13 +1042,14 @@ class Rumar:
         inc_files_rx = self.s.included_files_as_regex
         exc_files_rx = self.s.excluded_files_as_regex
 
-        def _iter_matching_files(directory: Rath, rumar) -> Generator[Rath, None, None]:
+        def _iter_matching_files(directory: Rath) -> Generator[Rath, None, None]:
+            s = self.s
             dir_raths__skip_files = []
             dir_raths = {}  # to preserve order
             file_raths = {}  # to preserve order
             for de in os.scandir(directory):
                 if de.is_dir(follow_symlinks=False):
-                    dir_rath = Rath(Path(de), rumar=rumar)
+                    dir_rath = Rath(Path(de), rumar=self)
                     relative_dir_p = derive_relative_p(dir_rath, top_path, with_leading_slash=True)
                     is_dir_matching_top_dirs, skip_files = calc_dir_matches_top_dirs(dir_rath, relative_dir_p, s)
                     if skip_files:
@@ -1044,7 +1068,7 @@ class Rumar:
                     else:  # doesn't match dirnames and/or top_dirs
                         pass
                 else:  # a file
-                    file_rath = Rath(Path(de), rumar=rumar)
+                    file_rath = Rath(Path(de), rumar=self)
                     relative_file_p = derive_relative_p(file_rath, top_path, with_leading_slash=True)
                     if is_file_matching_glob(file_rath, relative_file_p, s):  # matches glob, now check regex
                         if inc_files_rx:  # only included paths must be considered
@@ -1066,7 +1090,7 @@ class Rumar:
             for dir_rath in dir_raths:
                 yield from _iter_matching_files(dir_rath)
 
-        yield from _iter_matching_files(Rath(top_path, rumar=self), self)
+        yield from _iter_matching_files(Rath(top_path, rumar=self))
 
     def find_duplicate(self, file_rath: Rath) -> Rath | None:
         """
