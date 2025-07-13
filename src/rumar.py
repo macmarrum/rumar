@@ -1598,7 +1598,7 @@ class RumarDB:
             SELECT src_id 
             FROM backup b
             JOIN run r ON r.id = b.run_id 
-            WHERE r.profile = ? AND reason != ?
+            WHERE r.profile_id = ? AND reason != ?
             EXCEPT
             SELECT src_id
             FROM temp_unchanged_source
