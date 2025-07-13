@@ -1581,7 +1581,9 @@ class RumarDB:
         src_dir = self.s.source_dir.as_posix()
         src_dir_id = self._src_dir_to_id[src_dir]
         src_path = relative_p
-        self._db.execute('INSERT INTO temp_unchanged_source (src_id) SELECT id FROM source WHERE src_dir_id = ? AND src_path = ?', (src_dir_id, src_path))
+        stmt = 'INSERT INTO temp_unchanged_source (src_id) SELECT id FROM source WHERE src_dir_id = ? AND src_path = ?'
+        params = (src_dir_id, src_path)
+        execute(self._db, stmt, params)
         self._db.commit()
 
     def identify_and_save_deleted(self):
@@ -1677,7 +1679,7 @@ class RumarDB:
             yield row[0]
 
 
-def execute(cur: sqlite3.Cursor, stmt: str, params: tuple | None = None, log=logger.debug):
+def execute(cur: sqlite3.Cursor | sqlite3.Connection, stmt: str, params: tuple | None = None, log=logger.debug):
     if params:
         sql_stmt = stmt.replace('?', '%s') % params
     else:
