@@ -1159,8 +1159,8 @@ class Rumar:
             self.extract_archive(backup_path, target_path, overwrite, meta_diff)
         self._at_end()
 
-    def extract_for_profile(self, profile: str, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
-        """Extract the lastest version of each file in backup hierarchy for profile
+    def extract_for_profile2(self, profile: str, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
+        """Extract the lastest version of each file found in backup hierarchy for profile
         """
         self._at_beginning(profile)
         if directory is None:
@@ -1200,11 +1200,40 @@ class Rumar:
                     self.extract_latest_file(self.s.backup_base_dir_for_profile, top_archive_dir, directory, overwrite, meta_diff, filenames)
         self._at_end()
 
+    def extract_for_profile(self, profile: str, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
+        """Extract the lastest version of each file recorded in the DB for profile
+        """
+        self._at_beginning(profile)
+        _directory = directory or self.s.source_dir
+        msgs = []
+        if ex := try_to_iterate_dir(_directory):
+            msgs.append(f"SKIP {profile!r} - cannot access target directory - {ex}")
+        if top_archive_dir:
+            if not top_archive_dir.is_absolute():
+                top_archive_dir = self.s.backup_base_dir_for_profile / top_archive_dir
+            if ex := try_to_iterate_dir(top_archive_dir):
+                msgs.append(f"SKIP {profile!r} - archive-dir doesn't exist - {ex}")
+            elif not top_archive_dir.as_posix().startswith(self.s.backup_base_dir_for_profile.as_posix()):
+                msgs.append(f"SKIP {profile!r} - archive-dir is not under backup_base_dir_for_profile: "
+                            f"top_archive_dir={str(top_archive_dir)!r} backup_base_dir_for_profile={str(self.s.backup_base_dir_for_profile)!r}")
+        logger.info(f"{profile=} top_archive_dir={str(top_archive_dir) if top_archive_dir else None!r} directory={str(_directory)!r} {overwrite=} {meta_diff=}")
+        if msgs:
+            logger.warning('; '.join(msgs))
+            return
+        if not self._confirm_extraction_into_directory(_directory, top_archive_dir, self.s.backup_base_dir_for_profile):
+            return
+        for archive_file, target_file in self._rdb.iter_latest_archives_and_targets(top_archive_dir, directory):
+            self.extract_archive(archive_file, target_file, overwrite, meta_diff)
+        self._at_end()
+
     @staticmethod
-    def _confirm_extraction_into_directory(directory: Path, archive_dir: Path, backup_base_dir_for_profile: Path):
-        relative_file_parent = derive_relative_p(archive_dir.parent, backup_base_dir_for_profile)
-        target_file = directory / relative_file_parent / archive_dir.name
-        target = str(target_file)
+    def _confirm_extraction_into_directory(directory: Path, top_archive_dir: Path, backup_base_dir_for_profile: Path):
+        if top_archive_dir:
+            relative_top_archive_dir = derive_relative_p(top_archive_dir, backup_base_dir_for_profile)
+            target_dir = directory / relative_top_archive_dir
+            target = str(target_dir)
+        else:
+            target = str(directory)
         answer = input(f"\n   Begin extraction into {target}?  [N/y] ")
         logger.info(f":  {answer=}  {target}")
         return answer in ['y', 'Y']
@@ -1727,6 +1756,29 @@ class RumarDB:
         """)
         for row in self._db.execute(query, params):
             yield row[0]
+
+    def iter_latest_archives_and_targets(self, top_archive_dir: Path = None, directory: Path = None):
+        query = dedent('''\
+        SELECT bd.bak_dir, s.src_path, b.bak_name, sd.src_dir
+        FROM backup b
+        JOIN backup_base_dir_for_profile bd ON b.bak_dir_id = bd.id 
+        JOIN "source" s ON b.src_id = s.id
+        JOIN source_dir sd ON s.src_dir_id = sd.id
+        JOIN (
+            SELECT max(b.id) id
+            FROM backup b
+            JOIN run r ON b.run_id = r.id AND r.profile_id = ?
+            GROUP BY b.src_id
+        ) x ON b.id = x.id
+        WHERE b.reason != ?
+        ''')
+        top_archive_dir_psx = top_archive_dir.as_posix() if top_archive_dir else 'None'
+        for row in execute(self._cur, query, (self._profile_id, CreateReason.DELETE.name[0])):
+            bak_dir, src_path, bak_name, src_dir = row
+            if top_archive_dir and not f"{bak_dir}/{src_path}".startswith(top_archive_dir_psx):
+                continue
+            _directory = directory or Path(src_dir)
+            yield Path(bak_dir, src_path, bak_name), _directory / src_path
 
 
 def execute(cur: sqlite3.Cursor | sqlite3.Connection, stmt: str, params: tuple | None = None, log=logger.debug):
