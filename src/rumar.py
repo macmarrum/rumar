@@ -873,7 +873,7 @@ class Rumar:
                     logger.info(f":= {relative_p}  {latest_mtime_str}  {latest_size} =: last backup")
                     self._create(CreateReason.UPDATE, rath, relative_p, archive_dir, mtime_str, size, checksum)
                 else:
-                    self._rdb.record_unchanged(relative_p)
+                    self._rdb.save_unchanged(relative_p)
         self._at_end()
 
     def _at_beginning(self, profile: str):
@@ -1391,7 +1391,7 @@ class RumarDB:
                 run_id INTEGER NOT NULL REFERENCES run (id),
                 src_id INTEGER NOT NULL REFERENCES source (id),
                 CONSTRAINT pk_unchanged_source PRIMARY KEY (run_id, src_id)
-            ) STRICT, WITHOUT ROWID;'''),
+            ) STRICT;'''),
         },
         'indexes': dedent('''\
         --CREATE INDEX IF NOT EXISTS i_backup_blake2b ON backup (blake2b);
@@ -1427,10 +1427,11 @@ class RumarDB:
         self._migrate_backup_to_bak_name_if_required(db)
         self._create_tables_and_indexes_if_not_exist(db)
         self._create_views_if_not_exist(db)
+        self._delete_from_unchanged(db, run_id_offset=10)
         self._db = db
         self._load_data_into_memory()
         # make sure run_datetime_iso is unique
-        while (run_datetime_iso := datetime.now().astimezone().isoformat(sep=self.SPACE, timespec='seconds')) in self._run_to_id:
+        while (run_datetime_iso := self.make_run_datetime_iso()) in self._run_to_id:
             sleep(0.25)
         self._run_datetime_iso = run_datetime_iso
         self._profile_id = None
@@ -1441,6 +1442,10 @@ class RumarDB:
         if self._profile not in self._profile_to_id:
             self._save_initial_state()
         self._unchanged_paths = {}
+
+    @classmethod
+    def make_run_datetime_iso(cls):
+        return datetime.now().astimezone().isoformat(sep=cls.SPACE, timespec='seconds')
 
     @classmethod
     def _create_tables_and_indexes_if_not_exist(cls, db):
@@ -1488,6 +1493,21 @@ class RumarDB:
         ORDER BY id'''))
         cur.execute('DROP TABLE backup_old')
         cur.close()
+        db.commit()
+        # db.execute('VACUUM')
+
+    @staticmethod
+    def _delete_from_unchanged(db, run_id_offset=10):
+        stmt = dedent('''\
+            DELETE FROM unchanged
+            WHERE run_id < (
+                SELECT DISTINCT run_id
+                FROM unchanged
+                ORDER BY run_id DESC
+                LIMIT 1 OFFSET ?
+            )
+        ''')
+        db.execute(stmt, (run_id_offset,))
         db.commit()
         db.execute('VACUUM')
 
@@ -1588,7 +1608,7 @@ class RumarDB:
         cur.close()
         self._db.commit()
 
-    def record_unchanged(self, relative_p: str):
+    def save_unchanged(self, relative_p: str):
         src_path = relative_p
         stmt = 'INSERT INTO unchanged (run_id, src_id) SELECT ?, id FROM source WHERE src_dir_id = ? AND src_path = ?'
         params = (self._run_id, self._src_dir_id, src_path)
