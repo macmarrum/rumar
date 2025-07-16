@@ -847,7 +847,7 @@ class Rumar:
             archive_dir = self.compose_archive_container_dir(relative_p=relative_p)
             # TODO handle LNK target changes, don't blake2b LNKs
             # latest_archive = find_last_file_in_dir(archive_dir, RX_ARCHIVE_SUFFIX)
-            latest_archive = self._rdb.get_latest_backup_for_source(relative_p)
+            latest_archive = self._rdb.get_latest_archive_for_source(relative_p)
             if latest_archive is None:
                 # no previous backup found
                 self._create(CreateReason.CREATE, rath, relative_p, archive_dir, mtime_str, size, checksum=None)
@@ -1670,12 +1670,12 @@ class RumarDB:
     def close_cursor(self):
         self._cur.close()
 
-    def get_latest_backup_for_source(self, relative_p: str) -> Path | None:
+    def get_latest_archive_for_source(self, relative_p: str) -> Path | None:
         stmt = dedent('''\
             SELECT b.bak_name
             FROM backup b 
-            JOIN run r ON r.id = b.run_id 
-            WHERE r.profile_id = ? AND b.src_id = ?
+            JOIN run r ON r.id = b.run_id AND r.profile_id = ? 
+            WHERE b.src_id = ?
             ORDER BY b.id DESC
             LIMIT 1
         ''')
@@ -1683,10 +1683,8 @@ class RumarDB:
         src_dir_id = self._src_dir_id
         src_id = self._source_to_id[(src_dir_id, src_path)]
         params = (self._profile_id, src_id)
-        cur = self._db.cursor()
-        row = execute(cur, stmt, params).fetchone()
-        cur.close()
-        if row:
+        row = execute(self._cur, stmt, params).fetchone()
+        if row and row[0]:
             return self.s.backup_base_dir_for_profile / src_path / row[0]
         else:
             return None
