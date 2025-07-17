@@ -1429,12 +1429,12 @@ class RumarDB:
         'view': {
             'v_backup': dedent('''\
             CREATE VIEW IF NOT EXISTS v_backup AS
-            SELECT substr(run_datetime_iso, 1, 10) _run_datetime, profile, reason, bak_dir, src_path, bak_name, substr(blake2b, 1, 10) _blake2b
-            FROM backup
+            SELECT b.id, run_id, run_datetime_iso, profile, reason, bak_dir, src_path, bak_name, substr(blake2b, 1, 10) _blake2b
+            FROM backup b
             JOIN backup_base_dir_for_profile bd ON bak_dir_id = bd.id
+            JOIN "source" ON src_id = "source".id
             JOIN run ON run_id = run.id
-            JOIN profile ON run.profile_id = profile.id
-            JOIN "source" ON src_id = "source".id;'''),
+            JOIN profile ON run.profile_id = profile.id;'''),
             'v_run': dedent('''\
             CREATE VIEW IF NOT EXISTS v_run AS
             SELECT run.id run_id, profile_id, run_datetime_iso, profile
@@ -1456,7 +1456,7 @@ class RumarDB:
         db.execute('PRAGMA foreign_keys = ON')
         self._migrate_backup_to_bak_name_if_required(db)
         self._create_tables_and_indexes_if_not_exist(db)
-        self._create_views_if_not_exist(db)
+        self._recreate_views(db)
         self._delete_from_unchanged(db, run_id_offset=10)
         self._db = db
         self._cur = db.cursor()
@@ -1488,9 +1488,10 @@ class RumarDB:
         cur.close()
 
     @classmethod
-    def _create_views_if_not_exist(cls, db):
+    def _recreate_views(cls, db):
         cur = db.cursor()
-        for stmt in cls.ddl['view'].values():
+        for name, stmt in cls.ddl['view'].items():
+            cur.execute('DROP VIEW IF EXISTS ' + name)
             cur.execute(stmt)
         cur.close()
 
