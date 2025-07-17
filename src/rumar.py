@@ -1644,13 +1644,13 @@ class RumarDB:
 
     def identify_and_save_deleted(self):
         """
-        Calls save DELETE for each path in the DB that's no longer available in source_dir files.
-        Selects from backup all non-deleted src_paths for the profile without src_paths seen in this run, i.e.
-        both changed dnd unchanged files. The result is a list of deleted src_paths.
-        For each resulting src_path, calls save(DELETE, src_path)
+        Inserts a DELETE record for each path in the DB that's no longer available in source_dir files.
+        Selects from backup all non-deleted src_paths for the profile, minus src_paths seen in this run,
+        i.e. both changed dnd unchanged files. The result is a list of deleted src_paths.
         """
         query = dedent('''\
-        SELECT s.src_path
+        INSERT INTO backup (run_id, reason, bak_dir_id, src_id)
+        SELECT ?, ?, bak_dir_id, src_id
         FROM backup b
         JOIN run r ON r.id = b.run_id
         JOIN "source" s ON b.src_id = s.id
@@ -1661,10 +1661,11 @@ class RumarDB:
             FROM unchanged u
             WHERE b.src_id = u.src_id AND u.run_id = ?
         );''')
-        run_id = self._run_to_id[(self._profile_to_id[self._profile], self._run_datetime_iso)]
-        execute(self._cur, query, (self._profile_to_id[self._profile], CreateReason.DELETE.name[0], run_id, run_id))
-        for row in self._cur:
-            self.save(CreateReason.DELETE, row[0], None, None)
+        profile_id = self._profile_to_id[self._profile]
+        run_id = self._run_to_id[(profile_id, self._run_datetime_iso)]
+        reason_d = CreateReason.DELETE.name[0]
+        execute(self._cur, query, (run_id, reason_d, profile_id, reason_d, run_id, run_id))
+        self._db.commit()
 
     def close_db(self):
         self._cur.close()
