@@ -1677,14 +1677,12 @@ class RumarDB:
             FROM backup b 
             JOIN run r ON r.id = b.run_id AND r.profile_id = ? 
             JOIN backup_base_dir_for_profile bd ON b.bak_dir_id = bd.id 
-            WHERE b.src_id = ?
+            JOIN "source" s ON b.src_id = s.id AND s.src_path = ?
+            JOIN source_dir sd ON s.src_dir_id = sd.id AND sd.src_dir = ?
             ORDER BY b.id DESC
             LIMIT 1
         ''')
-        key = (self._src_dir_id, relative_p)
-        if not (src_id := self._source_to_id.get(key)):
-            return None
-        params = (self._profile_id, src_id)
+        params = (self._profile_id, relative_p, self.s.source_dir.as_posix())
         bak_dir, bak_name = execute(self._cur, stmt, params).fetchone()
         if bak_name:
             return Path(bak_dir, relative_p, bak_name)
@@ -1783,7 +1781,7 @@ class RumarDB:
 
 def execute(cur: sqlite3.Cursor | sqlite3.Connection, stmt: str, params: tuple | None = None, log=logger.debug):
     if params:
-        sql_stmt = stmt.replace('?', '%s') % params
+        sql_stmt = stmt.replace('?', '%r') % params
     else:
         sql_stmt = stmt
     log(sql_stmt)
