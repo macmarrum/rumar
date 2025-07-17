@@ -1683,11 +1683,13 @@ class RumarDB:
             LIMIT 1
         ''')
         params = (self._profile_id, relative_p, self.s.source_dir.as_posix())
-        bak_dir, bak_name = execute(self._cur, stmt, params).fetchone()
-        if bak_name:
-            return Path(bak_dir, relative_p, bak_name)
-        else:
-            return None
+        result = None
+        for row in execute(self._cur, stmt, params):
+            bak_dir, bak_name = row
+            if bak_name:
+                result = Path(bak_dir, relative_p, bak_name)
+        logger.debug(f"=> {result}")
+        return result
 
     def get_blake2b_checksum(self, archive_path: Path) -> str | None:
         bak_dir = self.s.backup_base_dir_for_profile.as_posix()
