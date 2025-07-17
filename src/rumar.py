@@ -885,7 +885,7 @@ class Rumar:
 
     def _at_end(self):
         self._rdb.identify_and_save_deleted()
-        self._rdb.close_cursor()
+        self._rdb.close_db()
         self._profile = None  # safeguard so that self.s will complain
         if self._warnings:
             for w in self._warnings:
@@ -1666,8 +1666,9 @@ class RumarDB:
         for row in self._cur:
             self.save(CreateReason.DELETE, row[0], None, None)
 
-    def close_cursor(self):
+    def close_db(self):
         self._cur.close()
+        self._db.close()
 
     def get_latest_archive_for_source(self, relative_p: str) -> Path | None:
         stmt = dedent('''\
