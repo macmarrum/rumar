@@ -1791,7 +1791,8 @@ def execute(cur: sqlite3.Cursor | sqlite3.Connection, stmt: str, params: tuple |
         result = cur.execute(stmt, params)
     else:
         result = cur.execute(stmt)
-    log(f"{cur.rowcount=}")
+    if stmt.startswith('INSERT') or stmt.startswith('UPDATE') or stmt.startswith('DELETE'):
+        log(f"{cur.rowcount=}")
     return result
 
 
