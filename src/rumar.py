@@ -1673,9 +1673,11 @@ class RumarDB:
 
     def get_latest_archive_for_source(self, relative_p: str) -> Path | None:
         stmt = dedent('''\
-            SELECT b.bak_name
+            SELECT bak_dir, src_path, bak_name
             FROM backup b 
             JOIN run r ON r.id = b.run_id AND r.profile_id = ? 
+            JOIN backup_base_dir_for_profile bd ON b.bak_dir_id = bd.id 
+            JOIN "source" s ON b.src_id = s.id
             WHERE b.src_id = ?
             ORDER BY b.id DESC
             LIMIT 1
@@ -1684,9 +1686,9 @@ class RumarDB:
         src_dir_id = self._src_dir_id
         src_id = self._source_to_id[(src_dir_id, src_path)]
         params = (self._profile_id, src_id)
-        row = execute(self._cur, stmt, params).fetchone()
-        if row and row[0]:
-            return self.s.backup_base_dir_for_profile / src_path / row[0]
+        bak_dir, serc_path, bak_name = execute(self._cur, stmt, params).fetchone()
+        if bak_name:
+            return Path(bak_dir, src_path, bak_name)
         else:
             return None
 
