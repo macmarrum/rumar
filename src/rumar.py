@@ -556,20 +556,29 @@ BACKSLASH = '\\'
 
 class Rath:
 
-    def __init__(self, path: Path, rumar):
+    def __init__(self, path: Path, lstat_cache):
         self._path = path
-        self._rumar = rumar
+        self._lstat_cache = lstat_cache
 
     def __fspath__(self):
         return self._path.as_posix()
 
+    def __str__(self):
+        return self._path.as_posix()
+
+    def __repr__(self):
+        return f"Rath({self._path.as_posix()!r})"
+
+    def __truediv__(self, other):
+        new_path = self._path / other
+        return Rath(new_path, lstat_cache=self._lstat_cache)
+
     def lstat(self):
-        path_to_lstat = self._rumar._path_to_lstat
-        if lstat := path_to_lstat.get(self):
+        if lstat := self._lstat_cache.get(self):
             return lstat
         else:
             lstat = self._path.lstat()
-            path_to_lstat[self] = lstat
+            self._lstat_cache[self] = lstat
             return lstat
 
     def as_posix(self):
@@ -581,7 +590,7 @@ class Rath:
     @property
     def parent(self):
         parent = self._path.parent
-        return Rath(parent, rumar=self._rumar)
+        return Rath(parent, lstat_cache=self._lstat_cache)
 
     @property
     def name(self):
@@ -598,8 +607,18 @@ class Rath:
     def open(self, *args, **kwargs):
         return self._path.open(*args, **kwargs)
 
+    def iterdir(self):
+        for path in self._path.iterdir():
+            yield Rath(path, lstat_cache=self._lstat_cache)
 
-def calc_dir_matches_top_dirs(dir_path: Path, relative_dir_p: str, s: Settings) -> tuple[bool, bool]:
+    def match(self, pattern: str):
+        return self._path.match(pattern)
+
+
+RPath = Union[Rath, Path]
+
+
+def calc_dir_matches_top_dirs(dir_path: RPath, relative_dir_p: str, s: Settings) -> tuple[bool, bool]:
     """It's used for os.walk() to decide whether to remove dir_path from the list before files are processed in each (remaining) dir_path"""
     dir_path_psx = dir_path.as_posix()
     for exc_top_psx in (p.as_posix() for p in s.excluded_top_dirs):
@@ -635,7 +654,7 @@ def calc_dir_matches_top_dirs(dir_path: Path, relative_dir_p: str, s: Settings) 
     return False, False
 
 
-def is_file_matching_glob(file_path: Path, relative_p: str, s: Settings) -> bool:
+def is_file_matching_glob(file_path: RPath, relative_p: str, s: Settings) -> bool:
     # interestingly, the following expression doesn't have the same effect as the below for-loops - why?
     # not any(file_path.match(file_as_glob) for file_as_glob in exc_files) and (
     #         any(file_path.match(file_as_glob) for file_as_glob in inc_files)
@@ -678,7 +697,7 @@ def find_sep(g: str) -> str:
     return sep
 
 
-def derive_relative_p(path: Path, base_dir: Path, with_leading_slash=False) -> str:
+def derive_relative_p(path: RPath, base_dir: RPath, with_leading_slash=False) -> str:
     path_psx = path.as_posix()
     base_dir_psx = base_dir.as_posix()
     if not path_psx.startswith(base_dir_psx):
@@ -695,7 +714,7 @@ def find_matching_pattern(relative_p: str, patterns: list[Pattern]):
     return None
 
 
-def sorted_files_by_stem_then_suffix_ignoring_case(matching_files: Iterable[Rath]):
+def sorted_files_by_stem_then_suffix_ignoring_case(matching_files: Iterable[RPath]):
     """sort by stem then suffix, i.e. 'abc.txt' before 'abc(2).txt'; ignore case"""
     return sorted(matching_files, key=lambda x: (x.stem.lower(), x.suffix.lower()))
 
@@ -1004,14 +1023,13 @@ class Rumar:
         matching_files = []
         # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
         if Command.CREATE in s.commands_which_use_filters:
-            iterator = self.iter_matching_files(source_dir)
+            iterator = self.iter_matching_files(Rath(source_dir, lstat_cache=self._path_to_lstat))
             logger.debug(f"{s.commands_which_use_filters=} => iter_matching_files")
         else:
-            iterator = self.iter_all_files(source_dir)
+            iterator = self.iter_all_files(Rath(source_dir, lstat_cache=self._path_to_lstat))
             logger.debug(f"{s.commands_which_use_filters=} => iter_all_files")
         for file_rath in iterator:
-            lstat = file_rath.lstat()
-            if self.should_ignore_for_archive(lstat):
+            if self.should_ignore_for_archive(file_rath.lstat()):
                 logger.info(f"-| {file_rath}  -- ignoring file for archiving: socket/door")
                 continue
             if s.file_deduplication and (duplicate := self.find_duplicate(file_rath)):
@@ -1020,21 +1038,21 @@ class Rumar:
             matching_files.append(file_rath)
         return sorted_files_by_stem_then_suffix_ignoring_case(matching_files)
 
-    def iter_all_files(self, top_path: Path | PathLike) -> Generator[Rath, None, None]:
+    def iter_all_files(self, top_path: Rath) -> Generator[Rath, None, None]:
         """
         Note: symlinks to directories are considered files
         :param top_path: usually `s.source_dir` or `s.backup_base_dir_for_profile`
         """
         dir_raths = []
-        for de in os.scandir(top_path):
-            if de.is_dir(follow_symlinks=False):
-                dir_raths.append(Rath(Path(de), rumar=self))
+        for rath in top_path.iterdir():
+            if stat.S_ISDIR(rath.lstat().st_mode):
+                dir_raths.append(rath)
             else:
-                yield Rath(Path(de), rumar=self)
+                yield rath
         for dir_rath in dir_raths:
             yield from self.iter_all_files(dir_rath)
 
-    def iter_matching_files(self, top_path: Path) -> Generator[Rath, None, None]:
+    def iter_matching_files(self, top_path: Rath) -> Generator[Rath, None, None]:
         """
         Note: symlinks to directories are considered files
         :param top_path: usually `s.source_dir` or `s.backup_base_dir_for_profile`
@@ -1049,9 +1067,9 @@ class Rumar:
             dir_raths__skip_files = []
             dir_raths = {}  # to preserve order
             file_raths = {}  # to preserve order
-            for de in os.scandir(directory):
-                if de.is_dir(follow_symlinks=False):
-                    dir_rath = Rath(Path(de), rumar=self)
+            for rath in directory.iterdir():
+                if stat.S_ISDIR(rath.lstat().st_mode):
+                    dir_rath = rath
                     relative_dir_p = derive_relative_p(dir_rath, top_path, with_leading_slash=True)
                     is_dir_matching_top_dirs, skip_files = calc_dir_matches_top_dirs(dir_rath, relative_dir_p, s)
                     if skip_files:
@@ -1070,7 +1088,7 @@ class Rumar:
                     else:  # doesn't match dirnames and/or top_dirs
                         pass
                 else:  # a file
-                    file_rath = Rath(Path(de), rumar=self)
+                    file_rath = rath
                     relative_file_p = derive_relative_p(file_rath, top_path, with_leading_slash=True)
                     if is_file_matching_glob(file_rath, relative_file_p, s):  # matches glob, now check regex
                         if inc_files_rx:  # only included paths must be considered
@@ -1092,7 +1110,7 @@ class Rumar:
             for dir_rath in dir_raths:
                 yield from _iter_matching_files(dir_rath)
 
-        yield from _iter_matching_files(Rath(top_path, rumar=self))
+        yield from _iter_matching_files(top_path)
 
     def find_duplicate(self, file_rath: Rath) -> Rath | None:
         """
