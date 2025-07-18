@@ -553,7 +553,6 @@ class CreateReason(Enum):
 SLASH = '/'
 BACKSLASH = '\\'
 
-
 class Rath(Path):
     """Path with lstat cache.\n
     Overrides:\n
@@ -588,8 +587,82 @@ class Rath(Path):
         """
         return Rath(*pathsegments, lstat_cache=self._lstat_cache)
 
-
 RPath = Union[Rath, Path]
+
+
+def iter_all_files(top_path: Rath) -> Generator[Rath, None, None]:
+    """
+    Note: symlinks to directories are considered files
+    :param top_path: usually `s.source_dir` or `s.backup_base_dir_for_profile`
+    """
+    dir_raths = []
+    for rath in top_path.iterdir():
+        if stat.S_ISDIR(rath.lstat().st_mode):
+            dir_raths.append(rath)
+        else:
+            yield rath
+    for dir_rath in dir_raths:
+        yield from iter_all_files(dir_rath)
+
+
+def iter_matching_files(top_path: Rath, s: Settings) -> Generator[Rath, None, None]:
+    """
+    Note: symlinks to directories are considered files
+    :param top_path: usually `s.source_dir` or `s.backup_base_dir_for_profile`
+    """
+    inc_dirs_rx = s.included_dirs_as_regex
+    exc_dirs_rx = s.excluded_dirs_as_regex
+    inc_files_rx = s.included_files_as_regex
+    exc_files_rx = s.excluded_files_as_regex
+
+    def _iter_matching_files(directory: Rath) -> Generator[Rath, None, None]:
+        dir_raths__skip_files = []
+        dir_raths = {}  # to preserve order
+        file_raths = {}  # to preserve order
+        for rath in directory.iterdir():
+            if stat.S_ISDIR(rath.lstat().st_mode):
+                dir_rath = rath
+                relative_dir_p = derive_relative_p(dir_rath, top_path, with_leading_slash=True)
+                is_dir_matching_top_dirs, skip_files = calc_dir_matches_top_dirs(dir_rath, relative_dir_p, s)
+                if skip_files:
+                    dir_raths__skip_files.append(dir_rath)
+                if is_dir_matching_top_dirs:  # matches dirnames and/or top_dirs, now check regex
+                    if inc_dirs_rx:  # only included paths must be considered
+                        if find_matching_pattern(relative_dir_p, inc_dirs_rx):
+                            dir_raths[dir_rath] = None
+                        else:
+                            logger.log(DEBUG_13, f"|d ...{relative_dir_p}  -- skipping dir (none of included_dirs_as_regex matches)")
+                    else:
+                        dir_raths[dir_rath] = None
+                    if exc_dirs_rx and dir_rath in dir_raths and (exc_rx := find_matching_pattern(relative_dir_p, exc_dirs_rx)):
+                        del dir_raths[dir_rath]
+                        logger.log(DEBUG_14, f"|d ...{relative_dir_p}  -- skipping dir (matches '{exc_rx}')")
+                else:  # doesn't match dirnames and/or top_dirs
+                    pass
+            else:  # a file
+                file_rath = rath
+                relative_file_p = derive_relative_p(file_rath, top_path, with_leading_slash=True)
+                if is_file_matching_glob(file_rath, relative_file_p, s):  # matches glob, now check regex
+                    if inc_files_rx:  # only included paths must be considered
+                        if find_matching_pattern(relative_file_p, inc_files_rx):
+                            file_raths[file_rath] = None
+                        else:
+                            logger.log(DEBUG_13, f"|f ...{relative_file_p}  -- skipping (none of included_files_as_regex matches)")
+                    else:
+                        file_raths[file_rath] = None
+                    if exc_files_rx and file_rath in file_raths and (exc_rx := find_matching_pattern(relative_file_p, exc_files_rx)):
+                        del file_raths[file_rath]
+                        logger.log(DEBUG_14, f"|f ...{relative_file_p}  -- skipping (matches '{exc_rx}')")
+                else:  # doesn't match glob
+                    pass
+        for file_rath in file_raths:
+            dir_rath = file_rath.parent
+            if dir_rath not in dir_raths__skip_files:
+                yield file_rath
+        for dir_rath in dir_raths:
+            yield from _iter_matching_files(dir_rath)
+
+    yield from _iter_matching_files(top_path)
 
 
 def calc_dir_matches_top_dirs(dir_path: RPath, relative_dir_p: str, s: Settings) -> tuple[bool, bool]:
@@ -997,10 +1070,10 @@ class Rumar:
         matching_files = []
         # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
         if Command.CREATE in s.commands_which_use_filters:
-            iterator = self.iter_matching_files(Rath(source_dir, lstat_cache=self._path_to_lstat))
+            iterator = iter_matching_files(Rath(source_dir, lstat_cache=self._path_to_lstat), s)
             logger.debug(f"{s.commands_which_use_filters=} => iter_matching_files")
         else:
-            iterator = self.iter_all_files(Rath(source_dir, lstat_cache=self._path_to_lstat))
+            iterator = iter_all_files(Rath(source_dir, lstat_cache=self._path_to_lstat))
             logger.debug(f"{s.commands_which_use_filters=} => iter_all_files")
         for file_rath in iterator:
             if self.should_ignore_for_archive(file_rath.lstat()):
@@ -1011,80 +1084,6 @@ class Rumar:
                 continue
             matching_files.append(file_rath)
         return sorted_files_by_stem_then_suffix_ignoring_case(matching_files)
-
-    def iter_all_files(self, top_path: Rath) -> Generator[Rath, None, None]:
-        """
-        Note: symlinks to directories are considered files
-        :param top_path: usually `s.source_dir` or `s.backup_base_dir_for_profile`
-        """
-        dir_raths = []
-        for rath in top_path.iterdir():
-            if stat.S_ISDIR(rath.lstat().st_mode):
-                dir_raths.append(rath)
-            else:
-                yield rath
-        for dir_rath in dir_raths:
-            yield from self.iter_all_files(dir_rath)
-
-    def iter_matching_files(self, top_path: Rath) -> Generator[Rath, None, None]:
-        """
-        Note: symlinks to directories are considered files
-        :param top_path: usually `s.source_dir` or `s.backup_base_dir_for_profile`
-        """
-        inc_dirs_rx = self.s.included_dirs_as_regex
-        exc_dirs_rx = self.s.excluded_dirs_as_regex
-        inc_files_rx = self.s.included_files_as_regex
-        exc_files_rx = self.s.excluded_files_as_regex
-
-        def _iter_matching_files(directory: Rath) -> Generator[Rath, None, None]:
-            s = self.s
-            dir_raths__skip_files = []
-            dir_raths = {}  # to preserve order
-            file_raths = {}  # to preserve order
-            for rath in directory.iterdir():
-                if stat.S_ISDIR(rath.lstat().st_mode):
-                    dir_rath = rath
-                    relative_dir_p = derive_relative_p(dir_rath, top_path, with_leading_slash=True)
-                    is_dir_matching_top_dirs, skip_files = calc_dir_matches_top_dirs(dir_rath, relative_dir_p, s)
-                    if skip_files:
-                        dir_raths__skip_files.append(dir_rath)
-                    if is_dir_matching_top_dirs:  # matches dirnames and/or top_dirs, now check regex
-                        if inc_dirs_rx:  # only included paths must be considered
-                            if find_matching_pattern(relative_dir_p, inc_dirs_rx):
-                                dir_raths[dir_rath] = None
-                            else:
-                                logger.log(DEBUG_13, f"|d ...{relative_dir_p}  -- skipping dir (none of included_dirs_as_regex matches)")
-                        else:
-                            dir_raths[dir_rath] = None
-                        if exc_dirs_rx and dir_rath in dir_raths and (exc_rx := find_matching_pattern(relative_dir_p, exc_dirs_rx)):
-                            del dir_raths[dir_rath]
-                            logger.log(DEBUG_14, f"|d ...{relative_dir_p}  -- skipping dir (matches '{exc_rx}')")
-                    else:  # doesn't match dirnames and/or top_dirs
-                        pass
-                else:  # a file
-                    file_rath = rath
-                    relative_file_p = derive_relative_p(file_rath, top_path, with_leading_slash=True)
-                    if is_file_matching_glob(file_rath, relative_file_p, s):  # matches glob, now check regex
-                        if inc_files_rx:  # only included paths must be considered
-                            if find_matching_pattern(relative_file_p, inc_files_rx):
-                                file_raths[file_rath] = None
-                            else:
-                                logger.log(DEBUG_13, f"|f ...{relative_file_p}  -- skipping (none of included_files_as_regex matches)")
-                        else:
-                            file_raths[file_rath] = None
-                        if exc_files_rx and file_rath in file_raths and (exc_rx := find_matching_pattern(relative_file_p, exc_files_rx)):
-                            del file_raths[file_rath]
-                            logger.log(DEBUG_14, f"|f ...{relative_file_p}  -- skipping (matches '{exc_rx}')")
-                    else:  # doesn't match glob
-                        pass
-            for file_rath in file_raths:
-                dir_rath = file_rath.parent
-                if dir_rath not in dir_raths__skip_files:
-                    yield file_rath
-            for dir_rath in dir_raths:
-                yield from _iter_matching_files(dir_rath)
-
-        yield from _iter_matching_files(top_path)
 
     def find_duplicate(self, file_rath: Rath) -> Rath | None:
         """
@@ -1798,6 +1797,7 @@ class Broom:
     def __init__(self, profile_to_settings: ProfileToSettings):
         self._profile_to_settings = profile_to_settings
         self._db = BroomDB()
+        self._path_to_lstat = {}
 
     @classmethod
     def is_archive(cls, name: str, archive_format: str) -> bool:
@@ -1832,22 +1832,21 @@ class Broom:
         date_older_than_x_days = date.today() - timedelta(days=s.min_age_in_days_of_backups_to_sweep)
         # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
         if Command.SWEEP in s.commands_which_use_filters:
-            iterator = self.iter_matching_files(s.backup_base_dir_for_profile, s)
+            iterator = iter_matching_files(Rath(s.backup_base_dir_for_profile, lstat_cache=self._path_to_lstat), s)
             logger.debug(f"{s.commands_which_use_filters=} => iter_matching_files")
         else:
-            iterator = self.iter_all_files(s.backup_base_dir_for_profile, self)
+            iterator = iter_all_files(Rath(s.backup_base_dir_for_profile, lstat_cache=self._path_to_lstat))
             logger.debug(f"{s.commands_which_use_filters=} => iter_all_files")
         old_enough_file_to_mdate = {}
-        for dir_entry in iterator:
-            path = Path(dir_entry)
-            if self.is_archive(path.name, archive_format):
-                mdate = self.derive_date(path.name)
+        for rath in iterator:
+            if self.is_archive(rath.name, archive_format):
+                mdate = self.derive_date(rath.name)
                 if mdate <= date_older_than_x_days:
-                    old_enough_file_to_mdate[path] = mdate
-            elif not self.is_checksum(path.name):
-                logger.warning(f":! {str(path)}  is unexpected (not an archive)")
-        for path in sorted_files_by_stem_then_suffix_ignoring_case(old_enough_file_to_mdate):
-            self._db.insert(path, mdate=old_enough_file_to_mdate[path])
+                    old_enough_file_to_mdate[rath] = mdate
+            elif not self.is_checksum(rath.name):
+                logger.warning(f":! {str(rath)}  is unexpected (not an archive)")
+        for rath in sorted_files_by_stem_then_suffix_ignoring_case(old_enough_file_to_mdate):
+            self._db.insert(rath, mdate=old_enough_file_to_mdate[rath])
         self._db.commit()
         self._db.update_counts(s)
 
