@@ -20,7 +20,6 @@ import logging.config
 import os
 import re
 import sqlite3
-import stat
 import sys
 import tarfile
 import zipfile
@@ -32,6 +31,7 @@ from hashlib import blake2b
 from io import BufferedIOBase
 from os import PathLike
 from pathlib import Path
+from stat import S_ISDIR, S_ISSOCK, S_ISDOOR, S_ISLNK
 from textwrap import dedent
 from time import sleep
 from typing import Union, Literal, Pattern, Any, Iterable, cast, Generator, override
@@ -595,7 +595,7 @@ def iter_all_files(top_path: Rath) -> Generator[Rath, None, None]:
     """
     dir_raths = []
     for rath in top_path.iterdir():
-        if stat.S_ISDIR(rath.lstat().st_mode):
+        if S_ISDIR(rath.lstat().st_mode):
             dir_raths.append(rath)
         else:
             yield rath
@@ -618,7 +618,7 @@ def iter_matching_files(top_path: Rath, s: Settings) -> Generator[Rath, None, No
         dir_raths = {}  # to preserve order
         file_raths = {}  # to preserve order
         for rath in directory.iterdir():
-            if stat.S_ISDIR(rath.lstat().st_mode):
+            if S_ISDIR(rath.lstat().st_mode):
                 dir_rath = rath
                 relative_dir_p = derive_relative_p(dir_rath, top_path, with_leading_slash=True)
                 is_dir_matching_top_dirs, skip_files = calc_dir_matches_top_dirs(dir_rath, relative_dir_p, s)
@@ -808,7 +808,7 @@ class Rumar:
     @staticmethod
     def should_ignore_for_archive(lstat: os.stat_result) -> bool:
         mode = lstat.st_mode
-        return stat.S_ISSOCK(mode) or stat.S_ISDOOR(mode)
+        return S_ISSOCK(mode) or S_ISDOOR(mode)
 
     @staticmethod
     def compute_checksum_of_file_in_archive(archive: Path, password: bytes) -> str | None:
@@ -1018,7 +1018,7 @@ class Rumar:
         logger.info(f"{sign} {relative_p}  {mtime_str}  {size} {reason} {archive_dir}")
         archive_format, compresslevel_kwargs = self.calc_archive_format_and_compresslevel_kwargs(rath)
         mode = self.ARCHIVE_FORMAT_TO_MODE[archive_format]
-        is_lnk = stat.S_ISLNK(rath.lstat().st_mode)
+        is_lnk = S_ISLNK(rath.lstat().st_mode)
         archive_path = self.compose_archive_path(archive_dir, mtime_str, size, self.LNK if is_lnk else self.BLANK)
         with tarfile.open(archive_path, mode, format=self.s.tar_format, **compresslevel_kwargs) as tf:
             tf.add(rath, arcname=rath.name)
@@ -1033,7 +1033,7 @@ class Rumar:
             kwargs = {self.COMPRESSION: zipfile.ZIP_STORED}
         else:
             kwargs = {self.COMPRESSION: self.s.zip_compression_method, self.COMPRESSLEVEL: self.s.compression_level}
-        is_lnk = stat.S_ISLNK(rath.lstat().st_mode)
+        is_lnk = S_ISLNK(rath.lstat().st_mode)
         archive_path = self.compose_archive_path(archive_dir, mtime_str, size, self.LNK if is_lnk else self.BLANK)
         with pyzipper.AESZipFile(archive_path, 'w', encryption=pyzipper.WZ_AES, **kwargs) as zf:
             zf.setpassword(self.s.password)
@@ -1049,7 +1049,7 @@ class Rumar:
     def calc_archive_format_and_compresslevel_kwargs(self, rath: Rath) -> tuple[RumarFormat, dict]:
         if (
                 rath.is_absolute() and  # for gardner.repack, which has only arc_name
-                stat.S_ISLNK(rath.lstat().st_mode)
+                S_ISLNK(rath.lstat().st_mode)
         ):
             return self.SYMLINK_FORMAT_COMPRESSLEVEL
         elif rath.suffix.lower() in self.s.suffixes_without_compression or self.s.archive_format == RumarFormat.TAR:
