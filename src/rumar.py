@@ -554,65 +554,39 @@ SLASH = '/'
 BACKSLASH = '\\'
 
 
-class Rath:
+class Rath(Path):
+    """Path with lstat cache.\n
+    Overrides:\n
+    - lstat()
+    - with_segments(): Rath
+    These raise TypeError - missing arg `lstat_cache`:\n
+    - home()
+    - cwd()
+    """
 
-    def __init__(self, path: Path, lstat_cache):
-        self._path = path
+    def __init__(self, *args, lstat_cache: dict[Path, os.stat_result]):
         self._lstat_cache = lstat_cache
+        super().__init__(*args)
 
-    def __fspath__(self):
-        return self._path.as_posix()
-
-    def __str__(self):
-        return self._path.as_posix()
-
-    def __repr__(self):
-        return f"Rath({self._path.as_posix()!r})"
-
-    def __truediv__(self, other):
-        new_path = self._path / other
-        return Rath(new_path, lstat_cache=self._lstat_cache)
-
+    # @override
     def lstat(self):
+        print(f":: {self}.lstat()")
         if lstat := self._lstat_cache.get(self):
             return lstat
         else:
-            lstat = self._path.lstat()
+            lstat = super().lstat()
             self._lstat_cache[self] = lstat
             return lstat
 
-    def as_posix(self):
-        return self._path.as_posix()
-
-    def is_absolute(self):
-        return self._path.is_absolute()
-
-    @property
-    def parent(self):
-        parent = self._path.parent
-        return Rath(parent, lstat_cache=self._lstat_cache)
-
-    @property
-    def name(self):
-        return self._path.name
-
-    @property
-    def stem(self):
-        return self._path.stem
-
-    @property
-    def suffix(self):
-        return self._path.suffix
-
-    def open(self, *args, **kwargs):
-        return self._path.open(*args, **kwargs)
-
-    def iterdir(self):
-        for path in self._path.iterdir():
-            yield Rath(path, lstat_cache=self._lstat_cache)
-
-    def match(self, pattern: str):
-        return self._path.match(pattern)
+    # @override
+    def with_segments(self, *pathsegments):
+        """`Path.with_segments` calls `type(self)(*pathsegments)`\n
+        Override it and call `Rath` with lstat_cache\n
+        `with_segments` is used by: `joinpath`, `readlink`,\n
+        and via `_from_parsed_string` or `_parts` by: `parent`, `parents`, `iterdir`, `relative_to`, `with_name`;\n
+        probably also by: `with_stem`, `with_suffix`, `absolute`, `expanduser`, `resolve` because they return Rath
+        """
+        return Rath(*pathsegments, lstat_cache=self._lstat_cache)
 
 
 RPath = Union[Rath, Path]
