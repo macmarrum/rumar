@@ -570,7 +570,6 @@ class Rath(Path):
 
     # @override
     def lstat(self):
-        print(f":: {self}.lstat()")
         if lstat := self._lstat_cache.get(self):
             return lstat
         else:
