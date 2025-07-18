@@ -553,6 +553,7 @@ class CreateReason(Enum):
 SLASH = '/'
 BACKSLASH = '\\'
 
+
 class Rath(Path):
     """Path with lstat cache.\n
     Overrides:\n
@@ -586,8 +587,6 @@ class Rath(Path):
         probably also by: `with_stem`, `with_suffix`, `absolute`, `expanduser`, `resolve` because they return Rath
         """
         return Rath(*pathsegments, lstat_cache=self._lstat_cache)
-
-RPath = Union[Rath, Path]
 
 
 def iter_all_files(top_path: Rath) -> Generator[Rath, None, None]:
@@ -665,7 +664,7 @@ def iter_matching_files(top_path: Rath, s: Settings) -> Generator[Rath, None, No
     yield from _iter_matching_files(top_path)
 
 
-def calc_dir_matches_top_dirs(dir_path: RPath, relative_dir_p: str, s: Settings) -> tuple[bool, bool]:
+def calc_dir_matches_top_dirs(dir_path: Path, relative_dir_p: str, s: Settings) -> tuple[bool, bool]:
     """It's used for os.walk() to decide whether to remove dir_path from the list before files are processed in each (remaining) dir_path"""
     dir_path_psx = dir_path.as_posix()
     for exc_top_psx in (p.as_posix() for p in s.excluded_top_dirs):
@@ -701,7 +700,7 @@ def calc_dir_matches_top_dirs(dir_path: RPath, relative_dir_p: str, s: Settings)
     return False, False
 
 
-def is_file_matching_glob(file_path: RPath, relative_p: str, s: Settings) -> bool:
+def is_file_matching_glob(file_path: Path, relative_p: str, s: Settings) -> bool:
     # interestingly, the following expression doesn't have the same effect as the below for-loops - why?
     # not any(file_path.match(file_as_glob) for file_as_glob in exc_files) and (
     #         any(file_path.match(file_as_glob) for file_as_glob in inc_files)
@@ -744,7 +743,7 @@ def find_sep(g: str) -> str:
     return sep
 
 
-def derive_relative_p(path: RPath, base_dir: RPath, with_leading_slash=False) -> str:
+def derive_relative_p(path: Path, base_dir: Path, with_leading_slash=False) -> str:
     path_psx = path.as_posix()
     base_dir_psx = base_dir.as_posix()
     if not path_psx.startswith(base_dir_psx):
@@ -761,7 +760,7 @@ def find_matching_pattern(relative_p: str, patterns: list[Pattern]):
     return None
 
 
-def sorted_files_by_stem_then_suffix_ignoring_case(matching_files: Iterable[RPath]):
+def sorted_files_by_stem_then_suffix_ignoring_case(matching_files: Iterable[Path]):
     """sort by stem then suffix, i.e. 'abc.txt' before 'abc(2).txt'; ignore case"""
     return sorted(matching_files, key=lambda x: (x.stem.lower(), x.suffix.lower()))
 
