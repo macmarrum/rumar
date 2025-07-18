@@ -582,7 +582,7 @@ class Rath(Path):
     def with_segments(self, *pathsegments):
         """`Path.with_segments` calls `type(self)(*pathsegments)`\n
         Override it and call `Rath` with lstat_cache\n
-        `with_segments` is used by: `joinpath`, `readlink`,\n
+        `with_segments` is used by: `joinpath`, `readlink`, `__truediv__`\n
         and via `_from_parsed_string` or `_parts` by: `parent`, `parents`, `iterdir`, `relative_to`, `with_name`;\n
         probably also by: `with_stem`, `with_suffix`, `absolute`, `expanduser`, `resolve` because they return Rath
         """
