@@ -37,7 +37,8 @@ from time import sleep
 from typing import Union, Literal, Pattern, Any, Iterable, cast, Generator, override
 
 vi = sys.version_info
-assert (vi.major, vi.minor) >= (3, 10), 'expected Python 3.10 or higher'
+PY_VER = (vi.major, vi.minor)
+assert PY_VER >= (3, 10), 'expected Python 3.10 or higher'
 
 try:
     import pyzipper
@@ -338,8 +339,9 @@ class Settings:
       e.g. `['My Music\*.m3u']`
       on MS Windows, global-pattern matching is case-insensitive
       caution: a leading path separator in a path/glob indicates a root directory, e.g. `['\My Music\*']`
-      means `C:\My Music\*` or `D:\My Music\*` but not `C:\Users\Mac\Documents\My Music\*`
-      see also https://docs.python.org/3/library/fnmatch.html and https://en.wikipedia.org/wiki/Glob_(programming)
+      means `C:\My Music\*` or `D:\My Music\*`; use `['*\My Music\*']` to match `C:\Users\Mac\Documents\My Music\*`
+      **full_match** is used if running on Python 3.13+: `**` is supported; patters should always include a path separator e.g. `**/*.txt`
+      see also https://docs.python.org/3/library/fnmatch.html and https://docs.python.org/3.13/library/pathlib.html#pathlib.PurePath.full_match
     excluded_files_as_glob: list[str]
       used by: create, sweep
       like _**included_files_as_glob**_, but for exclusion
@@ -711,14 +713,14 @@ def is_dir_matching_top_dirs(dir_path: Path, relative_dir_p: str, s: Settings) -
 
 def is_file_matching_glob(file_path: Path, relative_p: str, s: Settings) -> bool:
     for file_as_glob in s.excluded_files_as_glob:
-        if file_path.match(file_as_glob):
+        if file_path.full_match(file_as_glob) if PY_VER >= (3, 13) else file_path.match(file_as_glob):
             logger.log(DEBUG_14, f"|F ...{relative_p}  -- skipping (matches excluded_files_as_glob {file_as_glob!r})")
             return False
     if not s.included_files_as_glob:
         logger.log(DEBUG_11, f"=F ...{relative_p}  -- including all (no included_files_as_glob)")
         return True
     for file_as_glob in s.included_files_as_glob:
-        if file_path.match(file_as_glob):
+        if file_path.full_match(file_as_glob) if PY_VER >= (3, 13) else file_path.match(file_as_glob):
             logger.log(DEBUG_12, f"=F ...{relative_p}  -- matches included_files_as_glob {file_as_glob!r}")
             return True
     logger.log(DEBUG_13, f"|F ...{relative_p}  -- skipping file (doesn't match file glob)")
@@ -1293,7 +1295,7 @@ class Rumar:
         with tarfile.open(archive_file) as tf:
             member = cast(tarfile.TarInfo, tf.getmembers()[0])
             if member.name == target_file.name:
-                if (vi.major, vi.minor) >= (3, 12):
+                if PY_VER >= (3, 12):
                     tf.extract(member, target_file.parent, filter='tar')
                 else:
                     tf.extract(member, target_file.parent)
