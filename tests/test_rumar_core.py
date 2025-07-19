@@ -40,27 +40,6 @@ class Rather(Rath):
             filetype = S_IFREG
         self._mode = chmod | filetype
 
-    def __eq__(self, other):
-        if isinstance(other, Rather):
-            return (self.as_posix() == other.as_posix() and
-                    self._mtime == other._mtime and
-                    self._st_size == other._st_size and
-                    S_IMODE(self._mode) == S_IMODE(other._mode) and
-                    S_ISLNK(self._mode) == S_ISLNK(other._mode) and
-                    S_ISDIR(self._mode) == S_ISDIR(other._mode))
-        if isinstance(other, Path):
-            try:
-                st = other.lstat() if S_ISLNK(self._mode) else other.stat()
-                return (self.as_posix() == other.as_posix() and
-                        self._mtime == st.st_mtime and
-                        self._st_size == st.st_size and
-                        S_IMODE(self._mode) == S_IMODE(st.st_mode) and
-                        S_ISLNK(self._mode) == S_ISLNK(st.st_mode) and
-                        S_ISDIR(self._mode) == S_ISDIR(st.st_mode))
-            except (FileNotFoundError, OSError):
-                return False
-        return NotImplemented
-
     def lstat(self):
         return os.stat_result((
             self._mode,  # st_mode
@@ -90,6 +69,9 @@ class Rather(Rath):
         self.chmod(self._mode)
         os.utime(self, (lstat.st_atime, lstat.st_mtime))
         return self
+
+    def asrath(self):
+        return Rath(self, lstat_cache=self.lstat_cache)
 
 
 def eq(path: Path, other: Path):
@@ -193,10 +175,8 @@ class TestRumarCore:
     def test_001_fs_iter_all_files(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
-        rathers = d['rathers']
-        expected = []
-        for test_rath in sorted(rathers):
-            expected.append(Rath(test_rath, lstat_cache=_path_to_lstat_))
+        rathers: list[Rather] = d['rathers']
+        expected = [r.asrath() for r in sorted(rathers)]
         top_dir = Rather(f"/{profile}")
         actual = sorted(iter_all_files(top_dir))
         assert eq_list(actual, expected)
