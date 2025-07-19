@@ -19,15 +19,15 @@ class Rather(Rath):
     BASE_PATH = None
 
     def __init__(self, *args,
+                 lstat_cache: dict[Path, os.stat_result],
                  mtime: float = None,
                  content: str = None,
                  chmod: int = 0o644,
                  islnk: bool = False,
-                 isdir: bool = False,
-                 lstat_cache: dict[Path, os.stat_result] = None):
+                 isdir: bool = False):
         if self.BASE_PATH:
             args = [self.BASE_PATH, Path(*args).relative_to('/')]
-        super().__init__(*args, lstat_cache=lstat_cache or _path_to_lstat_)
+        super().__init__(*args, lstat_cache=lstat_cache if lstat_cache is not None else _path_to_lstat_)
         self._mtime = mtime or 0
         content = content or f"{self}\n"
         self._content_io = StringIO(content)
@@ -155,7 +155,7 @@ def set_up_rumar():
         f"/{profile}/A/file6.csv",
     ]
     rathers = [
-        Rather(fs_path, mtime=i * 60).make()
+        Rather(fs_path, lstat_cache=rumar.lstat_cache, mtime=i * 60).make()
         for i, fs_path in enumerate(fs_paths, start=1)
     ]
     d = dict(
@@ -175,8 +175,9 @@ class TestRumarCore:
     def test_001_fs_iter_all_files(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
+        rumar = d['rumar']
         rathers: list[Rather] = d['rathers']
         expected = [r.asrath() for r in sorted(rathers)]
-        top_dir = Rather(f"/{profile}")
+        top_dir = Rather(f"/{profile}", lstat_cache=rumar.lstat_cache)
         actual = sorted(iter_all_files(top_dir))
         assert eq_list(actual, expected)
