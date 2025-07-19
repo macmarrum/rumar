@@ -308,18 +308,18 @@ class Settings:
     included_top_dirs: list[str]
       used by: create, sweep
       a list of top-directory paths
-      if present, only files from those dirs and their descendant subdirs will be considered, together with _**included_files_as_glob**_
+      if present, only files from those dirs and their descendant subdirs will be considered
       the paths can be relative to _**source_dir**_ or absolute, but always under _**source_dir**_
       absolute paths start with a root (`/` or `{drive}:\`), unlike relative paths
       if missing, _**source_dir**_ and all its descendant subdirs will be considered
     excluded_top_dirs: list[str]
       used by: create, sweep
       like _**included_top_dirs**_, but for exclusion
-      a list of paths under any of _**included_top_dirs**_, that are to be excluded
+      a list of paths under _**source_dir**_ or, if specified, any of _**included_top_dirs**_, that are to be excluded
       e.g. included_top_dirs = ['Project1', 'Project3']; excluded_top_dirs = ['Project1/Vision/Pictures']
     included_dirs_as_regex: list[str]
       used by: create, sweep
-      a list of regex patterns, applied after _**..._top_dirs**_ and dirnames of _**..._files_as_glob**_
+      a list of regex patterns, applied after _**..._top_dirs**_
       if present, only matching directories will be included
       `/` must be used as the path separator, also on MS Windows
       the patterns are matched against a path relative to _**source_dir**_
@@ -333,7 +333,7 @@ class Settings:
     included_files_as_glob: list[str]
       used by: create, sweep
       a list of glob patterns, also known as shell-style wildcards, i.e. `* ? [seq] [!seq]`
-      if present, only matching files will be considered, together with files from _**included_top_dirs**_
+      if present, only matching files will be considered; applied after _**..._top_dirs**_ and _**..._dirs_as_regex**_
       the paths/globs can be partial, relative to _**source_dir**_ or absolute, but always under _**source_dir**_
       e.g. `['My Music\*.m3u']`
       on MS Windows, global-pattern matching is case-insensitive
@@ -633,17 +633,13 @@ def iter_matching_files(top_path: Rath, s: Settings) -> Generator[Rath, None, No
     exc_files_rx = s.excluded_files_as_regex
 
     def _iter_matching_files(directory: Rath) -> Generator[Rath, None, None]:
-        dir_raths__skip_files_because_dir_is_higher_level = []
         dir_raths = {}  # to preserve order
         file_raths = {}  # to preserve order
         for rath in directory.iterdir():
             if S_ISDIR(rath.lstat().st_mode):
                 dir_rath = rath
                 relative_dir_p = derive_relative_p(dir_rath, top_path, with_leading_slash=True)
-                is_dir_matching_top_dirs, skip_files_because_dir_is_higher_level = calc_dir_matches_top_dirs(dir_rath, relative_dir_p, s)
-                if skip_files_because_dir_is_higher_level:
-                    dir_raths__skip_files_because_dir_is_higher_level.append(dir_rath)
-                if is_dir_matching_top_dirs:  # matches dirnames and/or top_dirs, now check regex
+                if calc_dir_matches_top_dirs(dir_rath, relative_dir_p, s):  # matches top_dirs, now check regex
                     if inc_dirs_rx:  # only included paths must be considered
                         if find_matching_pattern(relative_dir_p, inc_dirs_rx):
                             dir_raths[dir_rath] = None
@@ -673,35 +669,23 @@ def iter_matching_files(top_path: Rath, s: Settings) -> Generator[Rath, None, No
                 else:  # doesn't match glob
                     pass
         for file_rath in file_raths:
-            dir_rath = file_rath.parent
-            if dir_rath not in dir_raths__skip_files_because_dir_is_higher_level:
-                yield file_rath
+            yield file_rath
         for dir_rath in dir_raths:
             yield from _iter_matching_files(dir_rath)
 
     yield from _iter_matching_files(top_path)
 
 
-def calc_dir_matches_top_dirs(dir_path: Path, relative_dir_p: str, s: Settings) -> tuple[bool, bool]:
-    """ Returns a tuple: (is_dir_matching_top_dirs, skip_files_because_dirpath_is_higher_level) """
+def calc_dir_matches_top_dirs(dir_path: Path, relative_dir_p: str, s: Settings) -> bool:
+    """ Considers included_top_dirs and excluded_top_dirs """
     dir_path_psx_ = dir_path.as_posix() + '/'
     for exc_top_psx_ in (p.as_posix() + '/' for p in s.excluded_top_dirs):
         if dir_path_psx_.startswith(exc_top_psx_):
             logger.log(DEBUG_14, f"|D ...{relative_dir_p}  -- skipping (matches excluded_top_dirs)")
-            return False, False
-    if not (s.included_top_dirs or s.included_files_as_glob):
-        logger.log(DEBUG_11, f"=D ...{relative_dir_p}  -- including all (no included_top_dirs or included_files_as_glob)")
-        return True, False
-    if all(find_sep(g) for g in s.included_files_as_glob):
-        # remove the file part by splitting at the rightmost sep, making sure not to split at the root sep
-        inc_file_dirnames_as_glob = {f.rsplit(sep, 1)[0]: None for f in s.included_files_as_glob if (sep := find_sep(f)) and sep in f.lstrip(sep)}
-    else:
-        # at least one glob without a directory part (no sep); therefore, all directories must be considered, as any dir can contain files matching the glob
-        inc_file_dirnames_as_glob = {'*'}
-    for dirname_glob in inc_file_dirnames_as_glob:
-        if dir_path.match(dirname_glob):
-            logger.log(DEBUG_12, f"=D ...{relative_dir_p}  -- matches included_file_as_glob's dirname")
-            return True, False
+            return False
+    if not s.included_top_dirs:
+        logger.log(DEBUG_11, f"=D ...{relative_dir_p}  -- including all (no included_top_dirs)")
+        return True
     for inc_top_psx_ in (p.as_posix() + '/' for p in s.included_top_dirs):
         # Example
         # source_dir = '/home'
@@ -710,16 +694,16 @@ def calc_dir_matches_top_dirs(dir_path: Path, relative_dir_p: str, s: Settings) 
             # current dir_path_psx_ = '/home/docs/med'
             # '/home/docs/med'.startswith('/home/docs')
             logger.log(DEBUG_12, f"=D ...{relative_dir_p}  -- matches included_top_dirs")
-            return True, False
+            return True
         if inc_top_psx_.startswith(dir_path_psx_):
             # current dir_path_psx_ = '/home'
             # '/home/docs'.startswith('/home')
             # this is to keep the path in dirs of os.walk(), i.e. to avoid excluding the entire tree
             # but not for files, i.e. files in '/home' must be skipped
             # no logging - dir_path is included for technical reasons only
-            return True, True  # skip_files_because_dir_is_higher_level
+            return True
     logger.log(DEBUG_13, f"|D ...{relative_dir_p}  -- skipping (doesn't match dirnames and/or top_dirs)")
-    return False, False
+    return False
 
 
 def is_file_matching_glob(file_path: Path, relative_p: str, s: Settings) -> bool:
