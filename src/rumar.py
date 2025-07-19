@@ -388,6 +388,7 @@ class Settings:
       otherwise _**create**_ will also seek such files to be excluded
     db_path: str = _**backup_base_dir**_/rumar.sqlite
     """
+    COMMA: str = field(default=',', init=False, repr=False)
     profile: str
     backup_base_dir: Union[str, Path]
     source_dir: Union[str, Path]
@@ -420,7 +421,6 @@ class Settings:
     number_of_backups_per_month_to_keep: int = 60
     commands_which_use_filters: Union[list[str], tuple[Command, ...]] = (Command.CREATE,)
     db_path: Path | str | None = None
-    COMMA = ','
 
     @staticmethod
     def is_each_elem_of_type(lst: list, typ: Union[Any, tuple]) -> bool:
