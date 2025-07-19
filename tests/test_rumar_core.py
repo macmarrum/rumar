@@ -71,7 +71,7 @@ class Rather(Rath):
         os.utime(self, (lstat.st_atime, lstat.st_mtime))
         return self
 
-    def asrath(self):
+    def as_rath(self):
         return Rath(self, lstat_cache=self.lstat_cache)
 
 
@@ -167,15 +167,15 @@ def set_up_rumar():
         f"/{profile}/A/A-B/file17.txt",
         f"/{profile}/A/A-B/file18.csv",
     ]
-    rathers = [
-        Rather(fs_path, lstat_cache=rumar.lstat_cache, mtime=i * 60).make()
+    raths = [
+        Rather(fs_path, lstat_cache=rumar.lstat_cache, mtime=i * 60).make().as_rath()
         for i, fs_path in enumerate(fs_paths, start=1)
     ]
     d = dict(
         profile=profile,
         profile_to_settings=profile_to_settings,
         rumar=rumar,
-        rathers=rathers,
+        raths=raths,
     )
     yield d
     if BASE.exists():
@@ -189,9 +189,9 @@ class TestRumarCore:
     def test_001_fs_iter_all_files(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
-        rumar = d['rumar']
-        rathers: list[Rather] = d['rathers']
-        expected = [r.asrath() for r in sorted(rathers)]
+        rumar: Rumar = d['rumar']
+        raths: list[Rath] = d['raths']
+        expected = sorted(raths)
         top_dir = Rather(f"/{profile}", lstat_cache=rumar.lstat_cache)
         actual = sorted(iter_all_files(top_dir))
         assert eq_list(actual, expected)
@@ -391,10 +391,11 @@ class TestRumarCore:
         settings = profile_to_settings[profile]
         settings = replace(settings,
                            included_top_dirs=['AA'],
-                           included_files_as_glob=['*10.*'],
+                           included_files_as_glob=['**/*1.*'],
                            )
         rumar = d['rumar']
-        expected = [Rather(f"/{profile}/AA/file10.txt", lstat_cache=rumar.lstat_cache).asrath(), ]
-        top_path = Rather(f"/{profile}", lstat_cache=rumar.lstat_cache)
-        actual = list(iter_matching_files(top_path, settings))
+        R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache).as_rath()
+        expected = [R(f"/{profile}/AA/file11.txt"), ]
+        top_rath = R(f"/{profile}")
+        actual = list(iter_matching_files(top_rath, settings))
         assert eq_list(actual, expected)
