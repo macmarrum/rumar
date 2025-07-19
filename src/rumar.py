@@ -500,6 +500,24 @@ class Settings:
                 f"source_dir: {self.source_dir.as_posix()!r}"
                 "}")
 
+    def update(self, **kwargs):
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+            else:
+                raise AttributeError(f"Settings has no attribute '{key}'")
+        self.__post_init__()
+        return self
+
+    def __ior__(self, other):
+        if isinstance(other, dict):
+            self.update(**other)
+            return self
+        if isinstance(other, type(self)):
+            self.update(**{k: getattr(other, k) for k in other.__dataclass_fields__})
+            return self
+        raise TypeError(f"Unsupported operand type for |=: '{type(self)}' and '{type(other)}'")
+
 
 ProfileToSettings = dict[str, Settings]
 
@@ -614,16 +632,16 @@ def iter_matching_files(top_path: Rath, s: Settings) -> Generator[Rath, None, No
     exc_files_rx = s.excluded_files_as_regex
 
     def _iter_matching_files(directory: Rath) -> Generator[Rath, None, None]:
-        dir_raths__skip_files = []
+        dir_raths__skip_files_because_dir_is_higher_level = []
         dir_raths = {}  # to preserve order
         file_raths = {}  # to preserve order
         for rath in directory.iterdir():
             if S_ISDIR(rath.lstat().st_mode):
                 dir_rath = rath
                 relative_dir_p = derive_relative_p(dir_rath, top_path, with_leading_slash=True)
-                is_dir_matching_top_dirs, skip_files = calc_dir_matches_top_dirs(dir_rath, relative_dir_p, s)
-                if skip_files:
-                    dir_raths__skip_files.append(dir_rath)
+                is_dir_matching_top_dirs, skip_files_because_dir_is_higher_level = calc_dir_matches_top_dirs(dir_rath, relative_dir_p, s)
+                if skip_files_because_dir_is_higher_level:
+                    dir_raths__skip_files_because_dir_is_higher_level.append(dir_rath)
                 if is_dir_matching_top_dirs:  # matches dirnames and/or top_dirs, now check regex
                     if inc_dirs_rx:  # only included paths must be considered
                         if find_matching_pattern(relative_dir_p, inc_dirs_rx):
@@ -655,7 +673,7 @@ def iter_matching_files(top_path: Rath, s: Settings) -> Generator[Rath, None, No
                     pass
         for file_rath in file_raths:
             dir_rath = file_rath.parent
-            if dir_rath not in dir_raths__skip_files:
+            if dir_rath not in dir_raths__skip_files_because_dir_is_higher_level:
                 yield file_rath
         for dir_rath in dir_raths:
             yield from _iter_matching_files(dir_rath)
@@ -664,7 +682,7 @@ def iter_matching_files(top_path: Rath, s: Settings) -> Generator[Rath, None, No
 
 
 def calc_dir_matches_top_dirs(dir_path: Path, relative_dir_p: str, s: Settings) -> tuple[bool, bool]:
-    """It's used for os.walk() to decide whether to remove dir_path from the list before files are processed in each (remaining) dir_path"""
+    """ Returns a tuple: (is_dir_matching_top_dirs, skip_files_because_dirpath_is_higher_level) """
     dir_path_psx = dir_path.as_posix()
     for exc_top_psx in (p.as_posix() for p in s.excluded_top_dirs):
         if dir_path_psx.startswith(exc_top_psx):
@@ -694,7 +712,7 @@ def calc_dir_matches_top_dirs(dir_path: Path, relative_dir_p: str, s: Settings) 
             # this is to keep the path in dirs of os.walk(), i.e. to avoid excluding the entire tree
             # but not for files, i.e. files in '/home' must be skipped
             # no logging - dir_path is included for technical reasons only
-            return True, True  # skip_files
+            return True, True  # skip_files_because_dir_is_higher_level
     logger.log(DEBUG_13, f"|D ...{relative_dir_p}  -- skipping (doesn't match dirnames and/or top_dirs)")
     return False, False
 
