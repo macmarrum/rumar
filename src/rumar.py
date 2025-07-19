@@ -684,31 +684,35 @@ def iter_matching_files(top_path: Rath, s: Settings) -> Generator[Rath, None, No
 
 def calc_dir_matches_top_dirs(dir_path: Path, relative_dir_p: str, s: Settings) -> tuple[bool, bool]:
     """ Returns a tuple: (is_dir_matching_top_dirs, skip_files_because_dirpath_is_higher_level) """
-    dir_path_psx = dir_path.as_posix()
-    for exc_top_psx in (p.as_posix() for p in s.excluded_top_dirs):
-        if dir_path_psx.startswith(exc_top_psx):
+    dir_path_psx_ = dir_path.as_posix() + '/'
+    for exc_top_psx_ in (p.as_posix() + '/' for p in s.excluded_top_dirs):
+        if dir_path_psx_.startswith(exc_top_psx_):
             logger.log(DEBUG_14, f"|D ...{relative_dir_p}  -- skipping (matches excluded_top_dirs)")
             return False, False
     if not (s.included_top_dirs or s.included_files_as_glob):
         logger.log(DEBUG_11, f"=D ...{relative_dir_p}  -- including all (no included_top_dirs or included_files_as_glob)")
         return True, False
-    # remove the file part by splitting at the rightmost sep, making sure not to split at the root sep
-    inc_file_dirnames_as_glob = {f.rsplit(sep, 1)[0]: None for f in s.included_files_as_glob if (sep := find_sep(f)) and sep in f.lstrip(sep)}
+    if all(find_sep(g) for g in s.included_files_as_glob):
+        # remove the file part by splitting at the rightmost sep, making sure not to split at the root sep
+        inc_file_dirnames_as_glob = {f.rsplit(sep, 1)[0]: None for f in s.included_files_as_glob if (sep := find_sep(f)) and sep in f.lstrip(sep)}
+    else:
+        # at least one glob without a directory part (no sep); therefore, all directories must be considered, as any dir can contain files matching the glob
+        inc_file_dirnames_as_glob = {'*'}
     for dirname_glob in inc_file_dirnames_as_glob:
         if dir_path.match(dirname_glob):
             logger.log(DEBUG_12, f"=D ...{relative_dir_p}  -- matches included_file_as_glob's dirname")
             return True, False
-    for inc_top_psx in (p.as_posix() for p in s.included_top_dirs):
+    for inc_top_psx_ in (p.as_posix() + '/' for p in s.included_top_dirs):
         # Example
         # source_dir = '/home'
         # included_top_dirs = ['/home/docs', '/home/pics']
-        if dir_path_psx.startswith(inc_top_psx):
-            # current dir_path_psx = '/home/docs/med'
+        if dir_path_psx_.startswith(inc_top_psx_):
+            # current dir_path_psx_ = '/home/docs/med'
             # '/home/docs/med'.startswith('/home/docs')
             logger.log(DEBUG_12, f"=D ...{relative_dir_p}  -- matches included_top_dirs")
             return True, False
-        if inc_top_psx.startswith(dir_path_psx):
-            # current dir_path_psx = '/home'
+        if inc_top_psx_.startswith(dir_path_psx_):
+            # current dir_path_psx_ = '/home'
             # '/home/docs'.startswith('/home')
             # this is to keep the path in dirs of os.walk(), i.e. to avoid excluding the entire tree
             # but not for files, i.e. files in '/home' must be skipped
