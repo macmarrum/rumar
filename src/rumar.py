@@ -388,7 +388,7 @@ class Settings:
       otherwise _**create**_ will also seek such files to be excluded
     db_path: str = _**backup_base_dir**_/rumar.sqlite
     """
-    COMMA: str = field(default=',', init=False, repr=False)
+    SUFFIXES_SEP: str = field(default=',', init=False, repr=False)
     profile: str
     backup_base_dir: Union[str, Path]
     source_dir: Union[str, Path]
@@ -441,7 +441,7 @@ class Settings:
         self._patternify('included_files_as_regex')
         self._patternify('excluded_dirs_as_regex')
         self._patternify('excluded_files_as_regex')
-        self.suffixes_without_compression = {f".{s}" for s in self.COMMA.join([self.no_compression_suffixes_default, self.no_compression_suffixes]).split(self.COMMA) if s}
+        self.suffixes_without_compression = {f".{s}" for s in self.SUFFIXES_SEP.join([self.no_compression_suffixes_default, self.no_compression_suffixes]).split(self.SUFFIXES_SEP) if s}
         # https://stackoverflow.com/questions/71846054/-cast-a-string-to-an-enum-during-instantiation-of-a-dataclass-
         if self.archive_format is None:
             self.archive_format = RumarFormat.TGZ
