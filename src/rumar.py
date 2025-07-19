@@ -639,7 +639,7 @@ def iter_matching_files(top_path: Rath, s: Settings) -> Generator[Rath, None, No
             if S_ISDIR(rath.lstat().st_mode):
                 dir_rath = rath
                 relative_dir_p = derive_relative_p(dir_rath, top_path, with_leading_slash=True)
-                if calc_dir_matches_top_dirs(dir_rath, relative_dir_p, s):  # matches top_dirs, now check regex
+                if is_dir_matching_top_dirs(dir_rath, relative_dir_p, s):  # matches top_dirs, now check regex
                     if inc_dirs_rx:  # only included paths must be considered
                         if find_matching_pattern(relative_dir_p, inc_dirs_rx):
                             dir_raths[dir_rath] = None
@@ -679,7 +679,7 @@ def iter_matching_files(top_path: Rath, s: Settings) -> Generator[Rath, None, No
     yield from _iter_matching_files(top_path, skip_files=s.included_top_dirs or False)
 
 
-def calc_dir_matches_top_dirs(dir_path: Path, relative_dir_p: str, s: Settings) -> bool:
+def is_dir_matching_top_dirs(dir_path: Path, relative_dir_p: str, s: Settings) -> bool:
     """ Considers included_top_dirs and excluded_top_dirs """
     dir_path_psx_ = dir_path.as_posix() + '/'
     for exc_top_psx_ in (p.as_posix() + '/' for p in s.excluded_top_dirs):
