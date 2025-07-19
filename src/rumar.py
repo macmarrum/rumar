@@ -565,16 +565,16 @@ class Rath(Path):
     """
 
     def __init__(self, *args, lstat_cache: dict[Path, os.stat_result]):
-        self._lstat_cache = lstat_cache
+        self.lstat_cache = lstat_cache
         super().__init__(*args)
 
     # @override
     def lstat(self):
-        if lstat := self._lstat_cache.get(self):
+        if lstat := self.lstat_cache.get(self):
             return lstat
         else:
             lstat = super().lstat()
-            self._lstat_cache[self] = lstat
+            self.lstat_cache[self] = lstat
             return lstat
 
     # @override
@@ -585,7 +585,7 @@ class Rath(Path):
         and via `_from_parsed_string` or `_parts` by: `parent`, `parents`, `iterdir`, `relative_to`, `with_name`;\n
         probably also by: `with_stem`, `with_suffix`, `absolute`, `expanduser`, `resolve` because they return Rath
         """
-        return Rath(*pathsegments, lstat_cache=self._lstat_cache)
+        return Rath(*pathsegments, lstat_cache=self.lstat_cache)
 
 
 def iter_all_files(top_path: Rath) -> Generator[Rath, None, None]:
