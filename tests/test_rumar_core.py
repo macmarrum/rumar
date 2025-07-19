@@ -10,7 +10,7 @@ from typing import Sequence
 
 import pytest
 
-from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files
+from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, iter_matching_files
 
 _path_to_lstat_ = {}
 
@@ -142,17 +142,26 @@ def set_up_rumar():
     backup_base_dir = '{BASE}/backup-base-dir'
     [{profile}]
     source_dir = '{BASE}/{profile}'
+    included_top_dirs = ['AA']
+    included_files_as_glob = ['*.txt']
+    excluded_files_as_glob = ['*1.*']
     """)
     profile_to_settings = make_profile_to_settings_from_toml_text(toml)
     rumar = Rumar(profile_to_settings)
     rumar._at_beginning(profile)
     fs_paths = [
-        f"/{profile}/file1.txt",
-        f"/{profile}/file2.txt",
-        f"/{profile}/file3.csv",
-        f"/{profile}/A/file4.txt",
-        f"/{profile}/A/file5.txt",
-        f"/{profile}/A/file6.csv",
+        f"/{profile}/file01.txt",
+        f"/{profile}/file02.txt",
+        f"/{profile}/file03.csv",
+        f"/{profile}/A/file04.txt",
+        f"/{profile}/A/file05.txt",
+        f"/{profile}/A/file06.csv",
+        f"/{profile}/B/file07.txt",
+        f"/{profile}/B/file08.txt",
+        f"/{profile}/B/file09.csv",
+        f"/{profile}/AA/file10.txt",
+        f"/{profile}/AA/file11.txt",
+        f"/{profile}/AA/file12.csv",
     ]
     rathers = [
         Rather(fs_path, lstat_cache=rumar.lstat_cache, mtime=i * 60).make()
@@ -160,6 +169,7 @@ def set_up_rumar():
     ]
     d = dict(
         profile=profile,
+        profile_to_settings=profile_to_settings,
         rumar=rumar,
         rathers=rathers,
     )
@@ -180,4 +190,15 @@ class TestRumarCore:
         expected = [r.asrath() for r in sorted(rathers)]
         top_dir = Rather(f"/{profile}", lstat_cache=rumar.lstat_cache)
         actual = sorted(iter_all_files(top_dir))
+        assert eq_list(actual, expected)
+
+    def test_002_fs_test_iter_matching_files(self, set_up_rumar):
+        d = set_up_rumar
+        profile = d['profile']
+        profile_to_settings = d['profile_to_settings']
+        settings = profile_to_settings[profile]
+        rumar = d['rumar']
+        expected = [Rather(f"/{profile}/AA/file10.txt", lstat_cache=rumar.lstat_cache).asrath(), ]
+        top_path = Rather(f"/{profile}", lstat_cache=rumar.lstat_cache)
+        actual = list(iter_matching_files(top_path, settings))
         assert eq_list(actual, expected)
