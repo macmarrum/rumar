@@ -762,12 +762,7 @@ def find_sep(g: str) -> str:
 
 
 def derive_relative_p(path: Path, base_dir: Path, with_leading_slash=False) -> str:
-    path_psx = path.as_posix()
-    base_dir_psx = base_dir.as_posix()
-    if not path_psx.startswith(base_dir_psx):
-        raise ValueError(f"{str(path)} doesn't start with {str(base_dir)}")
-    relative_p = path_psx.removeprefix(base_dir_psx)
-    return relative_p.removeprefix(SLASH) if not with_leading_slash else relative_p
+    return f"{'/' if with_leading_slash else ''}{path.relative_to(base_dir).as_posix()}"
 
 
 def find_matching_pattern(relative_p: str, patterns: list[Pattern]):
