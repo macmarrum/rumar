@@ -335,9 +335,9 @@ class Settings:
       a list of glob patterns, also known as shell-style wildcards, i.e. `* ? [seq] [!seq]`
       if present, only matching files will be considered, together with files from _**included_top_dirs**_
       the paths/globs can be partial, relative to _**source_dir**_ or absolute, but always under _**source_dir**_
-      e.g. `["My Music\*.m3u"]`
+      e.g. `['My Music\*.m3u']`
       on MS Windows, global-pattern matching is case-insensitive
-      caution: a leading path separator in a path/glob indicates a root directory, e.g. `["\My Music\*"]`
+      caution: a leading path separator in a path/glob indicates a root directory, e.g. `['\My Music\*']`
       means `C:\My Music\*` or `D:\My Music\*` but not `C:\Users\Mac\Documents\My Music\*`
       see also https://docs.python.org/3/library/fnmatch.html and https://en.wikipedia.org/wiki/Glob_(programming)
     excluded_files_as_glob: list[str]
