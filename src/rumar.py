@@ -800,7 +800,7 @@ class Rumar:
         self._profile_to_settings = profile_to_settings
         self._profile: str | None = None
         self._suffix_size_stems_and_raths: dict[str, dict[int, dict]] = {}
-        self._path_to_lstat: dict[Path, os.stat_result] = {}
+        self.lstat_cache: dict[Path, os.stat_result] = {}
         self._warnings = []
         self._errors = []
         self._rdb: RumarDB = None  # initiated per profile in _at_beginning to support db_path per profile
@@ -942,7 +942,7 @@ class Rumar:
 
     def _at_beginning(self, profile: str):
         self._profile = profile  # for self.s to work
-        self._path_to_lstat.clear()
+        self.lstat_cache.clear()
         self._warnings.clear()
         self._errors.clear()
         self._rdb = RumarDB(self._profile, self.s)
@@ -1068,10 +1068,10 @@ class Rumar:
         matching_files = []
         # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
         if Command.CREATE in s.commands_which_use_filters:
-            iterator = iter_matching_files(Rath(source_dir, lstat_cache=self._path_to_lstat), s)
+            iterator = iter_matching_files(Rath(source_dir, lstat_cache=self.lstat_cache), s)
             logger.debug(f"{s.commands_which_use_filters=} => iter_matching_files")
         else:
-            iterator = iter_all_files(Rath(source_dir, lstat_cache=self._path_to_lstat))
+            iterator = iter_all_files(Rath(source_dir, lstat_cache=self.lstat_cache))
             logger.debug(f"{s.commands_which_use_filters=} => iter_all_files")
         for file_rath in iterator:
             if self.should_ignore_for_archive(file_rath.lstat()):
