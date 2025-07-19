@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import os
 import shutil
+from dataclasses import replace
 from io import StringIO
 from pathlib import Path
 from stat import S_IFLNK, S_IFDIR, S_IFREG, S_IMODE, S_ISLNK, S_ISDIR
@@ -10,7 +11,7 @@ from typing import Sequence
 
 import pytest
 
-from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, iter_matching_files
+from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, iter_matching_files, calc_dir_matches_top_dirs, derive_relative_p
 
 _path_to_lstat_ = {}
 
@@ -142,9 +143,6 @@ def set_up_rumar():
     backup_base_dir = '{BASE}/backup-base-dir'
     [{profile}]
     source_dir = '{BASE}/{profile}'
-    included_top_dirs = ['AA']
-    included_files_as_glob = ['*.txt']
-    excluded_files_as_glob = ['*1.*']
     """)
     profile_to_settings = make_profile_to_settings_from_toml_text(toml)
     rumar = Rumar(profile_to_settings)
@@ -162,6 +160,12 @@ def set_up_rumar():
         f"/{profile}/AA/file10.txt",
         f"/{profile}/AA/file11.txt",
         f"/{profile}/AA/file12.csv",
+        f"/{profile}/A/A-A/file13.txt",
+        f"/{profile}/A/A-A/file14.txt",
+        f"/{profile}/A/A-A/file15.csv",
+        f"/{profile}/A/A-B/file16.txt",
+        f"/{profile}/A/A-B/file17.txt",
+        f"/{profile}/A/A-B/file18.csv",
     ]
     rathers = [
         Rather(fs_path, lstat_cache=rumar.lstat_cache, mtime=i * 60).make()
@@ -192,11 +196,203 @@ class TestRumarCore:
         actual = sorted(iter_all_files(top_dir))
         assert eq_list(actual, expected)
 
-    def test_002_fs_test_iter_matching_files(self, set_up_rumar):
+    def test_inc_no_inc_or_exc(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
         settings = profile_to_settings[profile]
+        settings = replace(settings,  # NOTE: update local settings dict, not in rumar
+                           included_files_as_glob=['*.csv'],
+                           excluded_files_as_glob=['*1.*'],
+                           )
+        rumar = d['rumar']
+        R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
+        actual = [
+            calc_dir_matches_top_dirs(R(f"/{profile}"), '/', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/A"), '/A', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/AA"), '/AA', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/B"), '/B', settings),
+        ]
+        expected = [
+            True,
+            True,
+            True,
+            True,
+        ]
+        assert actual == expected
+
+    def test_calc_dir_matches_top_dirs__inc_single(self, set_up_rumar):
+        d = set_up_rumar
+        profile = d['profile']
+        profile_to_settings = d['profile_to_settings']
+        settings = profile_to_settings[profile]
+        settings = replace(settings,  # NOTE: local settings dict, not in rumar
+                           included_top_dirs=['AA'],
+                           included_files_as_glob=['*.csv'],
+                           excluded_files_as_glob=['*1.*'],
+                           )
+        rumar = d['rumar']
+        R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
+        actual = [
+            calc_dir_matches_top_dirs(R(f"/{profile}"), '/', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/A"), '/A', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/AA"), '/AA', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/B"), '/B', settings),
+        ]
+        expected = [
+            True,
+            False,
+            True,
+            False,
+        ]
+        assert actual == expected
+
+    def test_calc_dir_matches_top_dirs__exc_several(self, set_up_rumar):
+        d = set_up_rumar
+        profile = d['profile']
+        profile_to_settings = d['profile_to_settings']
+        settings = profile_to_settings[profile]
+        settings = replace(settings,  # NOTE: local settings dict, not in rumar
+                           excluded_top_dirs=['A', 'B'],
+                           included_files_as_glob=['*.csv'],
+                           excluded_files_as_glob=['*1.*'],
+                           )
+        rumar = d['rumar']
+        R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
+        actual = [
+            calc_dir_matches_top_dirs(R(f"/{profile}"), '/', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/A"), '/A', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/AA"), '/AA', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/B"), '/B', settings),
+        ]
+        expected = [
+            True,
+            False,
+            True,
+            False,
+        ]
+        assert actual == expected
+
+    def test_calc_dir_matches_top_dirs__exc_mulit_level(self, set_up_rumar):
+        d = set_up_rumar
+        profile = d['profile']
+        profile_to_settings = d['profile_to_settings']
+        settings = profile_to_settings[profile]
+        settings = replace(settings,  # NOTE: local settings dict, not in rumar
+                           excluded_top_dirs=['B', 'A/A-A'],
+                           included_files_as_glob=['*.csv'],
+                           excluded_files_as_glob=['*1.*'],
+                           )
+        rumar = d['rumar']
+        R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
+        actual = [
+            calc_dir_matches_top_dirs(R(f"/{profile}"), '/', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/A"), '/A', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/AA"), '/AA', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/B"), '/B', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/A/A-A"), '/A/A-A', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/A/A-B"), '/A/A-B', settings),
+        ]
+        expected = [
+            True,
+            True,
+            True,
+            False,
+            False,
+            True,
+        ]
+        assert actual == expected
+
+    def test_calc_dir_matches_top_dirs__inc_and_exc_mulit_level(self, set_up_rumar):
+        d = set_up_rumar
+        profile = d['profile']
+        profile_to_settings = d['profile_to_settings']
+        settings = profile_to_settings[profile]
+        settings = replace(settings,  # NOTE: local settings dict, not in rumar
+                           included_top_dirs=['A'],
+                           excluded_top_dirs=['A/A-A'],
+                           included_files_as_glob=['*.csv'],
+                           excluded_files_as_glob=['*1.*'],
+                           )
+        rumar = d['rumar']
+        R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
+        actual = [
+            calc_dir_matches_top_dirs(R(f"/{profile}"), '/', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/A"), '/A', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/AA"), '/AA', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/B"), '/B', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/A/A-A"), '/A/A-A', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/A/A-B"), '/A/A-B', settings),
+        ]
+        expected = [
+            True,
+            True,
+            False,
+            False,
+            False,
+            True,
+        ]
+        assert actual == expected
+
+    def test_calc_dir_matches_top_dirs__inc__all_and_exc_single_lower_level(self, set_up_rumar):
+        d = set_up_rumar
+        profile = d['profile']
+        profile_to_settings = d['profile_to_settings']
+        settings = profile_to_settings[profile]
+        settings = replace(settings,  # NOTE: local settings dict, not in rumar
+                           excluded_top_dirs=['A/A-A'],
+                           included_files_as_glob=['*.csv'],
+                           excluded_files_as_glob=['*1.*'],
+                           )
+        rumar = d['rumar']
+        R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
+        actual = [
+            calc_dir_matches_top_dirs(R(f"/{profile}"), '/', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/A"), '/A', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/AA"), '/AA', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/B"), '/B', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/A/A-A"), '/A/A-A', settings),
+            calc_dir_matches_top_dirs(R(f"/{profile}/A/A-B"), '/A/A-B', settings),
+        ]
+        expected = [
+            True,
+            True,
+            True,
+            True,
+            False,
+            True,
+        ]
+        assert actual == expected
+
+    def test_derive_relative_p_with_leading_slash(self, set_up_rumar):
+        d = set_up_rumar
+        profile = d['profile']
+        rumar = d['rumar']
+        R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
+        top_rath = R(f"/{profile}")
+        dir_rath = R(f"/{profile}/A")
+        actual = derive_relative_p(dir_rath, top_rath, with_leading_slash=True)
+        assert actual == '/A'
+
+    def test_derive_relative_p_without_leading_slash(self, set_up_rumar):
+        d = set_up_rumar
+        profile = d['profile']
+        rumar = d['rumar']
+        R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
+        top_rath = R(f"/{profile}")
+        dir_rath = R(f"/{profile}/A/B/C/d.txt")
+        actual = derive_relative_p(dir_rath, top_rath, with_leading_slash=False)
+        assert actual == 'A/B/C/d.txt'
+
+    def test_002_fs_test_iter_matching_files__inc_top_and_inc_glob(self, set_up_rumar):
+        d = set_up_rumar
+        profile = d['profile']
+        profile_to_settings = d['profile_to_settings']
+        settings = profile_to_settings[profile]
+        settings = replace(settings,
+                           included_top_dirs=['AA'],
+                           included_files_as_glob=['*10.*'],
+                           )
         rumar = d['rumar']
         expected = [Rather(f"/{profile}/AA/file10.txt", lstat_cache=rumar.lstat_cache).asrath(), ]
         top_path = Rather(f"/{profile}", lstat_cache=rumar.lstat_cache)
