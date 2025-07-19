@@ -632,7 +632,7 @@ def iter_matching_files(top_path: Rath, s: Settings) -> Generator[Rath, None, No
     inc_files_rx = s.included_files_as_regex
     exc_files_rx = s.excluded_files_as_regex
 
-    def _iter_matching_files(directory: Rath) -> Generator[Rath, None, None]:
+    def _iter_matching_files(directory: Rath, skip_files=False) -> Generator[Rath, None, None]:
         dir_raths = {}  # to preserve order
         file_raths = {}  # to preserve order
         for rath in directory.iterdir():
@@ -650,9 +650,11 @@ def iter_matching_files(top_path: Rath, s: Settings) -> Generator[Rath, None, No
                     if exc_dirs_rx and dir_rath in dir_raths and (exc_rx := find_matching_pattern(relative_dir_p, exc_dirs_rx)):
                         del dir_raths[dir_rath]
                         logger.log(DEBUG_14, f"|d ...{relative_dir_p}  -- skipping dir (matches '{exc_rx}')")
-                else:  # doesn't match dirnames and/or top_dirs
+                else:  # doesn't match top_dirs
                     pass
             else:  # a file
+                if skip_files:
+                    continue
                 file_rath = rath
                 relative_file_p = derive_relative_p(file_rath, top_path, with_leading_slash=True)
                 if is_file_matching_glob(file_rath, relative_file_p, s):  # matches glob, now check regex
@@ -673,7 +675,8 @@ def iter_matching_files(top_path: Rath, s: Settings) -> Generator[Rath, None, No
         for dir_rath in dir_raths:
             yield from _iter_matching_files(dir_rath)
 
-    yield from _iter_matching_files(top_path)
+    # initially run without files if only selected dirs are to be processed
+    yield from _iter_matching_files(top_path, skip_files=s.included_top_dirs or False)
 
 
 def calc_dir_matches_top_dirs(dir_path: Path, relative_dir_p: str, s: Settings) -> bool:
@@ -707,31 +710,26 @@ def calc_dir_matches_top_dirs(dir_path: Path, relative_dir_p: str, s: Settings) 
 
 
 def is_file_matching_glob(file_path: Path, relative_p: str, s: Settings) -> bool:
-    # interestingly, the following expression doesn't have the same effect as the below for-loops - why?
-    # not any(file_path.match(file_as_glob) for file_as_glob in exc_files) and (
-    #         any(file_path.match(file_as_glob) for file_as_glob in inc_files)
-    #         or any(file_path_psx.startswith(top_dir) for top_dir in inc_top_dirs_psx)
-    # )
     for file_as_glob in s.excluded_files_as_glob:
         if file_path.match(file_as_glob):
             logger.log(DEBUG_14, f"|F ...{relative_p}  -- skipping (matches excluded_files_as_glob {file_as_glob!r})")
             return False
-    if not (s.included_top_dirs or s.included_files_as_glob):
-        logger.log(DEBUG_11, f"=F ...{relative_p}  -- including all (no included_top_dirs or included_files_as_glob)")
+    if not s.included_files_as_glob:
+        logger.log(DEBUG_11, f"=F ...{relative_p}  -- including all (no included_files_as_glob)")
         return True
     for file_as_glob in s.included_files_as_glob:
         if file_path.match(file_as_glob):
             logger.log(DEBUG_12, f"=F ...{relative_p}  -- matches included_files_as_glob {file_as_glob!r}")
             return True
-    file_path_psx = file_path.as_posix()
-    for inc_top_psx_ in (p.as_posix() + '/' for p in s.included_top_dirs):
-        if file_path_psx.startswith(inc_top_psx_):
-            logger.log(DEBUG_12, f"=F ...{relative_p}  -- matches included_top_dirs {inc_top_psx_!r}")
-            return True
-    logger.log(DEBUG_13, f"|F ...{relative_p}  -- skipping file (doesn't match top dir or file glob)")
+    logger.log(DEBUG_13, f"|F ...{relative_p}  -- skipping file (doesn't match file glob)")
     return False
 
 
+def not_used(func):
+    return NotImplemented
+
+
+@not_used
 def find_sep(g: str) -> str:
     """
     included_files_as_glob can use a slash or a backslash as a path separator
@@ -1326,10 +1324,6 @@ def compute_blake2b_checksum(f: BufferedIOBase) -> str:
     for chunk in iter(lambda: f.read(32768), b''):
         b.update(chunk)
     return b.hexdigest()
-
-
-def not_used(func):
-    return NotImplemented
 
 
 @not_used
