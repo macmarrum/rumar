@@ -470,7 +470,8 @@ class Settings:
             if not p.is_absolute():
                 lst.append(self.source_dir / p)
             else:
-                assert p.as_posix().startswith(self.source_dir.as_posix())
+                if not p.as_posix().startswith(self.source_dir.as_posix()):
+                    raise ValueError(f"{attribute_name}: {p} is not under {self.source_dir}!")
                 lst.append(p)
         setattr(self, attribute_name, set(lst))
 
@@ -490,7 +491,7 @@ class Settings:
         if not attr:
             return
         if not isinstance(attr, list):
-            raise AttributeError(f"expected a list of values, got {attr!r}")
+            raise TypeError(f"expected a list of values, got {attr!r}")
         setattr(self, attribute_name, [re.compile(elem) for elem in attr])
 
     def __str__(self):
