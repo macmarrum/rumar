@@ -837,8 +837,14 @@ class Rumar:
             logger.error(f">> error setting mtime -> {sys.exc_info()}")
 
     @classmethod
-    def calc_mtime_str(cls, dt: datetime) -> str:
+    def calc_mtime_str(cls, statresult_or_datetime: os.stat_result | datetime) -> str:
         """archive-file stem - first part"""
+        if isinstance(statresult_or_datetime, os.stat_result):
+            dt = datetime.fromtimestamp(statresult_or_datetime.st_mtime)
+        elif isinstance(statresult_or_datetime, datetime):
+            dt = statresult_or_datetime
+        else:
+            raise TypeError(f"statresult_or_datetime must be os.stat_result or datetime, not {type(statresult_or_datetime)}")
         return dt.astimezone().isoformat(sep=cls.ISO_FORMAT_SEP).replace(cls.MTIME_COLON, cls.MTIME_COLON_REPLACEMENT)
 
     @classmethod
@@ -1015,23 +1021,25 @@ class Rumar:
             self._create_tar(create_reason, rath, relative_p, archive_dir, mtime_str, size, checksum)
 
     def _create_tar(self, create_reason: CreateReason, rath: Rath, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: str | None):
-        archive_dir.mkdir(parents=True, exist_ok=True)
         sign = create_reason.value
         reason = create_reason.name
         logger.info(f"{sign} {relative_p}  {mtime_str}  {size} {reason} {archive_dir}")
+        archive_dir.mkdir(parents=True, exist_ok=True)
         archive_format, compresslevel_kwargs = self.calc_archive_format_and_compresslevel_kwargs(rath)
         mode = self.ARCHIVE_FORMAT_TO_MODE[archive_format]
-        is_lnk = S_ISLNK(rath.lstat().st_mode)
-        archive_path = self.compose_archive_path(archive_dir, mtime_str, size, self.LNK if is_lnk else self.BLANK)
+        lnk = self.LNK if S_ISLNK(rath.lstat().st_mode) else self.BLANK
+        archive_path = self.compose_archive_path(archive_dir, mtime_str, size, lnk)
 
-        def _create():
-            with tarfile.open(archive_path, mode, format=self.s.tar_format, **compresslevel_kwargs) as tf:
+        def _create(_archive_path: Path):
+            with tarfile.open(_archive_path, mode, format=self.s.tar_format, **compresslevel_kwargs) as tf:
                 tf.add(rath, arcname=rath.name)
 
         attempt_limit = 3
         attempt = 1
         while True:
             if not checksum:
+                lstat = rath.lstat_afresh()
+                archive_path = self.compose_archive_path(archive_dir, self.calc_mtime_str(lstat), lstat.st_size, lnk)
                 with rath.open('rb') as f:
                     checksum = compute_blake2b_checksum(f)
             if self._call_create_and_return_same_checksum_or_limit_reached(_create, archive_path, checksum, attempt, attempt_limit):
@@ -1041,19 +1049,19 @@ class Rumar:
         self._rdb.save(create_reason, relative_p, archive_path, checksum)
 
     def _create_zipx(self, create_reason: CreateReason, rath: Rath, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: str | None):
-        archive_dir.mkdir(parents=True, exist_ok=True)
         sign = create_reason.value
         reason = create_reason.name
         logger.info(f"{sign} {relative_p}  {mtime_str}  {size} {reason} {archive_dir}")
+        archive_dir.mkdir(parents=True, exist_ok=True)
         if rath.suffix.lower() in self.s.suffixes_without_compression:
             kwargs = {self.COMPRESSION: zipfile.ZIP_STORED}
         else:
             kwargs = {self.COMPRESSION: self.s.zip_compression_method, self.COMPRESSLEVEL: self.s.compression_level}
-        is_lnk = S_ISLNK(rath.lstat().st_mode)
-        archive_path = self.compose_archive_path(archive_dir, mtime_str, size, self.LNK if is_lnk else self.BLANK)
+        lnk = self.LNK if S_ISLNK(rath.lstat().st_mode) else self.BLANK
+        archive_path = self.compose_archive_path(archive_dir, mtime_str, size, lnk)
 
-        def _create():
-            with pyzipper.AESZipFile(archive_path, 'w', encryption=pyzipper.WZ_AES, **kwargs) as zf:
+        def _create(_archive_path: Path):
+            with pyzipper.AESZipFile(_archive_path, 'w', encryption=pyzipper.WZ_AES, **kwargs) as zf:
                 zf.setpassword(self.s.password)
                 zf.write(rath, arcname=rath.name)
 
@@ -1061,6 +1069,8 @@ class Rumar:
         attempt = 1
         while True:
             if not checksum:
+                lstat = rath.lstat_afresh()
+                archive_path = self.compose_archive_path(archive_dir, self.calc_mtime_str(lstat), lstat.st_size, lnk)
                 with rath.open('rb') as f:
                     checksum = compute_blake2b_checksum(f)
             if self._call_create_and_return_same_checksum_or_limit_reached(_create, archive_path, checksum, attempt, attempt_limit):
@@ -1070,7 +1080,7 @@ class Rumar:
         self._rdb.save(create_reason, relative_p, archive_path, checksum)
 
     def _call_create_and_return_same_checksum_or_limit_reached(self, _create: Callable, archive_path: Path, checksum: str | None, attempt: int, attempt_limit: int):
-        _create()
+        _create(archive_path)
         end_checksum = self.compute_checksum_of_file_in_archive(archive_path, self.s.password)
         if end_checksum == checksum:
             return True
@@ -1293,7 +1303,7 @@ class Rumar:
             st_stat = None
             target_file_exists = False
         if target_file_exists:
-            if meta_diff and self.derive_mtime_size(archive_file) == (self.calc_mtime_str(datetime.fromtimestamp(st_stat.st_mtime)), st_stat.st_size):
+            if meta_diff and self.derive_mtime_size(archive_file) == (self.calc_mtime_str(st_stat), st_stat.st_size):
                 should_extract = False
                 logger.info(f"skipping {derive_relative_p(archive_file.parent, self.s.backup_base_dir_for_profile)} - mtime and size are the same as in the target file")
             elif overwrite or self._ask_to_overwrite(target_file):
