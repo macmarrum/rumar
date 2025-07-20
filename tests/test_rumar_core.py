@@ -4,9 +4,9 @@ import os
 import shutil
 import tarfile
 from dataclasses import replace
-from io import StringIO, BytesIO
+from io import BytesIO
 from pathlib import Path
-from stat import S_IFLNK, S_IFDIR, S_IFREG, S_IMODE, S_ISLNK, S_ISDIR
+from stat import S_IFLNK, S_IFDIR, S_IFREG, S_ISLNK, S_ISDIR
 from textwrap import dedent
 from typing import Sequence
 
@@ -189,7 +189,7 @@ def set_up_rumar():
     )
     yield d
     if BASE.exists():
-        shutil.rmtree(BASE / profile)
+        shutil.rmtree(BASE)
     Rather.BASE_PATH = None
     _path_to_lstat_.clear()
 
@@ -418,22 +418,20 @@ class TestRumarCore:
         rumar = d['rumar']
         reason = CreateReason.CREATE
         rathers = d['rathers']
-        raths = d['raths']
-        rather = rathers[0]
-        rath = raths[0]
-        relative_p = derive_relative_p(rath, settings.source_dir)
+        rather = rathers[14]
+        relative_p = derive_relative_p(rather, settings.source_dir)
         archive_dir = rumar.compose_archive_container_dir(relative_p=relative_p)
-        lstat = rath.lstat()
+        lstat = rather.lstat()
         mtime_str = rumar.calc_mtime_str(lstat)
         size = lstat.st_size
         checksum = compute_blake2b_checksum(rather._content_io)
-        rumar._create_tar(reason, rath, relative_p, archive_dir, mtime_str, size, checksum)
+        rumar._create_tar(reason, rather, relative_p, archive_dir, mtime_str, size, checksum)
         archive_path = rumar.compose_archive_path(archive_dir, mtime_str, size, '')
         actual_checksum = rumar.compute_checksum_of_file_in_archive(archive_path, settings.password)
+        assert actual_checksum == checksum
         member = None
         with tarfile.open(archive_path, 'r') as tf:
             member = tf.next()
-        assert member.name == relative_p
+        assert member.name == rather.name
         assert member.mtime == lstat.st_mtime
         assert member.size == size
-        assert actual_checksum == checksum
