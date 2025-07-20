@@ -598,6 +598,11 @@ class Rath(Path):
             self.lstat_cache[self] = lstat
             return lstat
 
+    def lstat_afresh(self):
+        lstat = super().lstat()
+        self.lstat_cache[self] = lstat
+        return lstat
+
     # @override
     def with_segments(self, *pathsegments):
         """`Path.with_segments` calls `type(self)(*pathsegments)`\n
