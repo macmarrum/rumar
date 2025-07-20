@@ -767,7 +767,7 @@ def sorted_files_by_stem_then_suffix_ignoring_case(matching_files: Iterable[Path
 
 
 def compose_archive_path(archive_dir: Path, archive_format: RumarFormat, mtime_str: str, size: int, comment: str | None = None) -> Path:
-    return archive_dir / f"{mtime_str}{Rumar.MTIME_SEP}{size}{Rumar.MTIME_SEP + comment if comment else Rumar.BLANK}.{archive_format.value}"
+    return archive_dir / f"{mtime_str}{Rumar.ARCHIVE_SEP}{size}{Rumar.ARCHIVE_SEP + comment if comment else Rumar.BLANK}.{archive_format.value}"
 
 
 class Rumar:
@@ -778,25 +778,21 @@ class Rumar:
     """
     BLANK = ''
     RX_NONE = re.compile('')
-    MTIME_SEP = '~'
-    COLON = ':'
-    COMMA = ','
-    T = 'T'
-    UNDERSCORE = '_'
-    DOT_TAR = '.tar'
+    ARCHIVE_SEP = '~'
+    MTIME_COLON = ':'
+    MTIME_COLON_REPLACEMENT = ','
+    ISO_FORMAT_SEP = '_'
     DOT_ZIPX = '.zipx'
-    SYMLINK_COMPRESSLEVEL = 3
-    COMPRESSLEVEL = 'compresslevel'
     COMPRESSION = 'compression'
     PRESET = 'preset'
-    SYMLINK_FORMAT_COMPRESSLEVEL = RumarFormat.TGZ, {COMPRESSLEVEL: SYMLINK_COMPRESSLEVEL}
+    SYMLINK_FORMAT_COMPRESSLEVEL = RumarFormat.TGZ, {'compresslevel': 3}
     NOCOMPRESSION_FORMAT_COMPRESSLEVEL = RumarFormat.TAR, {}
     LNK = 'LNK'
     ARCHIVE_FORMAT_TO_MODE = {RumarFormat.TAR: 'x', RumarFormat.TGZ: 'x:gz', RumarFormat.TBZ: 'x:bz2', RumarFormat.TXZ: 'x:xz'}
     CHECKSUM_SUFFIX = '.b2'
     CHECKSUM_SIZE_THRESHOLD = 10_000_000
     STEMS = 'stems'
-    RATHS = 'paths'
+    RATHS = 'raths'
 
     def __init__(self, profile_to_settings: ProfileToSettings):
         self._profile_to_settings = profile_to_settings
@@ -838,11 +834,11 @@ class Rumar:
     @classmethod
     def calc_mtime_str(cls, dt: datetime) -> str:
         """archive-file stem - first part"""
-        return dt.astimezone().isoformat(sep=cls.UNDERSCORE).replace(cls.COLON, cls.COMMA)
+        return dt.astimezone().isoformat(sep=cls.ISO_FORMAT_SEP).replace(cls.MTIME_COLON, cls.MTIME_COLON_REPLACEMENT)
 
     @classmethod
     def calc_mtime_dt(cls, mtime_str: str) -> datetime:
-        return datetime.fromisoformat(mtime_str.replace(cls.COMMA, cls.COLON))
+        return datetime.fromisoformat(mtime_str.replace(cls.MTIME_COLON_REPLACEMENT, cls.MTIME_COLON))
 
     @classmethod
     def compose_checksum_file_path(cls, archive_path: Path) -> Path:
@@ -875,7 +871,7 @@ class Rumar:
     @classmethod
     def split_mtime_size(cls, stem: str) -> tuple[str, int]:
         """Example: 2023-04-30_09,48,20.872144+02,00~123~ab12~LNK => 2023-04-30_09,48,20.872144+02,00 123 ab12 LNK"""
-        split_result = stem.split(cls.MTIME_SEP)
+        split_result = stem.split(cls.ARCHIVE_SEP)
         mtime_str = split_result[0]
         size = int(split_result[1])
         return mtime_str, size
@@ -1002,7 +998,7 @@ class Rumar:
          |   10 MB | 0.05 | 0.02 |
         """
         if size > self.CHECKSUM_SIZE_THRESHOLD:
-            checksum_file = archive_dir / f"{mtime_str}{self.MTIME_SEP}{size}{self.CHECKSUM_SUFFIX}"
+            checksum_file = archive_dir / f"{mtime_str}{self.ARCHIVE_SEP}{size}{self.CHECKSUM_SUFFIX}"
             logger.info(f':  {relative_p}  {checksum}')
             archive_dir.mkdir(parents=True, exist_ok=True)
             checksum_file.write_text(checksum)
