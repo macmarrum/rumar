@@ -34,7 +34,7 @@ from pathlib import Path
 from stat import S_ISDIR, S_ISSOCK, S_ISDOOR, S_ISLNK
 from textwrap import dedent
 from time import sleep
-from typing import Union, Literal, Pattern, Any, Iterable, cast, Generator, override
+from typing import Union, Literal, Pattern, Any, Iterable, cast, Generator
 
 vi = sys.version_info
 PY_VER = (vi.major, vi.minor)
