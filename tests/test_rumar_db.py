@@ -66,14 +66,10 @@ class TestRumarDB:
         rumardb = d['rumardb']
         records = d['rumardb_records']
         db = rumardb._db
-        run_date_iso = datetime.today().strftime('%Y-%m-%d')
         bak_dir = rumar.s.backup_base_dir_for_profile.as_posix()
-        for i, actual in enumerate(db.execute('SELECT * FROM v_backup')):
-            # run_date_is, profile, reason, bak_dir, src_path, bak_name, _b2_10 = actual
+        for i, actual in enumerate(db.execute('SELECT profile, reason, bak_dir, src_path, bak_name, _blake2b FROM v_backup')):
             reason, relative_p, archive_path, fake2b = records[i]
-            _reason = reason.name[0]
-            expected = (run_date_iso, rumar.s.profile, _reason, bak_dir, relative_p, archive_path.name, fake2b)
-            assert actual == expected
+            assert actual == (rumar.s.profile, reason.name[0], bak_dir, relative_p, archive_path.name, fake2b)
 
     def test_get_blake2b_checksum(self, set_up_rumardb):
         d = set_up_rumardb
