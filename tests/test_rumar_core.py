@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import os
 import shutil
+import tarfile
 from dataclasses import replace
-from io import StringIO
+from io import StringIO, BytesIO
 from pathlib import Path
 from stat import S_IFLNK, S_IFDIR, S_IFREG, S_IMODE, S_ISLNK, S_ISDIR
 from textwrap import dedent
@@ -11,7 +12,7 @@ from typing import Sequence
 
 import pytest
 
-from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, iter_matching_files, is_dir_matching_top_dirs, derive_relative_p
+from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, iter_matching_files, is_dir_matching_top_dirs, derive_relative_p, CreateReason, compute_blake2b_checksum
 
 _path_to_lstat_ = {}
 
@@ -31,8 +32,8 @@ class Rather(Rath):
         super().__init__(*args, lstat_cache=lstat_cache if lstat_cache is not None else _path_to_lstat_)
         self._mtime = mtime or 0
         content = content or f"{self}\n"
-        self._content_io = StringIO(content)
-        self._st_size = len(content.encode('utf-8'))
+        self._content_io = BytesIO(content.encode('utf-8'))
+        self._st_size = len(self._content_io.getvalue())
         if islnk:
             filetype = S_IFLNK
         elif isdir:
@@ -42,22 +43,29 @@ class Rather(Rath):
         self._mode = chmod | filetype
 
     def lstat(self):
-        return os.stat_result((
-            self._mode,  # st_mode
-            0,  # st_ino
-            0,  # st_dev
-            1,  # st_nlink
-            0,  # st_uid
-            0,  # st_gid
-            self._st_size,  # st_size
-            self._mtime,  # st_atime
-            self._mtime,  # st_mtime
-            self._mtime  # st_ctime
-        ))
+        if lstat := self.lstat_cache.get(self):
+            return lstat
+        else:
+            lstat = os.stat_result((
+                self._mode,  # st_mode
+                0,  # st_ino
+                0,  # st_dev
+                1,  # st_nlink
+                0,  # st_uid
+                0,  # st_gid
+                self._st_size,  # st_size
+                self._mtime,  # st_atime
+                self._mtime,  # st_mtime
+                self._mtime  # st_ctime
+            ))
+            self.lstat_cache[self] = lstat
+            return lstat
 
-    def open(self, mode='r', *args, **kwargs):
-        if 'r' in mode:
+    def open(self, mode='rb', *args, **kwargs):
+        if 'rb' in mode:
             return self._content_io
+        elif 'r' in mode:
+            return self._content_io.getvalue().decode('utf-8')
         else:
             raise ValueError(f"Unsupported mode: {mode}")
 
@@ -65,8 +73,8 @@ class Rather(Rath):
         lstat = self.lstat()
         dir_rath = self if S_ISDIR(lstat.st_mode) else self.parent
         dir_rath.mkdir(parents=True, exist_ok=True)
-        with open(self, 'w') as f:
-            f.write(self._content_io.read())
+        with open(self, 'wb') as f:
+            f.write(self._content_io.getvalue())
         self.chmod(self._mode)
         os.utime(self, (lstat.st_atime, lstat.st_mtime))
         return self
@@ -167,14 +175,16 @@ def set_up_rumar():
         f"/{profile}/A/A-B/file17.txt",
         f"/{profile}/A/A-B/file18.csv",
     ]
-    raths = [
-        Rather(fs_path, lstat_cache=rumar.lstat_cache, mtime=i * 60).make().as_rath()
+    rathers = [
+        Rather(fs_path, lstat_cache=rumar.lstat_cache, mtime=i * 60).make()
         for i, fs_path in enumerate(fs_paths, start=1)
     ]
+    raths = [r.as_rath() for r in rathers]
     d = dict(
         profile=profile,
         profile_to_settings=profile_to_settings,
         rumar=rumar,
+        rathers=rathers,
         raths=raths,
     )
     yield d
@@ -399,3 +409,31 @@ class TestRumarCore:
         top_rath = R(f"/{profile}")
         actual = list(iter_matching_files(top_rath, settings))
         assert eq_list(actual, expected)
+
+    def test_create_tar(self, set_up_rumar):
+        d = set_up_rumar
+        profile = d['profile']
+        profile_to_settings = d['profile_to_settings']
+        settings = profile_to_settings[profile]
+        rumar = d['rumar']
+        reason = CreateReason.CREATE
+        rathers = d['rathers']
+        raths = d['raths']
+        rather = rathers[0]
+        rath = raths[0]
+        relative_p = derive_relative_p(rath, settings.source_dir)
+        archive_dir = rumar.compose_archive_container_dir(relative_p=relative_p)
+        lstat = rath.lstat()
+        mtime_str = rumar.calc_mtime_str(lstat)
+        size = lstat.st_size
+        checksum = compute_blake2b_checksum(rather._content_io)
+        rumar._create_tar(reason, rath, relative_p, archive_dir, mtime_str, size, checksum)
+        archive_path = rumar.compose_archive_path(archive_dir, mtime_str, size, '')
+        actual_checksum = rumar.compute_checksum_of_file_in_archive(archive_path, settings.password)
+        member = None
+        with tarfile.open(archive_path, 'r') as tf:
+            member = tf.next()
+        assert member.name == relative_p
+        assert member.mtime == lstat.st_mtime
+        assert member.size == size
+        assert actual_checksum == checksum
