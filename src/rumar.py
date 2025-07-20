@@ -34,7 +34,7 @@ from pathlib import Path
 from stat import S_ISDIR, S_ISSOCK, S_ISDOOR, S_ISLNK
 from textwrap import dedent
 from time import sleep
-from typing import Union, Literal, Pattern, Any, Iterable, cast, Generator
+from typing import Union, Literal, Pattern, Any, Iterable, cast, Generator, Callable
 
 vi = sys.version_info
 PY_VER = (vi.major, vi.minor)
@@ -1018,8 +1018,21 @@ class Rumar:
         mode = self.ARCHIVE_FORMAT_TO_MODE[archive_format]
         is_lnk = S_ISLNK(rath.lstat().st_mode)
         archive_path = self.compose_archive_path(archive_dir, mtime_str, size, self.LNK if is_lnk else self.BLANK)
-        with tarfile.open(archive_path, mode, format=self.s.tar_format, **compresslevel_kwargs) as tf:
-            tf.add(rath, arcname=rath.name)
+
+        def _create():
+            with tarfile.open(archive_path, mode, format=self.s.tar_format, **compresslevel_kwargs) as tf:
+                tf.add(rath, arcname=rath.name)
+
+        attempt_limit = 3
+        attempt = 1
+        while True:
+            if not checksum:
+                with rath.open('rb') as f:
+                    checksum = compute_blake2b_checksum(f)
+            if self._call_create_and_return_same_checksum_or_limit_reached(_create, archive_path, checksum, attempt, attempt_limit):
+                break
+            checksum = None  # signal to get a new checksum of the file being archived
+            attempt += 1
         self._rdb.save(create_reason, relative_p, archive_path, checksum)
 
     def _create_zipx(self, create_reason: CreateReason, rath: Rath, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: str | None):
@@ -1033,10 +1046,39 @@ class Rumar:
             kwargs = {self.COMPRESSION: self.s.zip_compression_method, self.COMPRESSLEVEL: self.s.compression_level}
         is_lnk = S_ISLNK(rath.lstat().st_mode)
         archive_path = self.compose_archive_path(archive_dir, mtime_str, size, self.LNK if is_lnk else self.BLANK)
-        with pyzipper.AESZipFile(archive_path, 'w', encryption=pyzipper.WZ_AES, **kwargs) as zf:
-            zf.setpassword(self.s.password)
-            zf.write(rath, arcname=rath.name)
+
+        def _create():
+            with pyzipper.AESZipFile(archive_path, 'w', encryption=pyzipper.WZ_AES, **kwargs) as zf:
+                zf.setpassword(self.s.password)
+                zf.write(rath, arcname=rath.name)
+
+        attempt_limit = 3
+        attempt = 1
+        while True:
+            if not checksum:
+                with rath.open('rb') as f:
+                    checksum = compute_blake2b_checksum(f)
+            if self._call_create_and_return_same_checksum_or_limit_reached(_create, archive_path, checksum, attempt, attempt_limit):
+                break
+            checksum = None  # signal to get a new checksum of the file being archived
+            attempt += 1
         self._rdb.save(create_reason, relative_p, archive_path, checksum)
+
+    def _call_create_and_return_same_checksum_or_limit_reached(self, _create: Callable, archive_path: Path, checksum: str | None, attempt: int, attempt_limit: int):
+        _create()
+        end_checksum = self.compute_checksum_of_file_in_archive(archive_path, self.s.password)
+        if end_checksum == checksum:
+            return True
+        else:
+            archive_path.unlink(missing_ok=True)
+            if attempt == attempt_limit:
+                message = f"File changed during the archival process {rath} - tried {attempt_limit} times - skipping"
+                self._errors.append(message)
+                logging.error(message)
+                return True
+            message = f"File changed during the archival process {rath} - attempt {attempt} of {attempt_limit}"
+            logger.warning(message)
+            return False
 
     def compose_archive_container_dir(self, *, relative_p: str | None = None, path: Path | None = None) -> Path:
         if not relative_p or path:
