@@ -789,8 +789,9 @@ class Rumar:
     ISO_FORMAT_SEP = '_'
     DOT_ZIPX = '.zipx'
     COMPRESSION = 'compression'
+    COMPRESSLEVEL = 'compresslevel'
     PRESET = 'preset'
-    SYMLINK_FORMAT_COMPRESSLEVEL = RumarFormat.TGZ, {'compresslevel': 3}
+    SYMLINK_FORMAT_COMPRESSLEVEL = RumarFormat.TGZ, {COMPRESSLEVEL: 3}
     NOCOMPRESSION_FORMAT_COMPRESSLEVEL = RumarFormat.TAR, {}
     LNK = 'LNK'
     ARCHIVE_FORMAT_TO_MODE = {RumarFormat.TAR: 'x', RumarFormat.TGZ: 'x:gz', RumarFormat.TBZ: 'x:bz2', RumarFormat.TXZ: 'x:xz'}
