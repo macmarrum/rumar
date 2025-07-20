@@ -1454,7 +1454,6 @@ class RumarDB:
         self._run_id = None
         self._src_dir_id = None
         self._bak_dir_id = None
-        self._init_ids()
         if self._profile not in self._profile_to_id:
             self._save_initial_state()
         self._unchanged_paths = {}
@@ -1602,6 +1601,7 @@ class RumarDB:
 
     def save(self, create_reason: CreateReason, relative_p: str, archive_path: Path | None, blake2b_checksum: str | None):
         # logger.debug(f"{create_reason}, {relative_p}, {archive_path.name if archive_path else None}, {blake2b_checksum})")
+        self._init_ids()
         # source
         src_path = relative_p
         src_dir_id = self._src_dir_id
