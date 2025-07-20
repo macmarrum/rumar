@@ -150,7 +150,7 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
   for each file, the specified number of backups per month is kept, if available\
   more backups per month might be kept to satisfy _**number_of_backups_per_day_to_keep**_ and/or _**number_of_backups_per_week_to_keep**_\
   oldest backups are removed first
-* **commands_which_use_filters**: list[str] = ['create'] &nbsp; &nbsp; _used by: create, sweep_\
+* **commands_using_filters**: list[str] = ['create'] &nbsp; &nbsp; _used by: create, sweep_\
   determines which commands can use the filters specified in the included_* and excluded_* settings\
   by default, filters are used only by _**create**_, i.e. _**sweep**_ considers all created backups (no filter is applied)\
   a filter for _**sweep**_ could be used to e.g. never remove backups from the first day of a month:\

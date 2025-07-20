@@ -380,7 +380,7 @@ class Settings:
       for each file, the specified number of backups per month is kept, if available
       more backups per month might be kept to satisfy _**number_of_backups_per_day_to_keep**_ and/or _**number_of_backups_per_week_to_keep**_
       oldest backups are removed first
-    commands_which_use_filters: list[str] = ['create']
+    commands_using_filters: list[str] = ['create']
       used by: create, sweep
       determines which commands can use the filters specified in the included_* and excluded_* settings
       by default, filters are used only by _**create**_, i.e. _**sweep**_ considers all created backups (no filter is applied)
@@ -421,7 +421,7 @@ class Settings:
     number_of_backups_per_day_to_keep: int = 2
     number_of_backups_per_week_to_keep: int = 14
     number_of_backups_per_month_to_keep: int = 60
-    commands_which_use_filters: Union[list[str], tuple[Command, ...]] = (Command.CREATE,)
+    commands_using_filters: Union[list[str], tuple[Command, ...]] = (Command.CREATE,)
     db_path: Path | str | None = None
 
     @staticmethod
@@ -448,7 +448,7 @@ class Settings:
         if self.archive_format is None:
             self.archive_format = RumarFormat.TGZ
         self.archive_format = RumarFormat(self.archive_format)
-        self.commands_which_use_filters = tuple(Command(cmd) for cmd in self.commands_which_use_filters)
+        self.commands_using_filters = tuple(Command(cmd) for cmd in self.commands_using_filters)
         try:  # make sure password is bytes
             self.password = self.password.encode(UTF8)
         except AttributeError:  # 'bytes' object has no attribute 'encode'
@@ -1066,12 +1066,12 @@ class Rumar:
         source_dir = s.source_dir
         matching_files = []
         # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
-        if Command.CREATE in s.commands_which_use_filters:
+        if Command.CREATE in s.commands_using_filters:
             iterator = iter_matching_files(Rath(source_dir, lstat_cache=self.lstat_cache), s)
-            logger.debug(f"{s.commands_which_use_filters=} => iter_matching_files")
+            logger.debug(f"{s.commands_using_filters=} => iter_matching_files")
         else:
             iterator = iter_all_files(Rath(source_dir, lstat_cache=self.lstat_cache))
-            logger.debug(f"{s.commands_which_use_filters=} => iter_all_files")
+            logger.debug(f"{s.commands_using_filters=} => iter_all_files")
         for file_rath in iterator:
             if self.should_ignore_for_archive(file_rath.lstat()):
                 logger.info(f"-| {file_rath}  -- ignoring file for archiving: socket/door")
@@ -1824,12 +1824,12 @@ class Broom:
         archive_format = RumarFormat(s.archive_format).value
         date_older_than_x_days = date.today() - timedelta(days=s.min_age_in_days_of_backups_to_sweep)
         # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
-        if Command.SWEEP in s.commands_which_use_filters:
+        if Command.SWEEP in s.commands_using_filters:
             iterator = iter_matching_files(Rath(s.backup_base_dir_for_profile, lstat_cache=self._path_to_lstat), s)
-            logger.debug(f"{s.commands_which_use_filters=} => iter_matching_files")
+            logger.debug(f"{s.commands_using_filters=} => iter_matching_files")
         else:
             iterator = iter_all_files(Rath(s.backup_base_dir_for_profile, lstat_cache=self._path_to_lstat))
-            logger.debug(f"{s.commands_which_use_filters=} => iter_all_files")
+            logger.debug(f"{s.commands_using_filters=} => iter_all_files")
         old_enough_file_to_mdate = {}
         for rath in iterator:
             if self.is_archive(rath.name, archive_format):
