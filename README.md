@@ -93,16 +93,16 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
   path to the directory which is to be archived
 * **included_top_dirs**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
   a list of top-directory paths\
-  if present, only files from those dirs and their descendant subdirs will be considered, together with _**included_files_as_glob**_\
+  if present, only files from those dirs and their descendant subdirs will be considered\
   the paths can be relative to _**source_dir**_ or absolute, but always under _**source_dir**_\
   absolute paths start with a root (`/` or `{drive}:\`), unlike relative paths\
   if missing, _**source_dir**_ and all its descendant subdirs will be considered
 * **excluded_top_dirs**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
   like _**included_top_dirs**_, but for exclusion\
-  a list of paths under any of _**included_top_dirs**_, that are to be excluded\
+  a list of paths under _**source_dir**_ or, if specified, any of _**included_top_dirs**_, that are to be excluded\
   e.g. included_top_dirs = ['Project1', 'Project3']; excluded_top_dirs = ['Project1/Vision/Pictures']
 * **included_dirs_as_regex**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
-  a list of regex patterns, applied after _**..._top_dirs**_ and dirnames of _**..._files_as_glob**_\
+  a list of regex patterns, applied after _**..._top_dirs**_\
   if present, only matching directories will be included\
   `/` must be used as the path separator, also on MS Windows\
   the patterns are matched against a path relative to _**source_dir**_\
@@ -114,13 +114,14 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
   like _**included_dirs_as_regex**_, but for exclusion
 * **included_files_as_glob**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
   a list of glob patterns, also known as shell-style wildcards, i.e. `* ? [seq] [!seq]`\
-  if present, only matching files will be considered, together with files from _**included_top_dirs**_\
+  if present, only matching files will be considered; applied after _**..._top_dirs**_ and _**..._dirs_as_regex**_\
   the paths/globs can be partial, relative to _**source_dir**_ or absolute, but always under _**source_dir**_\
-  e.g. `["My Music\*.m3u"]`\
+  e.g. `['My Music\*.m3u']`\
   on MS Windows, global-pattern matching is case-insensitive\
-  caution: a leading path separator in a path/glob indicates a root directory, e.g. `["\My Music\*"]`\
-  means `C:\My Music\*` or `D:\My Music\*` but not `C:\Users\Mac\Documents\My Music\*`\
-  see also https://docs.python.org/3/library/fnmatch.html and https://en.wikipedia.org/wiki/Glob_(programming)
+  caution: a leading path separator in a path/glob indicates a root directory, e.g. `['\My Music\*']`\
+  means `C:\My Music\*` or `D:\My Music\*`; use `['*\My Music\*']` to match `C:\Users\Mac\Documents\My Music\*`\
+  **full_match** is used if running on Python 3.13+: `**` is supported; patters should always include a path separator e.g. `**/*.txt`\
+  see also https://docs.python.org/3/library/fnmatch.html and https://docs.python.org/3.13/library/pathlib.html#pathlib.PurePath.full_match
 * **excluded_files_as_glob**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
   like _**included_files_as_glob**_, but for exclusion
 * **included_files_as_regex**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
