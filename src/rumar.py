@@ -1039,7 +1039,8 @@ class Rumar:
         self._rdb.save(create_reason, relative_p, archive_path, checksum)
 
     def compose_archive_container_dir(self, *, relative_p: str | None = None, path: Path | None = None) -> Path:
-        assert relative_p or path, '** either relative_p or path must be provided'
+        if not relative_p or path:
+            raise AttributeError('** either relative_p or path must be provided')
         if not relative_p:
             relative_p = derive_relative_p(path, self.s.source_dir)
         return self.s.backup_base_dir_for_profile / relative_p
