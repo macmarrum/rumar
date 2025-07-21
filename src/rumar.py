@@ -1326,14 +1326,23 @@ class Rumar:
         return answer in ['y', 'Y']
 
     def _extract(self, archive_file: Path, target_file: Path):
+        try:
+            f = archive_file.open('rb')
+        except OSError as ex:
+            message = f"Cannot open {archive_file} - {ex} - marking as deleted"
+            self._errors.append(message)
+            logger.error(message)
+            self._rdb.mark_backup_as_deleted(archive_file)
+            return
         if archive_file.suffix == self.DOT_ZIPX:
-            self._extract_zipx(archive_file, target_file)
+            self._extract_zipx(f, archive_file, target_file)
         else:
-            self._extract_tar(archive_file, target_file)
+            self._extract_tar(f, archive_file, target_file)
+        f.close()
 
-    def _extract_zipx(self, archive_file: Path, target_file: Path):
+    def _extract_zipx(self, file: BufferedIOBase, archive_file: Path, target_file: Path):
         logger.info(f":@ {archive_file.parent.name} | {archive_file.name} -> {target_file}")
-        with pyzipper.AESZipFile(archive_file) as zf:
+        with pyzipper.AESZipFile(file) as zf:
             zf.setpassword(self.s.password)
             member = cast(zipfile.ZipInfo, zf.infolist()[0])
             if member.filename == target_file.name:
@@ -1345,9 +1354,9 @@ class Rumar:
                 self._errors.append(error)
                 logger.error(error)
 
-    def _extract_tar(self, archive_file: Path, target_file: Path):
+    def _extract_tar(self, file: BufferedIOBase, archive_file: Path, target_file: Path):
         logger.info(f":@ {archive_file.parent.name} | {archive_file.name} -> {target_file}")
-        with tarfile.open(archive_file) as tf:
+        with tarfile.open(fileobj=file) as tf:
             member = cast(tarfile.TarInfo, tf.getmembers()[0])
             if member.name == target_file.name:
                 if PY_VER >= (3, 12):
@@ -1886,6 +1895,24 @@ class RumarDB:
                 continue
             _directory = directory or Path(src_dir)
             yield Path(bak_dir, src_path, bak_name), _directory / src_path
+
+    def mark_backup_as_deleted(self, archive_path: Path):
+        # by using self.src_dir_id it's assumed source_dir was the same at the time the archive was created as it is now
+        src_dir_src_path = (self.src_dir_id, derive_relative_p(archive_path.parent, self.s.source_dir),)
+        src_id = self._source_to_id.get(src_dir_src_path)
+        # by using self.bak_dir_id it's assumed backup_base_dir_for_profile was the same at the time the archive was created as it is now
+        params = (self.run_id, self.bak_dir_id, src_id, archive_path.name)
+        found = False
+        if src_id:
+            execute(self._cur, dedent('''\
+                UPDATE backup
+                SET del_run_id = ?
+                WHERE bak_dir_id = ? AND src_id = ? AND bak_name = ?;'''), params)
+            if self._cur.rowcount > 0:
+                self._db.commit()
+                found = True
+        if not found:
+            logger.error(f"{params[1:]} not found in the database: {self.s.db_path}")
 
 
 def execute(cur: sqlite3.Cursor | sqlite3.Connection, stmt: str, params: tuple | None = None, log=logger.debug):
