@@ -1464,6 +1464,7 @@ class RumarDB:
                 src_id INTEGER NOT NULL REFERENCES source (id),
                 bak_name TEXT,
                 blake2b TEXT,
+                del_run_id INTEGER REFERENCES run (id),
                 CONSTRAINT u_bak_dir_id_src_id_bak_name UNIQUE (bak_dir_id, src_id, bak_name)
             ) STRICT;'''),
             'unchanged': dedent('''\
@@ -1479,7 +1480,7 @@ class RumarDB:
         'view': {
             'v_backup': dedent('''\
             CREATE VIEW IF NOT EXISTS v_backup AS
-            SELECT b.id, run_id, run_datetime_iso, profile, reason, bak_dir, src_path, bak_name, substr(blake2b, 1, 10) _blake2b
+            SELECT b.id, run_id, run_datetime_iso, profile, reason, bak_dir, src_path, bak_name, substr(blake2b, 1, 10) _blake2b, del_run_id
             FROM backup b
             JOIN backup_base_dir_for_profile bd ON bak_dir_id = bd.id
             JOIN "source" ON src_id = "source".id
@@ -1507,6 +1508,7 @@ class RumarDB:
         self._db = db
         self._cur = db.cursor()
         self._migrate_backup_to_bak_name_if_required(db)
+        self._alter_backup_add_del_run_id_if_required(db)
         self._create_tables_and_indexes_if_not_exist(db)
         self._recreate_views(db)
         self._delete_from_unchanged(db, run_id_offset=10)
@@ -1570,14 +1572,30 @@ class RumarDB:
         cur.execute('ALTER TABLE backup RENAME TO backup_old')
         cur.execute(cls.ddl['table']['backup'])
         cur.execute(dedent('''\
-        INSERT INTO backup (id, run_id, reason, bak_dir_id, src_id, bak_name, blake2b)
-        SELECT id, run_id, reason, bak_dir_id, src_id, bak_name, blake2b
+        INSERT INTO backup (id, run_id, reason, bak_dir_id, src_id, bak_name, blake2b, del_run_id)
+        SELECT id, run_id, reason, bak_dir_id, src_id, bak_name, blake2b, NULL
         FROM backup_old
         ORDER BY id'''))
         cur.execute('DROP TABLE backup_old')
         cur.close()
         db.commit()
         # db.execute('VACUUM')
+
+    @classmethod
+    def _alter_backup_add_del_run_id_if_required(cls, db):
+        cur = db.cursor()
+        backup_exists = False
+        for _ in cur.execute("SELECT 1 FROM pragma_table_list('backup')"):
+            backup_exists = True
+        if backup_exists:
+            bak_del_run_id_missing = True
+            for _ in cur.execute("SELECT 1 FROM pragma_table_info('backup') WHERE name = 'del_run_id'"):
+                bak_del_run_id_missing = False
+            if bak_del_run_id_missing:
+                cur.execute('DROP VIEW IF EXISTS v_backup')
+                cur.execute('ALTER TABLE backup ADD del_run_id INTEGER REFERENCES run (id)')
+                db.commit()
+        cur.close()
 
     def _init_source_lc_if_empty(self):
         cur = self._cur
