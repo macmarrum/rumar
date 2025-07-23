@@ -1509,7 +1509,7 @@ class RumarDB:
         self._migrate_backup_to_bak_name_if_required(db)
         self._create_tables_and_indexes_if_not_exist(db)
         self._recreate_views(db)
-        # self._delete_from_unchanged(db, run_id_offset=10)
+        self._delete_from_unchanged(db, run_id_offset=10)
         if not self._profile_to_id:
             self._load_data_into_memory()
         # make sure run_datetime_iso is unique
@@ -1702,30 +1702,41 @@ class RumarDB:
 
     def identify_and_save_deleted(self):
         """
-        Inserts a DELETE record for each path in the DB that's no longer available in source_dir files.
-        Selects from backup latest src_paths for profile minus already deleted ones, minus src_paths seen in this run,
-        i.e. both changed and unchanged files. The result is a list of newly deleted src_paths.
+        Inserts a DELETE record for each file in the DB that's no longer available in source_dir files.
+        Selects from backup latest src files for profile minus already deleted ones, minus those seen in this run,
+        i.e. both changed and unchanged files. The result is a list of newly deleted src files.
         """
         query = dedent('''\
-        INSERT INTO backup (run_id, reason, bak_dir_id, src_id)
-        SELECT ?, ?, bak_dir_id, src_id
+        INSERT INTO source_lc (src_id, reason, run_id)
+        SELECT src_id, ?, ?
         FROM backup b
-        JOIN ( -- latest src files for profile, minus already deleted ones
+        JOIN ( -- latest src files for profile
             SELECT max(backup.id) id
             FROM backup
             JOIN run ON run.id = backup.run_id AND run.profile_id = ?
             GROUP BY src_id
-        ) x ON b.id = x.id AND b.reason != ?
-        WHERE b.run_id != ? -- minus file changed in this run
-        AND NOT EXISTS ( -- minus files not changed in this run
+        ) x ON b.id = x.id
+        WHERE b.run_id != ? -- minus src files changed in this run
+        AND NOT EXISTS ( -- minus src files not changed in this run
             SELECT 1
             FROM unchanged u
             WHERE b.src_id = u.src_id AND u.run_id = ?
+        )
+        AND NOT EXISTS ( -- minus src files already deleted
+            SELECT 1
+            FROM source_lc lc
+            JOIN ( -- latest src_id version
+                SELECT max(id) id
+                FROM source_lc
+                GROUP BY src_id
+            ) x ON lc.id = x.id
+            WHERE b.src_id = lc.src_id
+            AND lc.reason = ?
         );''')
-        run_id = self._run_id
         reason_d = CreateReason.DELETE.name[0]
+        run_id = self._run_id
         profile_id = self._profile_id
-        execute(self._cur, query, (run_id, reason_d, profile_id, reason_d, run_id, run_id))
+        execute(self._cur, query, (reason_d, run_id, profile_id, run_id, run_id, reason_d,))
         self._db.commit()
 
     def close_db(self):
