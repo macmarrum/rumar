@@ -1683,6 +1683,7 @@ class RumarDB:
             execute(self._cur, 'INSERT INTO source (src_dir_id, src_path) VALUES (?, ?)', (src_dir_id, src_path))
             src_id = execute(self._cur, 'SELECT id FROM source WHERE src_dir_id = ? AND src_path = ?', (src_dir_id, src_path)).fetchone()[0]
             self._source_to_id[(src_dir_id, src_path)] = src_id
+            execute(self._cur, 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)', (src_id, CreateReason.CREATE.name[0], self._run_id,))
         # backup
         run_id = self._run_id
         bak_dir_id = self._bak_dir_id
@@ -1744,6 +1745,7 @@ class RumarDB:
         self._db.close()
 
     def get_latest_archive_for_source(self, relative_p: str) -> Path | None:
+        self._init_ids()
         stmt = dedent('''\
             SELECT bak_dir, bak_name
             FROM backup b 
