@@ -1431,13 +1431,13 @@ class RumarDB:
                 src_path TEXT NOT NULL,
                 CONSTRAINT u_source_src_dir_id_src_path UNIQUE (src_dir_id, src_path)
             ) STRICT;'''),
-            'source_lfc': dedent('''\
-            CREATE TABLE IF NOT EXISTS source_lfc (
+            'source_lc': dedent('''\
+            CREATE TABLE IF NOT EXISTS source_lc (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 src_id INTEGER NOT NULL REFERENCES source (id),
                 reason TEXT NOT NULL,
                 run_id INTEGER NOT NULL REFERENCES run (id),
-                CONSTRAINT u_source_lfc_src_id_run_id UNIQUE (src_id, run_id)
+                CONSTRAINT u_source_lc_src_id_run_id UNIQUE (src_id, run_id)
             ) STRICT;'''),
             'profile': dedent('''\
             CREATE TABLE IF NOT EXISTS profile (
@@ -1522,7 +1522,7 @@ class RumarDB:
         self._bak_dir_id = None
         if self._profile not in self._profile_to_id:
             self._save_initial_state()
-        self._init_source_lfc_if_empty()
+        self._init_source_lc_if_empty()
         self._unchanged_paths = {}
 
     @classmethod
@@ -1579,11 +1579,11 @@ class RumarDB:
         db.commit()
         # db.execute('VACUUM')
 
-    def _init_source_lfc_if_empty(self):
+    def _init_source_lc_if_empty(self):
         cur = self._cur
-        if cur.execute('SELECT (SELECT count(*) FROM source_lfc) = 0 AND (SELECT count(*) FROM source) > 0').fetchone()[0] == 1:
+        if cur.execute('SELECT (SELECT count(*) FROM source_lc) = 0 AND (SELECT count(*) FROM source) > 0').fetchone()[0] == 1:
             self._init_ids()
-            cur.execute('INSERT INTO source_lfc (src_id, reason, run_id) SELECT id, ?, ? FROM source', (CreateReason.INIT.name[0], self._run_id,))
+            cur.execute('INSERT INTO source_lc (src_id, reason, run_id) SELECT id, ?, ? FROM source', (CreateReason.INIT.name[0], self._run_id,))
             self._db.commit()
 
     @staticmethod

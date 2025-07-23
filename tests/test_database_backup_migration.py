@@ -71,7 +71,7 @@ def test_migrate_to_bak_name():
     db.close()
 
 
-def test_init_source_lfc_if_empty():
+def test_init_source_lc_if_empty():
     profile = 'profile'
     toml_text = dedent(f"""\
     version = 2
@@ -101,15 +101,15 @@ def test_init_source_lfc_if_empty():
     db.commit()
     rumar_db._load_data_into_memory()
     # Perform alter action
-    rumar_db._init_source_lfc_if_empty()
+    rumar_db._init_source_lc_if_empty()
     # Verify results
-    actual = cur.execute('SELECT * FROM source_lfc ORDER BY id').fetchall()
+    actual = cur.execute('SELECT * FROM source_lc ORDER BY id').fetchall()
     expected = [
         (1, 1, 'I', rumar_db._run_id),
         (2, 2, 'I', rumar_db._run_id),
     ]
     assert actual == expected
-    for table in ['profile', 'run', 'backup_base_dir_for_profile', 'backup', 'source_dir', 'source', 'source_lfc']:
+    for table in ['profile', 'run', 'backup_base_dir_for_profile', 'backup', 'source_dir', 'source', 'source_lc']:
         print(f"\n{table}:")
         for row in cur.execute(f"SELECT * FROM {table}"):
             print(row)
