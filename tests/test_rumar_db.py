@@ -27,11 +27,13 @@ def set_up_rumar():
     if BASE.exists():
         shutil.rmtree(BASE)
     s = profile_to_settings[profile]
+    assert s.backup_base_dir_for_profile == BASE / 'backup' / profile
     if s.db_path != ':memory:':
         s.db_path.parent.mkdir(parents=True, exist_ok=True)
     rumar = Rumar(profile_to_settings)
     rumar._at_beginning(profile)
-    rumar_db = rumar._rdb
+    assert rumar.s.backup_base_dir_for_profile == BASE / 'backup' / profile
+    rumardb = rumar._rdb
     fs_paths = [
         f"/{profile}/file01.txt",
         f"/{profile}/file02.txt",
@@ -62,17 +64,17 @@ def set_up_rumar():
     for rather in rathers:
         relative_p = derive_relative_p(rather, rumar.s.source_dir)
         archive_dir = rumar.compose_archive_container_dir(relative_p=relative_p)
-        archive_path = compose_archive_path(archive_dir, RumarFormat.TGZ, rumar.calc_mtime_str(rather.lstat()), rather.lstat().st_size, '')
+        archive_path = rumar.compose_archive_path(archive_dir, rumar.calc_mtime_str(rather.lstat()), rather.lstat().st_size)
         reasons.append(reason)
         relative_ps.append(relative_p)
         archive_paths.append(archive_path)
         checksums.append(rather.checksum)
-        rumar_db.save(reason, relative_p, archive_path, rather.checksum)
+        rumardb.save(reason, relative_p, archive_path, rather.checksum)
     d = dict(
         profile=profile,
         profile_to_settings=profile_to_settings,
         rumar=rumar,
-        rumardb=rumar._rdb,
+        rumardb=rumardb,
         rathers=rathers,
         raths=raths,
         data=dict(reason=reasons, relative_p=relative_ps, archive_path=archive_paths, checksum=checksums),
