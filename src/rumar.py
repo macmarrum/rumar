@@ -1582,8 +1582,7 @@ class RumarDB:
     def _init_source_lc_if_empty(self):
         cur = self._cur
         if cur.execute('SELECT (SELECT count(*) FROM source_lc) = 0 AND (SELECT count(*) FROM source) > 0').fetchone()[0] == 1:
-            self._init_ids()
-            cur.execute('INSERT INTO source_lc (src_id, reason, run_id) SELECT id, ?, ? FROM source', (CreateReason.INIT.name[0], self._run_id,))
+            cur.execute('INSERT INTO source_lc (src_id, reason, run_id) SELECT id, ?, ? FROM source', (CreateReason.INIT.name[0], self.run_id,))
             self._db.commit()
 
     @staticmethod
@@ -1624,35 +1623,49 @@ class RumarDB:
         print(self._bak_dir_to_id)
         print(self._backup_to_checksum)
 
-    def _init_ids(self):
-        # profile
-        profile = self._profile
-        if not (profile_id := self._profile_to_id.get(profile)):
-            execute(self._cur, 'INSERT INTO profile (profile) VALUES (?)', (profile,))
-            profile_id = execute(self._cur, 'SELECT id FROM profile WHERE profile = ?', (profile,)).fetchone()[0]
-            self._profile_to_id[profile] = profile_id
-        self._profile_id = profile_id
-        # run
-        run_datetime_iso = self._run_datetime_iso
-        if not (run_id := self._run_to_id.get((profile_id, run_datetime_iso))):
-            execute(self._cur, 'INSERT INTO run (profile_id, run_datetime_iso) VALUES (?,?)', (profile_id, run_datetime_iso))
-            run_id = execute(self._cur, 'SELECT id FROM run WHERE profile_id = ? AND run_datetime_iso = ?', (profile_id, run_datetime_iso)).fetchone()[0]
-            self._run_to_id[(profile_id, run_datetime_iso)] = run_id
-        self._run_id = run_id
-        # source_dir
-        src_dir = self.s.source_dir.as_posix()
-        if not (src_dir_id := self._src_dir_to_id.get(src_dir)):
-            execute(self._cur, 'INSERT INTO source_dir (src_dir) VALUES (?)', (src_dir,))
-            src_dir_id = execute(self._cur, 'SELECT id FROM source_dir WHERE src_dir = ?', (src_dir,)).fetchone()[0]
-            self._src_dir_to_id[src_dir] = src_dir_id
-        self._src_dir_id = src_dir_id
-        # backup_base_dir_for_profile
-        bak_dir = self.s.backup_base_dir_for_profile.as_posix()
-        if not (bak_dir_id := self._bak_dir_to_id.get(bak_dir)):
-            execute(self._cur, 'INSERT INTO backup_base_dir_for_profile (bak_dir) VALUES (?)', (bak_dir,))
-            bak_dir_id = execute(self._cur, 'SELECT id FROM backup_base_dir_for_profile WHERE bak_dir = ?', (bak_dir,)).fetchone()[0]
-            self._bak_dir_to_id[bak_dir] = bak_dir_id
-        self._bak_dir_id = bak_dir_id
+    @property
+    def profile_id(self):
+        if self._profile_id is None:
+            profile = self._profile
+            if not (profile_id := self._profile_to_id.get(profile)):
+                execute(self._cur, 'INSERT INTO profile (profile) VALUES (?)', (profile,))
+                profile_id = execute(self._cur, 'SELECT id FROM profile WHERE profile = ?', (profile,)).fetchone()[0]
+                self._profile_to_id[profile] = profile_id
+            self._profile_id = profile_id
+        return self._profile_id
+
+    @property
+    def run_id(self):
+        if self._run_id is None:
+            run_datetime_iso = self._run_datetime_iso
+            if not (run_id := self._run_to_id.get((self.profile_id, run_datetime_iso))):
+                execute(self._cur, 'INSERT INTO run (profile_id, run_datetime_iso) VALUES (?,?)', (self.profile_id, run_datetime_iso))
+                run_id = execute(self._cur, 'SELECT id FROM run WHERE profile_id = ? AND run_datetime_iso = ?', (self.profile_id, run_datetime_iso)).fetchone()[0]
+                self._run_to_id[(self.profile_id, run_datetime_iso)] = run_id
+            self._run_id = run_id
+        return self._run_id
+
+    @property
+    def src_dir_id(self):
+        if self._src_dir_id is None:
+            src_dir = self.s.source_dir.as_posix()
+            if not (src_dir_id := self._src_dir_to_id.get(src_dir)):
+                execute(self._cur, 'INSERT INTO source_dir (src_dir) VALUES (?)', (src_dir,))
+                src_dir_id = execute(self._cur, 'SELECT id FROM source_dir WHERE src_dir = ?', (src_dir,)).fetchone()[0]
+                self._src_dir_to_id[src_dir] = src_dir_id
+            self._src_dir_id = src_dir_id
+        return self._src_dir_id
+
+    @property
+    def bak_dir_id(self):
+        if self._bak_dir_id is None:
+            bak_dir = self.s.backup_base_dir.as_posix()
+            if not (bak_dir_id := self._bak_dir_to_id.get(bak_dir)):
+                execute(self._cur, 'INSERT INTO backup_base_dir_for_profile (bak_dir) VALUES (?)', (bak_dir,))
+                bak_dir_id = execute(self._cur, 'SELECT id FROM backup_base_dir_for_profile WHERE bak_dir = ?', (bak_dir,)).fetchone()[0]
+                self._bak_dir_to_id[bak_dir] = bak_dir_id
+            self._bak_dir_id = bak_dir_id
+        return self._bak_dir_id
 
     def _save_initial_state(self):
         """Walks `backup_base_dir_for_profile` and saves latest archive of each source, whether the source file currently exists or not"""
@@ -1675,18 +1688,17 @@ class RumarDB:
 
     def save(self, create_reason: CreateReason, relative_p: str, archive_path: Path | None, blake2b_checksum: str | None):
         # logger.debug(f"{create_reason}, {relative_p}, {archive_path.name if archive_path else None}, {blake2b_checksum})")
-        self._init_ids()
         # source
         src_path = relative_p
-        src_dir_id = self._src_dir_id
+        src_dir_id = self.src_dir_id
         if not (src_id := self._source_to_id.get((src_dir_id, src_path))):
             execute(self._cur, 'INSERT INTO source (src_dir_id, src_path) VALUES (?, ?)', (src_dir_id, src_path))
             src_id = execute(self._cur, 'SELECT id FROM source WHERE src_dir_id = ? AND src_path = ?', (src_dir_id, src_path)).fetchone()[0]
             self._source_to_id[(src_dir_id, src_path)] = src_id
-            execute(self._cur, 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)', (src_id, CreateReason.CREATE.name[0], self._run_id,))
+            execute(self._cur, 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)', (src_id, CreateReason.CREATE.name[0], self.run_id,))
         # backup
-        run_id = self._run_id
-        bak_dir_id = self._bak_dir_id
+        run_id = self.run_id
+        bak_dir_id = self.bak_dir_id
         reason = create_reason.name[0]
         bak_name = archive_path.name if archive_path else None
         execute(self._cur, 'INSERT INTO backup (run_id, reason, bak_dir_id, src_id, bak_name, blake2b) VALUES (?, ?, ?, ?, ?, ?)',
@@ -1697,7 +1709,7 @@ class RumarDB:
     def save_unchanged(self, relative_p: str):
         src_path = relative_p
         stmt = 'INSERT INTO unchanged (run_id, src_id) SELECT ?, id FROM source WHERE src_dir_id = ? AND src_path = ?'
-        params = (self._run_id, self._src_dir_id, src_path)
+        params = (self.run_id, self.src_dir_id, src_path)
         execute(self._cur, stmt, params)
         self._db.commit()
 
@@ -1735,8 +1747,8 @@ class RumarDB:
             AND lc.reason = ?
         );''')
         reason_d = CreateReason.DELETE.name[0]
-        run_id = self._run_id
-        profile_id = self._profile_id
+        run_id = self.run_id
+        profile_id = self.profile_id
         execute(self._cur, query, (reason_d, run_id, profile_id, run_id, run_id, reason_d,))
         self._db.commit()
 
@@ -1745,7 +1757,6 @@ class RumarDB:
         self._db.close()
 
     def get_latest_archive_for_source(self, relative_p: str) -> Path | None:
-        self._init_ids()
         stmt = dedent('''\
             SELECT bak_dir, bak_name
             FROM backup b 
@@ -1756,7 +1767,7 @@ class RumarDB:
             ORDER BY b.id DESC
             LIMIT 1
         ''')
-        params = (self._profile_id, relative_p, self.s.source_dir.as_posix())
+        params = (self.profile_id, relative_p, self.s.source_dir.as_posix())
         result = None
         for row in execute(self._cur, stmt, params):
             bak_dir, bak_name = row
@@ -1766,21 +1777,17 @@ class RumarDB:
         return result
 
     def get_blake2b_checksum(self, archive_path: Path) -> str | None:
-        bak_dir = self.s.backup_base_dir_for_profile.as_posix()
-        if bak_dir_id := self._bak_dir_to_id.get(bak_dir):
-            src_dir = self.s.source_dir.as_posix()
-            src_dir_id = self._src_dir_to_id.get(src_dir)
+        if bak_dir_id := self.bak_dir_id:
             src_path = derive_relative_p(archive_path.parent, self.s.backup_base_dir_for_profile)
-            src_id = self._source_to_id[(src_dir_id, src_path)]
+            src_id = self._source_to_id[(self.src_dir_id, src_path)]
             bak_name = archive_path.name
             return self._backup_to_checksum.get((bak_dir_id, src_id, bak_name))
         return None
 
     def set_blake2b_checksum(self, archive_path: Path, blake2b_checksum: str):
         bak_dir = self.s.backup_base_dir_for_profile.as_posix()
-        bak_dir_id = self._bak_dir_to_id[bak_dir]
-        src_dir = self.s.source_dir.as_posix()
-        src_dir_id = self._src_dir_to_id.get(src_dir)
+        bak_dir_id = self.bak_dir_id
+        src_dir_id = self.src_dir_id
         src_path = derive_relative_p(archive_path.parent, self.s.backup_base_dir_for_profile)
         src_id = self._source_to_id[(src_dir_id, src_path)]
         bak_name = archive_path.name
@@ -1847,7 +1854,7 @@ class RumarDB:
         WHERE b.reason != ?
         ''')
         top_archive_dir_psx = top_archive_dir.as_posix() if top_archive_dir else 'None'
-        for row in execute(self._cur, query, (self._profile_id, CreateReason.DELETE.name[0])):
+        for row in execute(self._cur, query, (self.profile_id, CreateReason.DELETE.name[0])):
             bak_dir, src_path, bak_name, src_dir = row
             if top_archive_dir and not f"{bak_dir}/{src_path}".startswith(top_archive_dir_psx):
                 continue

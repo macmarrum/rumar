@@ -105,8 +105,8 @@ def test_init_source_lc_if_empty():
     # Verify results
     actual = cur.execute('SELECT * FROM source_lc ORDER BY id').fetchall()
     expected = [
-        (1, 1, 'I', rumar_db._run_id),
-        (2, 2, 'I', rumar_db._run_id),
+        (1, 1, 'I', rumar_db.run_id),
+        (2, 2, 'I', rumar_db.run_id),
     ]
     assert actual == expected
     for table in ['profile', 'run', 'backup_base_dir_for_profile', 'backup', 'source_dir', 'source', 'source_lc']:
