@@ -1659,7 +1659,7 @@ class RumarDB:
     @property
     def bak_dir_id(self):
         if self._bak_dir_id is None:
-            bak_dir = self.s.backup_base_dir.as_posix()
+            bak_dir = self.s.backup_base_dir_for_profile.as_posix()
             if not (bak_dir_id := self._bak_dir_to_id.get(bak_dir)):
                 execute(self._cur, 'INSERT INTO backup_base_dir_for_profile (bak_dir) VALUES (?)', (bak_dir,))
                 bak_dir_id = execute(self._cur, 'SELECT id FROM backup_base_dir_for_profile WHERE bak_dir = ?', (bak_dir,)).fetchone()[0]
@@ -1701,8 +1701,9 @@ class RumarDB:
         bak_dir_id = self.bak_dir_id
         reason = create_reason.name[0]
         bak_name = archive_path.name if archive_path else None
-        execute(self._cur, 'INSERT INTO backup (run_id, reason, bak_dir_id, src_id, bak_name, blake2b) VALUES (?, ?, ?, ?, ?, ?)',
-                (run_id, reason, bak_dir_id, src_id, bak_name, blake2b_checksum))
+        stmt = 'INSERT INTO backup (run_id, reason, bak_dir_id, src_id, bak_name, blake2b) VALUES (?, ?, ?, ?, ?, ?)'
+        params = (run_id, reason, bak_dir_id, src_id, bak_name, blake2b_checksum)
+        execute(self._cur, stmt, params)
         self._backup_to_checksum[(bak_dir_id, src_id, bak_name)] = blake2b_checksum
         self._db.commit()
 
