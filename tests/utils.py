@@ -4,7 +4,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Sequence
 
-from rumar import Rath
+from rumar import Rath, compute_blake2b_checksum
 
 _path_to_lstat_ = {}
 
@@ -33,6 +33,7 @@ class Rather(Rath):
         else:
             filetype = S_IFREG
         self._mode = chmod | filetype
+        self._checksum = None
 
     def lstat(self):
         if lstat := self.lstat_cache.get(self):
@@ -73,6 +74,12 @@ class Rather(Rath):
 
     def as_rath(self):
         return Rath(self, lstat_cache=self.lstat_cache)
+
+    @property
+    def checksum(self):
+        if self._checksum is None:
+            self._checksum = compute_blake2b_checksum(self._content_io)
+        return self._checksum
 
 
 def eq(path: Path, other: Path):
