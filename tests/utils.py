@@ -23,8 +23,8 @@ class Rather(Rath):
             args = [self.BASE_PATH, Path(*args).relative_to('/')]
         super().__init__(*args, lstat_cache=lstat_cache if lstat_cache is not None else _path_to_lstat_)
         self._mtime = mtime or 0
-        content = content or f"{self}\n"
-        self._content_io = BytesIO(content.encode('utf-8'))
+        self._content = content or f"{self}\n"
+        self._content_io = BytesIO(self._content.encode('utf-8'))
         self._st_size = len(self._content_io.getvalue())
         if islnk:
             filetype = S_IFLNK
@@ -61,6 +61,18 @@ class Rather(Rath):
             return self._content_io.getvalue().decode('utf-8')
         else:
             raise ValueError(f"Unsupported mode: {mode}")
+
+    @property
+    def content(self):
+        return self._content
+
+    @content.setter
+    def content(self, value):
+        self._content = value
+        self._content_io = BytesIO(value.encode('utf-8'))
+        self._st_size = len(self._content_io.getvalue())
+        self._checksum = None
+        self.lstat_cache.pop(self, None)
 
     def make(self):
         lstat = self.lstat()
