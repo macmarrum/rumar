@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import re
 import shutil
+from datetime import timedelta, datetime
 from pathlib import Path
 from textwrap import dedent
 
 import pytest
 
-from rumar import Rumar, make_profile_to_settings_from_toml_text, CreateReason, derive_relative_p, compose_archive_path, RumarFormat
+from rumar import Rumar, make_profile_to_settings_from_toml_text, CreateReason, derive_relative_p
 from utils import Rather, _path_to_lstat_
 
 
@@ -143,3 +144,68 @@ class TestRumarDB:
         input_value = '_test_checksum_value_1_'
         with pytest.raises(ValueError, match=rx_already_in_backup):
             rumardb.set_blake2b_checksum(archive_path, input_value)
+
+    def test_iter_latest_archives_and_targets_no_deleted_and_no_top_archive_dir_and_no_directory(self, set_up_rumar):
+        d = set_up_rumar
+        rumardb = d['rumardb']
+        raths = d['raths']
+        data = d['data']
+        archive_paths = data['archive_path']
+        expected = list(zip(archive_paths, raths))
+        actual = list(rumardb.iter_latest_archives_and_targets())
+        assert actual == expected
+
+    def test_iter_latest_archives_and_targets_no_deleted_and_no_top_archive_dir_and_directory(self, set_up_rumar):
+        d = set_up_rumar
+        rumardb = d['rumardb']
+        raths = d['raths']
+        data = d['data']
+        archive_paths = data['archive_path']
+        directory = Path('/tmp/a-different-directory')
+        targets = []
+        for relative_p in data['relative_p']:
+            targets.append(directory / relative_p)
+        expected = list(zip(archive_paths, targets))
+        actual = list(rumardb.iter_latest_archives_and_targets(directory=directory))
+        assert actual == expected
+
+    def test_iter_latest_archives_and_targets_no_deleted_and_top_archive_dir_and_no_directory(self, set_up_rumar):
+        d = set_up_rumar
+        rumar = d['rumar']
+        rumardb = d['rumardb']
+        raths = d['raths']
+        data = d['data']
+        archive_paths = data['archive_path']
+        top_archive_dir = Path(rumar.s.backup_base_dir_for_profile, 'A')
+        expected = [(a, t) for (a, t) in zip(archive_paths, raths) if a.as_posix().startswith(top_archive_dir.as_posix())]
+        actual = list(rumardb.iter_latest_archives_and_targets(top_archive_dir=top_archive_dir))
+        assert actual == expected
+
+    def test_iter_latest_archives_and_targets_deleted_and_no_top_archive_dir_and_no_directory(self, set_up_rumar):
+        d = set_up_rumar
+        rumar = d['rumar']
+        rumardb = d['rumardb']
+        rathers = d['rathers']
+        data = d['data']
+        archive_paths = data['archive_path']
+        # mark source file #1 as deleted
+        src_id = 1
+        db = rumardb._db
+        run_datetime_iso = (datetime.now().astimezone() + timedelta(seconds=10)).isoformat(sep=' ', timespec='seconds')
+        db.execute('INSERT INTO run (run_datetime_iso, profile_id) VALUES (?, ?)', (run_datetime_iso, rumardb.profile_id,))
+        run_id = db.execute('SELECT max(id) FROM run').fetchone()[0]
+        db.execute('INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)', (src_id, CreateReason.DELETE.name[0], run_id,))
+        db.commit()
+        # add another backup for file #2 (index 1)
+        i = 1
+        rather = rathers[i]
+        rather.content = rather.content + '\n' + run_datetime_iso
+        updated_archive_path1 = rumar.compose_archive_path(archive_paths[i].parent, rumar.calc_mtime_str(rather.lstat()), rather.lstat().st_size)
+        rumardb.save(CreateReason.UPDATE, data['relative_p'][i], updated_archive_path1, rather.checksum)
+        # mark backup file #2 (index 1) as deleted, so that a previous backup is used
+        rumardb.save(CreateReason.DELETE, data['relative_p'][i], None, None)
+        # verify
+        updated_archive_paths = [updated_archive_path1, *archive_paths[2:]]
+        expected = list(zip(updated_archive_paths, rathers[1:]))
+        actual = list(rumardb.iter_latest_archives_and_targets())
+        assert actual == expected

@@ -1846,16 +1846,23 @@ class RumarDB:
         JOIN backup_base_dir_for_profile bd ON b.bak_dir_id = bd.id 
         JOIN "source" s ON b.src_id = s.id
         JOIN source_dir sd ON s.src_dir_id = sd.id
-        JOIN (
+        JOIN ( -- latest backup files for the profile, excluding deleted ones
             SELECT max(b.id) id
             FROM backup b
             JOIN run r ON b.run_id = r.id AND r.profile_id = ?
+            AND b.reason != ?  -- exclude deleted backup files
             GROUP BY b.src_id
         ) x ON b.id = x.id
-        WHERE b.reason != ?
-        ''')
+        WHERE NOT EXISTS ( -- ignore src files whose latest version is deleted
+            SELECT 1
+            FROM source_lc lc
+            JOIN (SELECT max(id) id FROM source_lc GROUP BY src_id) x on lc.id = x.id
+            WHERE b.src_id = lc.src_id
+            AND lc.reason = ?
+        );''')
         top_archive_dir_psx = top_archive_dir.as_posix() if top_archive_dir else 'None'
-        for row in execute(self._cur, query, (self.profile_id, CreateReason.DELETE.name[0])):
+        reason_d = CreateReason.DELETE.name[0]
+        for row in execute(self._cur, query, (self.profile_id, reason_d, reason_d,)):
             bak_dir, src_path, bak_name, src_dir = row
             if top_archive_dir and not f"{bak_dir}/{src_path}".startswith(top_archive_dir_psx):
                 continue
