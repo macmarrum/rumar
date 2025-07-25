@@ -154,8 +154,8 @@ def test_init_source_lc_if_empty():
         (2, 1, 'subdir/file2.txt');
         INSERT INTO backup (id, run_id, reason, bak_dir_id, src_id, bak_name, blake2b)
         VALUES 
-        (1, 1, 'C', 1, 1, '2024-01-01_11,00,00+00,00~1000.tar.gz', 'hash1'),
-        (2, 1, 'U', 1, 1, '2024-01-01_22,00,00+00,00~2000.tar.gz', 'hash2')
+        (1, 1, 'C', 1, 1, '2024-01-01_11,00,00+00,00~1000.tar.gz', X'626ea9f0'),
+        (2, 1, 'U', 1, 1, '2024-01-01_22,00,00+00,00~2000.tar.gz', X'785a0dc3')
         ''')
     db.commit()
     rumar_db._load_data_into_memory()
