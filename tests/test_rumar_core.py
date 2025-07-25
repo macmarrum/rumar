@@ -296,7 +296,7 @@ class TestRumarCore:
         lstat = rather.lstat()
         mtime_str = rumar.calc_mtime_str(lstat)
         size = lstat.st_size
-        checksum = compute_blake2b_checksum(rather._content_io)
+        checksum = rather.checksum
         rumar._create_tar(reason, rather, relative_p, archive_dir, mtime_str, size, checksum)
         archive_path = rumar.compose_archive_path(archive_dir, mtime_str, size, '')
         actual_checksum = rumar.compute_checksum_of_file_in_archive(archive_path, settings.password)

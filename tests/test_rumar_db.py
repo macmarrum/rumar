@@ -95,12 +95,12 @@ class TestRumarDB:
         data = d['data']
         db = rumar._rdb._db
         bak_dir = rumar.s.backup_base_dir_for_profile.as_posix()
-        for i, actual in enumerate(db.execute('SELECT profile, reason, bak_dir, src_path, bak_name, _blake2b FROM v_backup')):
+        for i, actual in enumerate(db.execute('SELECT profile, reason, bak_dir, src_path, bak_name, blake2b FROM v_backup')):
             reason: CreateReason = data['reason'][i]
             relative_p = data['relative_p'][i]
             archive_path: Path = data['archive_path'][i]
-            _blake2b = data['checksum'][i][:10]
-            assert actual == (rumar.s.profile, reason.name[0], bak_dir, relative_p, archive_path.name, _blake2b)
+            blake2b = data['checksum'][i]
+            assert actual == (rumar.s.profile, reason.name[0], bak_dir, relative_p, archive_path.name, blake2b)
 
     def test_get_blake2b_checksum(self, set_up_rumar):
         d = set_up_rumar

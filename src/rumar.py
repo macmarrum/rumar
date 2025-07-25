@@ -815,7 +815,7 @@ class Rumar:
         return S_ISSOCK(mode) or S_ISDOOR(mode)
 
     @staticmethod
-    def compute_checksum_of_file_in_archive(archive: Path, password: bytes) -> str | None:
+    def compute_checksum_of_file_in_archive(archive: Path, password: bytes) -> bytes | None:
         if Rumar.derive_stem(archive.name).endswith(f"~{Rumar.LNK}"):
             return None
         if archive.suffix == Rumar.DOT_ZIPX:
@@ -979,7 +979,7 @@ class Rumar:
                 latest_checksum = self.compute_checksum_of_file_in_archive(archive_path, self.s.password)
             else:  # no exception
                 if st.st_size > 0:
-                    latest_checksum = checksum_file.read_text()
+                    latest_checksum = bytes.fromhex(checksum_file.read_text())
                     # transfer blake2b checksum from .b2 to RumarDB
                     self._rdb.set_blake2b_checksum(archive_path, latest_checksum)
                 else:
@@ -1015,13 +1015,13 @@ class Rumar:
             archive_dir.mkdir(parents=True, exist_ok=True)
             checksum_file.write_text(checksum)
 
-    def _create(self, create_reason: CreateReason, rath: Rath, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: str | None):
+    def _create(self, create_reason: CreateReason, rath: Rath, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: bytes | None):
         if self.s.archive_format == RumarFormat.ZIPX:
             self._create_zipx(create_reason, rath, relative_p, archive_dir, mtime_str, size, checksum)
         else:
             self._create_tar(create_reason, rath, relative_p, archive_dir, mtime_str, size, checksum)
 
-    def _create_tar(self, create_reason: CreateReason, rath: Rath, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: str | None):
+    def _create_tar(self, create_reason: CreateReason, rath: Rath, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: bytes | None):
         sign = create_reason.value
         reason = create_reason.name
         logger.info(f"{sign} {relative_p}  {mtime_str}  {size} {reason} {archive_dir}")
@@ -1049,7 +1049,7 @@ class Rumar:
             attempt += 1
         self._rdb.save(create_reason, relative_p, archive_path, checksum)
 
-    def _create_zipx(self, create_reason: CreateReason, rath: Rath, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: str | None):
+    def _create_zipx(self, create_reason: CreateReason, rath: Rath, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: bytes | None):
         sign = create_reason.value
         reason = create_reason.name
         logger.info(f"{sign} {relative_p}  {mtime_str}  {size} {reason} {archive_dir}")
@@ -1080,7 +1080,7 @@ class Rumar:
             attempt += 1
         self._rdb.save(create_reason, relative_p, archive_path, checksum)
 
-    def _call_create_and_return_same_checksum_or_limit_reached(self, _create: Callable, archive_path: Path, checksum: str | None, attempt: int, attempt_limit: int):
+    def _call_create_and_return_same_checksum_or_limit_reached(self, _create: Callable, archive_path: Path, checksum: bytes | None, attempt: int, attempt_limit: int):
         _create(archive_path)
         end_checksum = self.compute_checksum_of_file_in_archive(archive_path, self.s.password)
         if end_checksum == checksum:
@@ -1378,7 +1378,7 @@ def try_to_iterate_dir(path: Path):
     return None
 
 
-def compute_blake2b_checksum(f: BufferedIOBase) -> str:
+def compute_blake2b_checksum(f: BufferedIOBase) -> bytes:
     # https://docs.python.org/3/library/functions.html#open
     # The type of file object returned by the open() function depends on the mode.
     # When used to open a file in a binary mode with buffering, the returned class is a subclass of io.BufferedIOBase.
@@ -1389,7 +1389,7 @@ def compute_blake2b_checksum(f: BufferedIOBase) -> str:
     b = blake2b()
     for chunk in iter(lambda: f.read(32768), b''):
         b.update(chunk)
-    return b.hexdigest()
+    return b.digest()
 
 
 @not_used
@@ -1472,7 +1472,7 @@ class RumarDB:
                 bak_dir_id INTEGER NOT NULL REFERENCES backup_base_dir_for_profile (id),
                 src_id INTEGER NOT NULL REFERENCES source (id),
                 bak_name TEXT,
-                blake2b TEXT,
+                blake2b BLOB,
                 del_run_id INTEGER REFERENCES run (id),
                 CONSTRAINT u_bak_dir_id_src_id_bak_name UNIQUE (bak_dir_id, src_id, bak_name)
             ) STRICT;'''),
@@ -1489,7 +1489,7 @@ class RumarDB:
         'view': {
             'v_backup': dedent('''\
             CREATE VIEW IF NOT EXISTS v_backup AS
-            SELECT b.id, run_id, run_datetime_iso, profile, reason, bak_dir, src_path, bak_name, substr(blake2b, 1, 10) _blake2b, del_run_id
+            SELECT b.id, run_id, run_datetime_iso, profile, reason, bak_dir, src_path, bak_name, blake2b, del_run_id
             FROM backup b
             JOIN backup_base_dir_for_profile bd ON bak_dir_id = bd.id
             JOIN "source" ON src_id = "source".id
@@ -1559,10 +1559,10 @@ class RumarDB:
     @classmethod
     def _migrate_backup_to_bak_name_if_required(cls, db):
         for _ in db.execute("SELECT 1 FROM pragma_table_info('backup') WHERE name = 'bak_path'"):
-            cls._migrate_to_bak_name(db)
+            cls._migrate_to_bak_name_and_blob_blake2b(db)
 
     @classmethod
-    def _migrate_to_bak_name(cls, db):
+    def _migrate_to_bak_name_and_blob_blake2b(cls, db):
         cur = db.cursor()
         cur.execute('DROP VIEW IF EXISTS v_backup')
         cur.execute('DROP VIEW IF EXISTS v_run')
@@ -1573,16 +1573,19 @@ class RumarDB:
             bak_name_missing = False
         if bak_name_missing:
             cur.execute('ALTER TABLE backup ADD bak_name TEXT')
-            for row in db.execute('SELECT id, bak_path FROM backup'):
+            cur.execute('ALTER TABLE backup ADD blake2b_bin BLOB')
+            for row in db.execute('SELECT id, bak_path, blake2b FROM backup'):
+                id_ = row[0]
                 lst = row[1].rsplit('/', 1)
                 bak_name = lst[1] if len(lst) == 2 else lst[0]
-                cur.execute('UPDATE backup SET bak_name = ? WHERE id = ?', (bak_name, row[0]))
+                blake2b_as_bytes = bytes.fromhex(row[2]) if row[2] else None
+                cur.execute('UPDATE backup SET bak_name = ?, blake2b_bin = ? WHERE id = ?', (bak_name, blake2b_as_bytes, id_,))
             db.commit()
         cur.execute('ALTER TABLE backup RENAME TO backup_old')
         cur.execute(cls.ddl['table']['backup'])
         cur.execute(dedent('''\
         INSERT INTO backup (id, run_id, reason, bak_dir_id, src_id, bak_name, blake2b, del_run_id)
-        SELECT id, run_id, reason, bak_dir_id, src_id, bak_name, blake2b, NULL
+        SELECT id, run_id, reason, bak_dir_id, src_id, bak_name, blake2b_bin, NULL
         FROM backup_old
         ORDER BY id'''))
         cur.execute('DROP TABLE backup_old')
@@ -1713,7 +1716,7 @@ class RumarDB:
                 logger.info(f"{sign} {relative_p}  {latest_archive.name}  {reason} {latest_archive.parent}")
                 self.save(create_reason, relative_p, latest_archive, blake2b_checksum)
 
-    def save(self, create_reason: CreateReason, relative_p: str, archive_path: Path | None, blake2b_checksum: str | None):
+    def save(self, create_reason: CreateReason, relative_p: str, archive_path: Path | None, blake2b_checksum: bytes | None):
         # logger.debug(f"{create_reason}, {relative_p}, {archive_path.name if archive_path else None}, {blake2b_checksum})")
         # source
         src_path = relative_p
@@ -1804,7 +1807,7 @@ class RumarDB:
         logger.debug(f"=> {result}")
         return result
 
-    def get_blake2b_checksum(self, archive_path: Path) -> str | None:
+    def get_blake2b_checksum(self, archive_path: Path) -> bytes | None:
         if bak_dir_id := self.bak_dir_id:
             src_path = derive_relative_p(archive_path.parent, self.s.backup_base_dir_for_profile)
             src_id = self._source_to_id[(self.src_dir_id, src_path)]
@@ -1812,7 +1815,7 @@ class RumarDB:
             return self._backup_to_checksum.get((bak_dir_id, src_id, bak_name))
         return None
 
-    def set_blake2b_checksum(self, archive_path: Path, blake2b_checksum: str):
+    def set_blake2b_checksum(self, archive_path: Path, blake2b_checksum: bytes):
         bak_dir = self.s.backup_base_dir_for_profile.as_posix()
         bak_dir_id = self.bak_dir_id
         src_dir_id = self.src_dir_id
