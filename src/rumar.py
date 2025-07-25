@@ -1088,11 +1088,11 @@ class Rumar:
         else:
             archive_path.unlink(missing_ok=True)
             if attempt == attempt_limit:
-                message = f"File changed during the archival process {rath} - tried {attempt_limit} times - skipping"
+                message = f"File changed during the archival process {archive_path} - tried {attempt_limit} times - skipping"
                 self._errors.append(message)
                 logging.error(message)
                 return True
-            message = f"File changed during the archival process {rath} - attempt {attempt} of {attempt_limit}"
+            message = f"File changed during the archival process {archive_path} - attempt {attempt} of {attempt_limit}"
             logger.warning(message)
             return False
 
