@@ -85,6 +85,7 @@ def test_alter_backup_add_del_run_id_if_required():
     cur = db.cursor()
     # Undo creation of the new backup table
     cur.execute('DROP VIEW IF EXISTS v_backup')
+    cur.execute('DROP TABLE backup')
     # Create the old backup table and dummy views
     cur.executescript('''
         CREATE TABLE IF NOT EXISTS backup (
@@ -95,7 +96,6 @@ def test_alter_backup_add_del_run_id_if_required():
             src_id INTEGER NOT NULL REFERENCES source (id),
             bak_name TEXT,
             blake2b TEXT,
-            del_run_id INTEGER REFERENCES run (id),
             CONSTRAINT u_bak_dir_id_src_id_bak_name UNIQUE (bak_dir_id, src_id, bak_name)
         ) STRICT;
         CREATE VIEW v_backup AS SELECT * FROM backup;
@@ -109,8 +109,8 @@ def test_alter_backup_add_del_run_id_if_required():
         INSERT INTO source (id, src_dir_id, src_path) VALUES (1, 1, 'subdir/file.txt');
         INSERT INTO backup (id, run_id, reason, bak_dir_id, src_id, bak_name, blake2b)
         VALUES 
-        (1, 1, 'C', 1, 1, '2024-01-01_11,00,00+00,00~1000.tar.gz', 'hash1'),
-        (2, 1, 'U', 1, 1, '2024-01-01_22,00,00+00,00~2000.tar.gz', 'hash2')
+        (1, 1, 'C', 1, 1, '2024-01-01_11,00,00+00,00~1000.tar.gz', '626ea9f0'),
+        (2, 1, 'U', 1, 1, '2024-01-01_22,00,00+00,00~2000.tar.gz', '785a0dc3')
     ''')
     # Perform alteration
     RumarDB._alter_backup_add_del_run_id_if_required(db)
