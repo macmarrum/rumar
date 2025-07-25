@@ -127,7 +127,7 @@ class TestRumarDB:
         db.execute('UPDATE backup SET blake2b = NULL WHERE id = (SELECT max(id) FROM backup WHERE src_id = ?)', (src_id,))
         db.commit()
         # test methods to set and get checksum
-        input_value = '_test_checksum_value_1_'
+        input_value = bytes.fromhex('a1b2c3d4')
         rumardb.set_blake2b_checksum(archive_path, input_value)
         checksum = None
         for row in db.execute('SELECT blake2b FROM backup WHERE id = (SELECT max(id) FROM backup WHERE src_id = ?)', (src_id,)):
