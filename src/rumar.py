@@ -1478,9 +1478,7 @@ class RumarDB:
             ) STRICT;'''),
             'unchanged': dedent('''\
             CREATE TABLE IF NOT EXISTS unchanged (
-                run_id INTEGER NOT NULL REFERENCES run (id),
-                src_id INTEGER NOT NULL REFERENCES source (id),
-                CONSTRAINT pk_unchanged_source PRIMARY KEY (run_id, src_id)
+                src_id INTEGER PRIMARY KEY REFERENCES source (id)
             ) STRICT;'''),
         },
         'indexes': dedent('''\
@@ -1520,7 +1518,7 @@ class RumarDB:
         self._alter_backup_add_del_run_id_if_required(db)
         self._create_tables_and_indexes_if_not_exist(db)
         self._recreate_views(db)
-        self._delete_from_unchanged(db, run_id_offset=10)
+        self._delete_from_unchanged(db)
         if not self._profile_to_id:
             self._load_data_into_memory()
         # make sure run_datetime_iso is unique
@@ -1616,17 +1614,8 @@ class RumarDB:
             self._db.commit()
 
     @staticmethod
-    def _delete_from_unchanged(db, run_id_offset=10):
-        stmt = dedent('''\
-            DELETE FROM unchanged
-            WHERE run_id < (
-                SELECT DISTINCT run_id
-                FROM unchanged
-                ORDER BY run_id DESC
-                LIMIT 1 OFFSET ?
-            )
-        ''')
-        db.execute(stmt, (run_id_offset,))
+    def _delete_from_unchanged(db):
+        db.execute('DELETE FROM unchanged')
         db.commit()
         db.execute('VACUUM')
 
@@ -1739,8 +1728,8 @@ class RumarDB:
 
     def save_unchanged(self, relative_p: str):
         src_path = relative_p
-        stmt = 'INSERT INTO unchanged (run_id, src_id) SELECT ?, id FROM source WHERE src_dir_id = ? AND src_path = ?'
-        params = (self.run_id, self.src_dir_id, src_path)
+        stmt = 'INSERT INTO unchanged (src_id) SELECT id FROM source WHERE src_dir_id = ? AND src_path = ?'
+        params = (self.src_dir_id, src_path)
         execute(self._cur, stmt, params)
         self._db.commit()
 
