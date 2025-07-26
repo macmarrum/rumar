@@ -25,6 +25,7 @@ def set_up_rumar():
     source_dir = '{BASE}/{profile}'
     """)
     profile_to_settings = make_profile_to_settings_from_toml_text(toml)
+    # clean up any existing BASE tree
     if BASE.exists():
         shutil.rmtree(BASE)
     s = profile_to_settings[profile]
@@ -82,6 +83,7 @@ def set_up_rumar():
         data=dict(reason=reasons, relative_p=relative_ps, archive_path=archive_paths, checksum=checksums),
     )
     yield d
+    # moved to the set-up part, so that the directory can be inspected manually after the tests
     # if BASE.exists():
     #     shutil.rmtree(BASE)
     Rather.BASE_PATH = None
