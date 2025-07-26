@@ -1476,9 +1476,10 @@ class RumarDB:
                 del_run_id INTEGER REFERENCES run (id),
                 CONSTRAINT u_bak_dir_id_src_id_bak_name UNIQUE (bak_dir_id, src_id, bak_name)
             ) STRICT;'''),
+            'drop unchanged': 'DROP TABLE IF EXISTS unchanged;',
             'unchanged': dedent('''\
-            CREATE TABLE IF NOT EXISTS unchanged (
-                src_id INTEGER PRIMARY KEY REFERENCES source (id)
+            CREATE TEMPORARY TABLE unchanged (
+                src_id INTEGER PRIMARY KEY
             ) STRICT;'''),
         },
         'indexes': dedent('''\
@@ -1519,7 +1520,6 @@ class RumarDB:
         self._alter_backup_add_del_run_id_if_required(db)
         self._create_tables_and_indexes_if_not_exist(db)
         self._recreate_views(db)
-        self._delete_from_unchanged(db)
         if not self._profile_to_id:
             self._load_data_into_memory()
         self._profile_id = None
@@ -1641,12 +1641,6 @@ class RumarDB:
             cur.execute('INSERT INTO source_lc (src_id, reason, run_id) SELECT id, ?, ? FROM source', (CreateReason.INIT.name[0], self.run_id,))
             self._db.commit()
 
-    @staticmethod
-    def _delete_from_unchanged(db):
-        db.execute('DELETE FROM unchanged')
-        db.commit()
-        db.execute('VACUUM')
-
     def _load_data_into_memory(self):
         for profile, id_ in execute(self._cur, 'SELECT profile, id FROM profile'):
             self._profile_to_id[profile] = id_
@@ -1684,11 +1678,14 @@ class RumarDB:
     @property
     def run_id(self):
         if self._run_id is None:
+            profile_id = self.profile_id
             run_datetime_iso = self._run_datetime_iso
-            if not (run_id := self._run_to_id.get((self.profile_id, run_datetime_iso))):
-                execute(self._cur, 'INSERT INTO run (profile_id, run_datetime_iso) VALUES (?,?)', (self.profile_id, run_datetime_iso))
+            if not (run_id := self._run_to_id.get((profile_id, run_datetime_iso))):
+                execute(self._cur, 'INSERT INTO run (profile_id, run_datetime_iso) VALUES (?,?)', (profile_id, run_datetime_iso))
                 run_id = execute(self._cur, 'SELECT max(id) FROM run').fetchone()[0]
-                self._run_to_id[(self.profile_id, run_datetime_iso)] = run_id
+                if run_id in self._run_to_id.values():
+                    raise RuntimeError(f'run_id {run_id} already exists in _run_to_id, although no longer in SQLite')
+                self._run_to_id[(profile_id, run_datetime_iso)] = run_id
             self._run_id = run_id
         return self._run_id
 
@@ -1787,7 +1784,7 @@ class RumarDB:
         AND NOT EXISTS ( -- minus src files not changed in this run
             SELECT 1
             FROM unchanged u
-            WHERE b.src_id = u.src_id AND u.run_id = ?
+            WHERE b.src_id = u.src_id
         )
         AND NOT EXISTS ( -- minus src files already deleted
             SELECT 1
@@ -1803,7 +1800,7 @@ class RumarDB:
         reason_d = CreateReason.DELETE.name[0]
         run_id = self.run_id
         profile_id = self.profile_id
-        execute(self._cur, query, (reason_d, run_id, profile_id, run_id, run_id, reason_d,))
+        execute(self._cur, query, (reason_d, run_id, profile_id, run_id, reason_d,))
         self._db.commit()
 
     def close_db(self):
