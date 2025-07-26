@@ -1522,18 +1522,24 @@ class RumarDB:
         self._delete_from_unchanged(db)
         if not self._profile_to_id:
             self._load_data_into_memory()
-        # make sure run_datetime_iso is unique
-        while (run_datetime_iso := self.make_run_datetime_iso()) in self._run_to_id:
-            sleep(0.25)
-        self._run_datetime_iso = run_datetime_iso
         self._profile_id = None
         self._run_id = None
         self._src_dir_id = None
         self._bak_dir_id = None
+        self._run_datetime_iso = None
+        self.init_run_datetime_iso_anew()
         if self._profile not in self._profile_to_id:
             self._save_initial_state()
         self._init_source_lc_if_empty()
-        self._unchanged_paths = {}
+
+    def init_run_datetime_iso_anew(self):
+        """Generate self._run_datetime_iso making sure it's unique.\n
+        Set self._run_id to None, so that self.run_id creates a new value."""
+        existing_run_datetime_iso_set = set(tpl[1] for tpl in self._run_to_id)
+        while (run_datetime_iso := self.make_run_datetime_iso()) in existing_run_datetime_iso_set:
+            sleep(0.25)
+        self._run_datetime_iso = run_datetime_iso
+        self._run_id = None
 
     @classmethod
     def make_run_datetime_iso(cls):
