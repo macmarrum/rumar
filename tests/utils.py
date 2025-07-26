@@ -55,15 +55,16 @@ class Rather(Rath):
             return lstat
 
     def open(self, mode='rb', *args, **kwargs):
-        if 'rb' in mode:
-            return self._content_io
-        elif 'r' in mode:
-            return self._content_io.getvalue().decode('utf-8')
+        if 'r' in mode:
+            if 'b' in mode:
+                return self._content_io
+            else:
+                return self._content_io.getvalue().decode('utf-8')
         else:
             raise ValueError(f"Unsupported mode: {mode}")
 
     @property
-    def content(self):
+    def content(self) -> str | None:
         return self._content
 
     @content.setter
@@ -71,7 +72,7 @@ class Rather(Rath):
         self._content = value
         self._content_io = BytesIO(value.encode('utf-8')) if value is not None else BytesIO()
         self._st_size = len(self._content_io.getvalue()) if value is not None else 0
-        self._checksum = None
+        self._checksum = None  # checksum will be computed anew
         self.lstat_cache.pop(self, None)
 
     def make(self):
@@ -88,7 +89,7 @@ class Rather(Rath):
         return Rath(self, lstat_cache=self.lstat_cache)
 
     @property
-    def checksum(self):
+    def checksum(self) -> bytes | None:
         if self._checksum is None and self._content is not None:
             self._checksum = compute_blake2b_checksum(self._content_io)
         return self._checksum
