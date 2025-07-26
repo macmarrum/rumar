@@ -1708,6 +1708,17 @@ class RumarDB:
             self._bak_dir_id = bak_dir_id
         return self._bak_dir_id
 
+    def get_src_id(self, relative_p: str, /, create_if_missing=False) -> int | None:
+        src_path = relative_p
+        src_dir_id = self.src_dir_id
+        if not (src_id := self._source_to_id.get((src_dir_id, src_path))) and create_if_missing:
+            execute(self._cur, 'INSERT INTO source (src_dir_id, src_path) VALUES (?, ?)', (src_dir_id, src_path))
+            src_id = execute(self._cur, 'SELECT max(id) FROM source').fetchone()[0]
+            self._source_to_id[(src_dir_id, src_path)] = src_id
+            execute(self._cur, 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)', (src_id, CreateReason.CREATE.name[0], self.run_id,))
+            self._db.commit()
+        return src_id
+
     def _save_initial_state(self):
         """Walks `backup_base_dir_for_profile` and saves latest archive of each source, whether the source file currently exists or not"""
         for basedir, dirnames, filenames in os.walk(self.s.backup_base_dir_for_profile):
@@ -1731,12 +1742,7 @@ class RumarDB:
         # logger.debug(f"{create_reason}, {relative_p}, {archive_path.name if archive_path else None}, {blake2b_checksum})")
         # source
         src_path = relative_p
-        src_dir_id = self.src_dir_id
-        if not (src_id := self._source_to_id.get((src_dir_id, src_path))):
-            execute(self._cur, 'INSERT INTO source (src_dir_id, src_path) VALUES (?, ?)', (src_dir_id, src_path))
-            src_id = execute(self._cur, 'SELECT max(id) FROM source').fetchone()[0]
-            self._source_to_id[(src_dir_id, src_path)] = src_id
-            execute(self._cur, 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)', (src_id, CreateReason.CREATE.name[0], self.run_id,))
+        src_id = self.get_src_id(src_path, create_if_missing=True)
         # backup
         run_id = self.run_id
         bak_dir_id = self.bak_dir_id
@@ -1912,8 +1918,8 @@ class RumarDB:
 
     def mark_backup_as_deleted(self, archive_path: Path):
         # by using self.src_dir_id it's assumed source_dir was the same at the time the archive was created as it is now
-        src_dir_src_path = (self.src_dir_id, derive_relative_p(archive_path.parent, self.s.source_dir),)
-        src_id = self._source_to_id.get(src_dir_src_path)
+        src_path = derive_relative_p(archive_path.parent, self.s.source_dir)
+        src_id = self._source_to_id[(self.src_dir_id, src_path)]
         # by using self.bak_dir_id it's assumed backup_base_dir_for_profile was the same at the time the archive was created as it is now
         params = (self.run_id, self.bak_dir_id, src_id, archive_path.name)
         found = False
