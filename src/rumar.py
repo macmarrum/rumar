@@ -1515,6 +1515,7 @@ class RumarDB:
         self._db = db
         self._cur = db.cursor()
         self._migrate_backup_to_bak_name_if_required(db)
+        self._migrate_to_blob_blake2b_if_required(db)
         self._alter_backup_add_del_run_id_if_required(db)
         self._create_tables_and_indexes_if_not_exist(db)
         self._recreate_views(db)
@@ -1566,30 +1567,51 @@ class RumarDB:
         cur.execute('DROP VIEW IF EXISTS v_run')
         cur.execute('DROP INDEX IF EXISTS i_backup_mtime_iso')
         cur.execute('DROP INDEX IF EXISTS i_backup_size')
-        bak_name_missing = True
-        for _ in cur.execute("SELECT 1 FROM pragma_table_info('backup') WHERE name = 'bak_name'"):
-            bak_name_missing = False
-        if bak_name_missing:
-            cur.execute('ALTER TABLE backup ADD bak_name TEXT')
-            cur.execute('ALTER TABLE backup ADD blake2b_bin BLOB')
-            for row in db.execute('SELECT id, bak_path, blake2b FROM backup'):
-                id_ = row[0]
-                lst = row[1].rsplit('/', 1)
-                bak_name = lst[1] if len(lst) == 2 else lst[0]
-                blake2b_as_bytes = bytes.fromhex(row[2]) if row[2] else None
-                cur.execute('UPDATE backup SET bak_name = ?, blake2b_bin = ? WHERE id = ?', (bak_name, blake2b_as_bytes, id_,))
-            db.commit()
+        cur.execute('ALTER TABLE backup ADD bak_name TEXT')
+        cur.execute('ALTER TABLE backup ADD blake2b_bin BLOB')
+        for row in db.execute('SELECT id, bak_path, blake2b FROM backup'):
+            id_ = row[0]
+            lst = row[1].rsplit('/', 1)
+            bak_name = lst[1] if len(lst) == 2 else lst[0]
+            blake2b_as_bytes = bytes.fromhex(row[2]) if row[2] else None
+            cur.execute('UPDATE backup SET bak_name = ?, blake2b_bin = ? WHERE id = ?', (bak_name, blake2b_as_bytes, id_,))
+        db.commit()
+        cur.close()
+        cls._recreate_backup_via_backup_old(db)
+
+    @classmethod
+    def _recreate_backup_via_backup_old(cls, db):
+        cur = db.cursor()
+        cur.execute('PRAGMA legacy_alter_table = ON')
         cur.execute('ALTER TABLE backup RENAME TO backup_old')
         cur.execute(cls.ddl['table']['backup'])
         cur.execute(dedent('''\
         INSERT INTO backup (id, run_id, reason, bak_dir_id, src_id, bak_name, blake2b, del_run_id)
         SELECT id, run_id, reason, bak_dir_id, src_id, bak_name, blake2b_bin, NULL
         FROM backup_old
-        ORDER BY id'''))
+        ORDER BY id;'''))
         cur.execute('DROP TABLE backup_old')
-        cur.close()
+        cur.execute('PRAGMA legacy_alter_table = OFF')
         db.commit()
-        # db.execute('VACUUM')
+        cur.close()
+
+    @classmethod
+    def _migrate_to_blob_blake2b_if_required(cls, db):
+        for _ in db.execute('''SELECT 1 FROM pragma_table_info('backup') WHERE name = 'blake2b' AND "type" = 'BLOB';'''):
+            cls._migrate_to_blob_blake2b(db)
+
+    @classmethod
+    def _migrate_to_blob_blake2b(cls, db):
+        cur = db.cursor()
+        cur.execute('ALTER TABLE backup ADD blake2b_bin BLOB')
+        for row in db.execute('SELECT id, blake2b FROM backup'):
+            id_ = row[0]
+            blake2b_as_bytes = bytes.fromhex(row[1]) if row[1] else None
+            cur.execute('UPDATE backup SET blake2b_bin = ? WHERE id = ?', (blake2b_as_bytes, id_,))
+        db.commit()
+        cur.close()
+        cls._recreate_backup_via_backup_old(db)
+        pass
 
     @classmethod
     def _alter_backup_add_del_run_id_if_required(cls, db):
