@@ -99,7 +99,9 @@ class TestRumarDB:
             reason: CreateReason = data['reason'][i]
             relative_p = data['relative_p'][i]
             archive_path: Path = data['archive_path'][i]
-            blake2b = data['checksum'][i]
+            blake2b = data['checksum'][i]  # bytes
+            if blake2b is not None:
+                blake2b = blake2b.hex()  # str
             assert actual == (rumar.s.profile, reason.name[0], bak_dir, relative_p, archive_path.name, blake2b)
 
     def test_get_blake2b_checksum(self, set_up_rumar):

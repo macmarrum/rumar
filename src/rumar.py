@@ -1487,7 +1487,7 @@ class RumarDB:
         'view': {
             'v_backup': dedent('''\
             CREATE VIEW IF NOT EXISTS v_backup AS
-            SELECT b.id, run_id, run_datetime_iso, profile, reason, bak_dir, src_path, bak_name, blake2b, del_run_id
+            SELECT b.id, run_id, run_datetime_iso, profile, reason, bak_dir, src_path, bak_name, lower(hex(blake2b)) blake2b, del_run_id
             FROM backup b
             JOIN backup_base_dir_for_profile bd ON bak_dir_id = bd.id
             JOIN "source" ON src_id = "source".id
