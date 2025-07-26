@@ -56,6 +56,7 @@ def set_up_rumar():
         f"/{profile}/A/A-B/file18.csv",
     ]
     rathers = [Rather(fs_path, lstat_cache=rumar.lstat_cache, mtime=i * 60) for i, fs_path in enumerate(fs_paths, start=1)]
+    rathers[0].checksum = Rather.NONE  # set checksum to None while keeping content intact
     raths = [r.as_rath() for r in rathers]
     reasons: list[CreateReason] = []
     relative_ps: list[str] = []
@@ -99,7 +100,7 @@ class TestRumarDB:
             reason: CreateReason = data['reason'][i]
             relative_p = data['relative_p'][i]
             archive_path: Path = data['archive_path'][i]
-            blake2b = data['checksum'][i]  # bytes
+            blake2b = data['checksum'][i]  # bytes | None
             if blake2b is not None:
                 blake2b = blake2b.hex()  # str
             assert actual == (rumar.s.profile, reason.name[0], bak_dir, relative_p, archive_path.name, blake2b)
@@ -120,22 +121,17 @@ class TestRumarDB:
         db = rumardb._db
         archive_path = data['archive_path'][0]
         relative_p = data['relative_p'][0]
-        # set checksum to NULL in RumarDB
-        src_id = None
-        for row in db.execute('SELECT id FROM source s WHERE src_dir_id = ? AND src_path = ?', (rumardb.src_dir_id, relative_p,)):
-            src_id = row[0]
-        key = (rumardb.bak_dir_id, src_id, archive_path.name)
-        rumardb._backup_to_checksum[key] = None
-        db.execute('UPDATE backup SET blake2b = NULL WHERE id = (SELECT max(id) FROM backup WHERE src_id = ?)', (src_id,))
-        db.commit()
+        # verify in RumarDB the initial state of checksum is NULL
+        assert (src_id := rumardb.get_src_id(relative_p)) is not None
+        assert rumardb._backup_to_checksum[(rumardb.bak_dir_id, src_id, archive_path.name)] is None
         # test methods to set and get checksum
-        input_value = bytes.fromhex('a1b2c3d4')
-        rumardb.set_blake2b_checksum(archive_path, input_value)
-        checksum = None
+        input_checksum = bytes.fromhex('a1b2c3d4')
+        rumardb.set_blake2b_checksum(archive_path, input_checksum)
+        actual_checksum = None
         for row in db.execute('SELECT blake2b FROM backup WHERE id = (SELECT max(id) FROM backup WHERE src_id = ?)', (src_id,)):
-            checksum = row[0]
-        assert checksum == input_value  # set_blake2b_checksum()
-        assert rumardb.get_blake2b_checksum(archive_path) == input_value
+            actual_checksum = row[0]
+        assert actual_checksum == input_checksum, 'set_blake2b_checksum() failed to do its job'
+        assert rumardb.get_blake2b_checksum(archive_path) == input_checksum
 
     def test_set_blake2b_checksum_when_already_in_backup(self, set_up_rumar):
         d = set_up_rumar
@@ -143,9 +139,9 @@ class TestRumarDB:
         rumardb = d['rumardb']
         archive_path = data['archive_path'][1]
         rx_already_in_backup = re.compile(r'.+ already in backup with a different blake2b_checksum: .+')
-        input_value = '_test_checksum_value_1_'
+        input_checksum = bytes.fromhex('b2c3d4e5')
         with pytest.raises(ValueError, match=rx_already_in_backup):
-            rumardb.set_blake2b_checksum(archive_path, input_value)
+            rumardb.set_blake2b_checksum(archive_path, input_checksum)
 
     def test_iter_latest_archives_and_targets_no_deleted_and_no_top_archive_dir_and_no_directory(self, set_up_rumar):
         d = set_up_rumar
