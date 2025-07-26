@@ -1430,19 +1430,19 @@ class RumarDB:
         'table': {
             'source_dir': dedent('''\
             CREATE TABLE IF NOT EXISTS source_dir (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER PRIMARY KEY,
                 src_dir TEXT UNIQUE NOT NULL
             ) STRICT;'''),
             'source': dedent('''\
             CREATE TABLE IF NOT EXISTS source (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER PRIMARY KEY,
                 src_dir_id INTEGER NOT NULL REFERENCES source_dir (id),
                 src_path TEXT NOT NULL,
                 CONSTRAINT u_source_src_dir_id_src_path UNIQUE (src_dir_id, src_path)
             ) STRICT;'''),
             'source_lc': dedent('''\
             CREATE TABLE IF NOT EXISTS source_lc (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER PRIMARY KEY,
                 src_id INTEGER NOT NULL REFERENCES source (id),
                 reason TEXT NOT NULL,
                 run_id INTEGER NOT NULL REFERENCES run (id),
@@ -1450,23 +1450,23 @@ class RumarDB:
             ) STRICT;'''),
             'profile': dedent('''\
             CREATE TABLE IF NOT EXISTS profile (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER PRIMARY KEY,
                 profile TEXT UNIQUE NOT NULL
             ) STRICT;'''),
             'run': dedent('''\
             CREATE TABLE IF NOT EXISTS run (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER PRIMARY KEY,
                 run_datetime_iso TEXT UNIQUE NOT NULL,
                 profile_id INTEGER NOT NULL REFERENCES profile (id)
             ) STRICT;'''),
             'backup_base_dir_for_profile': dedent('''\
             CREATE TABLE IF NOT EXISTS backup_base_dir_for_profile (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER PRIMARY KEY,
                 bak_dir TEXT UNIQUE NOT NULL
             ) STRICT;'''),
             'backup': dedent('''\
             CREATE TABLE IF NOT EXISTS backup (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER PRIMARY KEY,
                 run_id INTEGER NOT NULL REFERENCES run (id),
                 reason TEXT NOT NULL,
                 bak_dir_id INTEGER NOT NULL REFERENCES backup_base_dir_for_profile (id),
@@ -2053,7 +2053,7 @@ class BroomDB:
     def _create_table_if_not_exists(self):
         ddl = dedent(f"""\
             CREATE TABLE IF NOT EXISTS {self._table} (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER PRIMARY KEY,
                 dirname TEXT NOT NULL,
                 basename TEXT NOT NULL,
                 d TEXT NOT NULL,
