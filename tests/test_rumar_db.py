@@ -2,14 +2,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import re
 import shutil
-from datetime import timedelta, datetime
 from pathlib import Path
 from textwrap import dedent
 
 import pytest
 
 from rumar import Rumar, make_profile_to_settings_from_toml_text, CreateReason, derive_relative_p
-from utils import Rather, _path_to_lstat_
+from utils import Rather
 
 
 @pytest.fixture(scope='class')
@@ -19,7 +18,8 @@ def set_up_rumar():
     profile = 'profileA'
     toml = dedent(f"""\
     version = 2
-    #db_path = ':memory:'
+    db_path = ':memory:'
+    # db_path = 'file:mem{id(BASE)}?mode=memory&cache=shared'
     backup_base_dir = '{BASE}/backup'
     [{profile}]
     source_dir = '{BASE}/{profile}'
@@ -30,7 +30,7 @@ def set_up_rumar():
         shutil.rmtree(BASE)
     s = profile_to_settings[profile]
     assert s.backup_base_dir_for_profile == BASE / 'backup' / profile
-    if s.db_path != ':memory:':
+    if 'memory' not in s.db_path:
         s.db_path.parent.mkdir(parents=True, exist_ok=True)
     rumar = Rumar(profile_to_settings)
     rumar._at_beginning(profile)
@@ -73,6 +73,22 @@ def set_up_rumar():
         archive_paths.append(archive_path)
         checksums.append(rather.checksum)
         rumardb.save(reason, relative_p, archive_path, rather.checksum)
+    # db = rumardb._db
+    # print("\n### Database Tables ###")
+    # for table, dictionary in [
+    #     ('profile', '_profile_to_id'),
+    #     ('run', '_run_to_id'),
+    #     ('source_dir', '_src_dir_to_id'),
+    #     ('source', '_source_to_id'),
+    #     ('backup_base_dir_for_profile', '_bak_dir_to_id'),
+    #     ('backup', '_backup_to_checksum'),
+    # ]:
+    #     print(f"\n{table}:")
+    #     for row in db.execute(f'SELECT * FROM {table}'):
+    #         print(row)
+    #     print(f"\n{dictionary}:")
+    #     for items in getattr(rumardb, dictionary).items():
+    #         print(items)
     d = dict(
         profile=profile,
         profile_to_settings=profile_to_settings,
@@ -83,11 +99,11 @@ def set_up_rumar():
         data=dict(reason=reasons, relative_p=relative_ps, archive_path=archive_paths, checksum=checksums),
     )
     yield d
-    # moved to the set-up part, so that the directory can be inspected manually after the tests
+    rumar._at_end()
+    # moved to the set-up part so that the directory can be inspected manually after the tests
     # if BASE.exists():
     #     shutil.rmtree(BASE)
-    Rather.BASE_PATH = None
-    _path_to_lstat_.clear()
+    # Rather.BASE_PATH = None
 
 
 class TestRumarDB:
@@ -190,16 +206,14 @@ class TestRumarDB:
         archive_paths = data['archive_path']
         # mark source file #1 as deleted
         src_id = 1
+        rumardb.init_run_datetime_iso_anew()
         db = rumardb._db
-        run_datetime_iso = (datetime.now().astimezone() + timedelta(seconds=10)).isoformat(sep=' ', timespec='seconds')
-        db.execute('INSERT INTO run (run_datetime_iso, profile_id) VALUES (?, ?)', (run_datetime_iso, rumardb.profile_id,))
-        run_id = db.execute('SELECT max(id) FROM run').fetchone()[0]
-        db.execute('INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)', (src_id, CreateReason.DELETE.name[0], run_id,))
+        db.execute('INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)', (src_id, CreateReason.DELETE.name[0], rumardb.run_id,))
         db.commit()
         # add another backup for file #2 (index 1)
         i = 1
         rather = rathers[i]
-        rather.content = rather.content + '\n' + run_datetime_iso
+        rather.content = rather.content + '\n' + rumardb._run_datetime_iso
         updated_archive_path1 = rumar.compose_archive_path(archive_paths[i].parent, rumar.calc_mtime_str(rather.lstat()), rather.lstat().st_size)
         rumardb.save(CreateReason.UPDATE, data['relative_p'][i], updated_archive_path1, rather.checksum)
         # mark backup file #2 (index 1) as deleted, so that a previous backup is used
@@ -209,3 +223,84 @@ class TestRumarDB:
         expected = list(zip(updated_archive_paths, rathers[1:]))
         actual = list(rumardb.iter_latest_archives_and_targets())
         assert actual == expected
+
+    def test_save_unchanged(self, set_up_rumar):
+        d = set_up_rumar
+        data = d['data']
+        rumardb = d['rumardb']
+        db = rumardb._db
+        # verify in RumarDB the initial state of unchanged rows in 0
+        actual_unchanged_rows_count = db.execute('SELECT count(*) FROM unchanged').fetchone()[0]
+        assert actual_unchanged_rows_count == 0
+        # call save_unchanged and verify it's been persisted in the DB
+        expected_unchanged = []
+        relative_ps = data['relative_p']
+        for i, relative_p in enumerate(relative_ps):
+            if i % 3 == 0:
+                rumardb.save_unchanged(relative_p)
+                src_id = rumardb.get_src_id(relative_p)
+                expected_unchanged.append(src_id)
+        actual_unchanged = [row[0] for row in db.execute('SELECT src_id FROM unchanged')]
+        assert actual_unchanged == expected_unchanged
+        # clean up for next tests
+        db.execute('DELETE FROM unchanged')
+
+    def test_init_run_datetime_iso_anew(self, set_up_rumar):
+        d = set_up_rumar
+        rumardb = d['rumardb']
+        run_datetime_iso = rumardb._run_datetime_iso
+        assert run_datetime_iso is not None
+        run_id = rumardb.run_id
+        assert run_id is not None
+        rumardb.init_run_datetime_iso_anew()
+        new_run_datetime_iso = rumardb._run_datetime_iso
+        assert new_run_datetime_iso is not None
+        assert new_run_datetime_iso != run_datetime_iso
+
+    def test_identify_and_save_deleted(self, set_up_rumar):
+        # d = next(_set_up_rumar())  # set it up afresh
+        d = set_up_rumar
+        rathers = d['rathers']
+        data = d['data']
+        relative_ps = data['relative_p']
+        archive_paths = data['archive_path']
+        rumardb = d['rumardb']
+        rumar = d['rumar']
+        db = rumardb._db
+        # generate a new run
+        rumardb.init_run_datetime_iso_anew()
+        # update rather
+        rather = rathers[1]
+        rather.content = rather.content + '\n' + rumardb._run_datetime_iso
+        archive_dir = archive_paths[1].parent
+        archive_path = rumar.compose_archive_path(archive_dir, rumar.calc_mtime_str(rather.lstat()), rather.lstat().st_size)
+        rumardb.save(CreateReason.UPDATE, relative_ps[1], archive_path, rather.checksum)
+        # mark unchanged files
+        input_not_unchanged = []
+        expected_unchanged = []
+        for i, relative_p in enumerate(relative_ps):
+            src_id = rumardb.get_src_id(relative_p)
+            if i % 3 == 0 and i != 0:  # file idx0 was already deleted in test_iter_latest_archives_and_targets_deleted_and_no_top_archive_dir_and_no_directory
+                rumardb.save_unchanged(relative_p)
+                expected_unchanged.append(src_id)
+            else:
+                input_not_unchanged.append(src_id)
+        actual_unchanged = [row[0] for row in db.execute('SELECT src_id FROM unchanged')]
+        assert actual_unchanged == expected_unchanged
+        # call the method under test
+        rumardb.identify_and_save_deleted()
+        # print data for manual debugging
+        # print()
+        # for table in ['unchanged', 'source_lc']:
+        #     print(table)
+        #     for row in db.execute('SELECT * FROM ' + table):
+        #         print(row)
+        # verify
+        expected_deleted = input_not_unchanged
+        expected_deleted.remove(rumardb.get_src_id(relative_ps[1]))
+        actual_deleted = []
+        for row in db.execute('SELECT src_id FROM source_lc WHERE reason = ?', (CreateReason.DELETE.name[0],)):
+            actual_deleted.append(row[0])
+        # clean up for next tests
+        db.execute('DELETE FROM unchanged')
+        assert actual_deleted == expected_deleted
