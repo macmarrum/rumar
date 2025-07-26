@@ -11,6 +11,7 @@ _path_to_lstat_ = {}
 
 class Rather(Rath):
     BASE_PATH = None
+    NONE = object()
 
     def __init__(self, *args,
                  lstat_cache: dict[Path, os.stat_result],
@@ -90,9 +91,16 @@ class Rather(Rath):
 
     @property
     def checksum(self) -> bytes | None:
+        if self._checksum is Rather.NONE:
+            return None
         if self._checksum is None and self._content is not None:
             self._checksum = compute_blake2b_checksum(self._content_io)
         return self._checksum
+
+    @checksum.setter
+    def checksum(self, value):
+        # Tip: set it to Rather.NONE to get NULL blake2b even when content is not None
+        self._checksum = value
 
 
 def eq(path: Path, other: Path):
