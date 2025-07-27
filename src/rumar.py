@@ -1954,7 +1954,7 @@ class Broom:
     def __init__(self, profile_to_settings: ProfileToSettings):
         self._profile_to_settings = profile_to_settings
         self._bdb = BroomDB()
-        self._path_to_lstat = {}
+        self.lstat_cache = {}
 
     @classmethod
     def is_archive(cls, name: str, archive_format: str) -> bool:
@@ -1989,10 +1989,10 @@ class Broom:
         date_older_than_x_days = date.today() - timedelta(days=s.min_age_in_days_of_backups_to_sweep)
         # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
         if Command.SWEEP in s.commands_using_filters:
-            iterator = iter_matching_files(Rath(s.backup_base_dir_for_profile, lstat_cache=self._path_to_lstat), s)
+            iterator = iter_matching_files(Rath(s.backup_base_dir_for_profile, lstat_cache=self.lstat_cache), s)
             logger.debug(f"{s.commands_using_filters=} => iter_matching_files")
         else:
-            iterator = iter_all_files(Rath(s.backup_base_dir_for_profile, lstat_cache=self._path_to_lstat))
+            iterator = iter_all_files(Rath(s.backup_base_dir_for_profile, lstat_cache=self.lstat_cache))
             logger.debug(f"{s.commands_using_filters=} => iter_all_files")
         old_enough_file_to_mdate = {}
         for rath in iterator:
