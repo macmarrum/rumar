@@ -24,7 +24,7 @@ import sys
 import tarfile
 import zipfile
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from datetime import datetime, timedelta, date
 from enum import Enum
 from hashlib import blake2b
@@ -517,7 +517,8 @@ class Settings:
             self.update(**other)
             return self
         if isinstance(other, type(self)):
-            self.update(**{k: getattr(other, k) for k in other.__dataclass_fields__})
+            field_names = [f.name for f in fields(other)]
+            self.update(**{k: getattr(other, k) for k in field_names})
             return self
         raise TypeError(f"Unsupported operand type for |=: '{type(self)}' and '{type(other)}'")
 
