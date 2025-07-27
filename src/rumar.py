@@ -1950,8 +1950,6 @@ def execute(cur: sqlite3.Cursor | sqlite3.Connection, stmt: str, params: tuple |
 
 
 class Broom:
-    DASH = '-'
-    DOT = '.'
 
     def __init__(self, profile_to_settings: ProfileToSettings):
         self._profile_to_settings = profile_to_settings
@@ -1960,8 +1958,8 @@ class Broom:
 
     @classmethod
     def is_archive(cls, name: str, archive_format: str) -> bool:
-        return (name.endswith(cls.DOT + archive_format) or
-                name.endswith(cls.DOT + RumarFormat.TAR.value))
+        return (name.endswith('.' + archive_format) or
+                name.endswith('.' + RumarFormat.TAR.value))
 
     @staticmethod
     def is_checksum(name: str) -> bool:
@@ -1970,7 +1968,7 @@ class Broom:
     @classmethod
     def derive_date(cls, name: str) -> date:
         iso_date_string = name[:10]
-        y, m, d = iso_date_string.split(cls.DASH)
+        y, m, d = iso_date_string.split('-')
         return date(int(y), int(m), int(d))
 
     def sweep_all_profiles(self, *, is_dry_run: bool):
