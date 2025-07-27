@@ -2026,7 +2026,6 @@ class BroomDB:
     WEEK_FORMAT = '%Y-%W'  # Monday as the first day of the week, zero-padded
     WEEK_ONLY_FORMAT = '%W'
     MONTH_FORMAT = '%Y-%m'
-    DUNDER = '__'
 
     def __init__(self, profile: str, s: Settings):
         self._profile = profile
