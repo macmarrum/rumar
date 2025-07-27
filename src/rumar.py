@@ -808,6 +808,7 @@ class Rumar:
         self._warnings = []
         self._errors = []
         self._rdb: RumarDB = None  # initiated per profile in _at_beginning to support db_path per profile
+        self._rdb_cache = {}
 
     @staticmethod
     def should_ignore_for_archive(lstat: os.stat_result) -> bool:
@@ -955,7 +956,7 @@ class Rumar:
         self.lstat_cache.clear()
         self._warnings.clear()
         self._errors.clear()
-        self._rdb = RumarDB(self._profile, self.s)
+        self._rdb = RumarDB(self._profile, self.s, self._rdb_cache)
 
     def _at_end(self):
         self._rdb.identify_and_save_deleted()
@@ -1500,16 +1501,16 @@ class RumarDB:
             JOIN profile ON profile_id = profile.id;'''),
         },
     }
-    _profile_to_id = {}
-    _run_to_id = {}
-    _src_dir_to_id = {}
-    _source_to_id = {}
-    _bak_dir_to_id = {}
-    _backup_to_checksum = {}
 
-    def __init__(self, profile: str, s: Settings):
+    def __init__(self, profile: str, s: Settings, cache: dict):
         self._profile = profile
         self.s = s
+        self._profile_to_id = cache.setdefault('profile_to_id', {})
+        self._run_to_id = cache.setdefault('run_to_id', {})
+        self._src_dir_to_id = cache.setdefault('src_dir_to_id', {})
+        self._source_to_id = cache.setdefault('source_to_id', {})
+        self._bak_dir_to_id = cache.setdefault('bak_dir_to_id', {})
+        self._backup_to_checksum = cache.setdefault('backup_to_checksum', {})
         db = sqlite3.connect(s.db_path)
         db.execute('PRAGMA foreign_keys = ON')
         self._db = db

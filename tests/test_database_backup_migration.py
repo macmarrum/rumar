@@ -16,7 +16,7 @@ def set_up_rumardb():
     source_dir = '/path/to/source'
     """)
     profile_to_settings = make_profile_to_settings_from_toml_text(toml_text)
-    rumardb = RumarDB(profile, profile_to_settings[profile])
+    rumardb = RumarDB(profile, profile_to_settings[profile], {})
     db = rumardb._db
     d = dict(
         rumardb=rumardb,
