@@ -2012,9 +2012,13 @@ class Broom:
         rm_action_info = 'would be removed' if is_dry_run else '-- removing'
         for dirname, basename, d, w, m, d_rm, w_rm, m_rm in self._bdb.iter_marked_for_removal():
             path = Path(dirname, basename)
-            logger.info(f"-- {path.as_posix()}  {rm_action_info} because it's #{m_rm} in month {m}, #{w_rm} in week {w}, #{d_rm} in day {d}")
+            path_psx = path.as_posix()
+            logger.info(f"-- {path_psx}  {rm_action_info} because it's #{m_rm} in month {m}, #{w_rm} in week {w}, #{d_rm} in day {d}")
             if not is_dry_run:
-                path.unlink()
+                try:
+                    path.unlink()
+                except OSError as ex:
+                    logger.error(f"** {path_psx}  ** {ex}")
 
 
 class BroomDB:
