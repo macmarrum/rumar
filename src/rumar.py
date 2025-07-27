@@ -1710,7 +1710,7 @@ class RumarDB:
             self._bak_dir_id = bak_dir_id
         return self._bak_dir_id
 
-    def get_src_id(self, relative_p: str, /, create_if_missing=False) -> int | None:
+    def get_src_id(self, relative_p: str, /, *, create_if_missing=False) -> int | None:
         src_path = relative_p
         src_dir_id = self.src_dir_id
         if not (src_id := self._source_to_id.get((src_dir_id, src_path))) and create_if_missing:
