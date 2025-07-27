@@ -1,9 +1,12 @@
 from textwrap import dedent
 
+import pytest
+
 from rumar import make_profile_to_settings_from_toml_text, RumarDB
 
 
-def test_migrate_to_bak_name_and_blob_blake2b():
+@pytest.fixture
+def set_up_rumardb():
     profile = 'profile'
     toml_text = dedent(f"""\
     version = 2
@@ -13,8 +16,34 @@ def test_migrate_to_bak_name_and_blob_blake2b():
     source_dir = '/path/to/source'
     """)
     profile_to_settings = make_profile_to_settings_from_toml_text(toml_text)
-    rumar_db = RumarDB(profile, profile_to_settings[profile])
-    db = rumar_db._db
+    rumardb = RumarDB(profile, profile_to_settings[profile])
+    db = rumardb._db
+    d = dict(
+        rumardb=rumardb,
+        db=db,
+    )
+    yield d
+    db.executescript('''
+        DELETE FROM backup;
+        DELETE FROM backup_base_dir_for_profile;
+        DELETE FROM source_lc;
+        DELETE FROM source;
+        DELETE FROM source_dir;
+        DELETE FROM run;
+        DELETE FROM profile;
+    ''')
+    db.commit()
+    rumardb.close_db()
+    rumardb._profile_to_id.clear()
+    rumardb._run_to_id.clear()
+    rumardb._src_dir_to_id.clear()
+    rumardb._source_to_id.clear()
+    rumardb._bak_dir_to_id.clear()
+    rumardb._backup_to_checksum.clear()
+
+
+def test_migrate_to_bak_name_and_blob_blake2b(set_up_rumardb):
+    db = set_up_rumardb['db']
     cur = db.cursor()
     # Undo creation of the new backup table
     cur.execute('DROP VIEW IF EXISTS v_backup')
@@ -65,20 +94,10 @@ def test_migrate_to_bak_name_and_blob_blake2b():
     columns = {row[1] for row in cur.fetchall()}
     expected_columns = {'id', 'run_id', 'reason', 'bak_dir_id', 'src_id', 'bak_name', 'blake2b', 'del_run_id'}
     assert columns == expected_columns, f"Expected columns {expected_columns}, but got {columns}"
-    db.close()
 
-def test_migrate_to_blob_blake2b():
-    profile = 'profile'
-    toml_text = dedent(f"""\
-    version = 2
-    db_path = ':memory:'
-    backup_base_dir = '/path/to/backup'
-    [{profile}]
-    source_dir = '/path/to/source'
-    """)
-    profile_to_settings = make_profile_to_settings_from_toml_text(toml_text)
-    rumar_db = RumarDB(profile, profile_to_settings[profile])
-    db = rumar_db._db
+
+def test_migrate_to_blob_blake2b(set_up_rumardb):
+    db = set_up_rumardb['db']
     cur = db.cursor()
     # Undo creation of the new backup table
     cur.execute('DROP VIEW IF EXISTS v_backup')
@@ -126,21 +145,10 @@ def test_migrate_to_blob_blake2b():
     columns = {row[1] for row in cur.fetchall()}
     expected_columns = {'id', 'run_id', 'reason', 'bak_dir_id', 'src_id', 'bak_name', 'blake2b', 'del_run_id'}
     assert columns == expected_columns, f"Expected columns {expected_columns}, but got {columns}"
-    db.close()
 
 
-def test_alter_backup_add_del_run_id_if_required():
-    profile = 'profile'
-    toml_text = dedent(f"""\
-    version = 2
-    db_path = ':memory:'
-    backup_base_dir = '/path/to/backup'
-    [{profile}]
-    source_dir = '/path/to/source'
-    """)
-    profile_to_settings = make_profile_to_settings_from_toml_text(toml_text)
-    rumar_db = RumarDB(profile, profile_to_settings[profile])
-    db = rumar_db._db
+def test_alter_backup_add_del_run_id_if_required(set_up_rumardb):
+    db = set_up_rumardb['db']
     cur = db.cursor()
     # Undo creation of the new backup table
     cur.execute('DROP VIEW IF EXISTS v_backup')
@@ -186,24 +194,14 @@ def test_alter_backup_add_del_run_id_if_required():
     columns = {row[1] for row in cur.fetchall()}
     expected_columns = {'id', 'run_id', 'reason', 'bak_dir_id', 'src_id', 'bak_name', 'blake2b', 'del_run_id'}
     assert columns == expected_columns, f"Expected columns {expected_columns}, but got {columns}"
-    db.close()
 
 
-def test_init_source_lc_if_empty():
-    profile = 'profile'
-    toml_text = dedent(f"""\
-    version = 2
-    db_path = ':memory:'
-    backup_base_dir = '/path/to/backup'
-    [{profile}]
-    source_dir = '/path/to/source'
-    """)
-    profile_to_settings = make_profile_to_settings_from_toml_text(toml_text)
-    rumar_db = RumarDB(profile, profile_to_settings[profile])
-    db = rumar_db._db
+def test_init_source_lc_if_empty(set_up_rumardb):
+    rumardb = set_up_rumardb['rumardb']
+    db = set_up_rumardb['db']
     cur = db.cursor()
     # Insert test data
-    cur.executescript(f'''
+    cur.executescript('''
         INSERT INTO profile (id, profile) VALUES (1, 'profile');
         INSERT INTO run (id, run_datetime_iso, profile_id) VALUES (1, '2025-07-23 00:00:01+02:00', 1);
         INSERT INTO backup_base_dir_for_profile (id, bak_dir) VALUES (1, '/path/to/backup/profile');
@@ -217,17 +215,18 @@ def test_init_source_lc_if_empty():
         (2, 1, 'U', 1, 1, '2024-01-01_22,00,00+00,00~2000.tar.gz', X'785a0dc3')
         ''')
     db.commit()
-    rumar_db._load_data_into_memory()
+    rumardb._load_data_into_memory()
     # Perform alter action
-    rumar_db._init_source_lc_if_empty()
+    rumardb._init_source_lc_if_empty()
     # Verify results
     actual = cur.execute('SELECT * FROM source_lc ORDER BY id').fetchall()
     expected = [
-        (1, 1, 'I', rumar_db.run_id),
-        (2, 2, 'I', rumar_db.run_id),
+        (1, 1, 'I', rumardb.run_id),
+        (2, 2, 'I', rumardb.run_id),
     ]
     assert actual == expected
-    for table in ['profile', 'run', 'backup_base_dir_for_profile', 'backup', 'source_dir', 'source', 'source_lc']:
-        print(f"\n{table}:")
-        for row in cur.execute(f"SELECT * FROM {table}"):
-            print(row)
+    # print()
+    # for table in ['profile', 'run', 'backup_base_dir_for_profile', 'backup', 'source_dir', 'source', 'source_lc']:
+    #     print(f"{table}:")
+    #     for row in cur.execute(f"SELECT * FROM {table}"):
+    #         print(row)
