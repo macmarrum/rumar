@@ -252,13 +252,13 @@ def extract(args):
 
 def sweep(args):
     profile_to_settings = make_profile_to_settings_from_toml_path(args.toml)
-    broom = Broom(profile_to_settings)
+    rumar = Rumar(profile_to_settings)
     is_dry_run = args.dry_run or False
     if args.all_profiles:
-        broom.sweep_all_profiles(is_dry_run=is_dry_run)
+        rumar.sweep_all_profiles(is_dry_run=is_dry_run)
     elif args.profile:
         for profile in args.profile:
-            broom.sweep_profile(profile, is_dry_run=is_dry_run)
+            rumar.sweep_profile(profile, is_dry_run=is_dry_run)
 
 
 class RumarFormat(Enum):
@@ -810,6 +810,7 @@ class Rumar:
         self._errors = []
         self._rdb: RumarDB = None  # initiated per profile in _at_beginning to support db_path per profile
         self._rdb_cache = {}
+        self._bdb: BroomDB = None  # initiated per profile in _at_beginning to support db_path per profile
 
     @staticmethod
     def should_ignore_for_archive(lstat: os.stat_result) -> bool:
@@ -958,10 +959,12 @@ class Rumar:
         self._warnings.clear()
         self._errors.clear()
         self._rdb = RumarDB(self._profile, self.s, self._rdb_cache)
+        self._bdb = BroomDB(self._profile, self.s)
 
     def _at_end(self):
         self._rdb.identify_and_save_deleted()
         self._rdb.close_db()
+        self._bdb.close_db()
         self._profile = None  # safeguard so that self.s will complain
         if self._warnings:
             for w in self._warnings:
@@ -1368,6 +1371,72 @@ class Rumar:
                 error = f"archived-file name is different than the archive-container-directory name: {member.name} != {target_file.name}"
                 self._errors.append(error)
                 logger.error(error)
+
+    @classmethod
+    def is_archive(cls, name: str, archive_format: str) -> bool:
+        return (name.endswith('.' + archive_format) or
+                name.endswith('.' + RumarFormat.TAR.value))
+
+    @staticmethod
+    def is_checksum(name: str) -> bool:
+        return name.endswith(Rumar.CHECKSUM_SUFFIX)
+
+    @classmethod
+    def derive_date(cls, name: str) -> date:
+        iso_date_string = name[:10]
+        y, m, d = iso_date_string.split('-')
+        return date(int(y), int(m), int(d))
+
+    def sweep_all_profiles(self, *, is_dry_run: bool):
+        for profile in self._profile_to_settings:
+            self.sweep_profile(profile, is_dry_run=is_dry_run)
+
+    def sweep_profile(self, profile, *, is_dry_run: bool):
+        logger.info(profile)
+        self._at_beginning(profile)
+        s = self._profile_to_settings[profile]
+        if ex := try_to_iterate_dir(s.backup_base_dir_for_profile):
+            logger.warning(f"SKIP {profile} - {ex}")
+            return
+        self.gather_info(s)
+        self.delete_files(is_dry_run)
+        self._at_end()
+
+    def gather_info(self, s: Settings):
+        archive_format = RumarFormat(s.archive_format).value
+        date_older_than_x_days = date.today() - timedelta(days=s.min_age_in_days_of_backups_to_sweep)
+        # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
+        if Command.SWEEP in s.commands_using_filters:
+            iterator = iter_matching_files(Rath(s.backup_base_dir_for_profile, lstat_cache=self.lstat_cache), s)
+            logger.debug(f"{s.commands_using_filters=} => iter_matching_files")
+        else:
+            iterator = iter_all_files(Rath(s.backup_base_dir_for_profile, lstat_cache=self.lstat_cache))
+            logger.debug(f"{s.commands_using_filters=} => iter_all_files")
+        old_enough_file_to_mdate = {}
+        for rath in iterator:
+            if self.is_archive(rath.name, archive_format):
+                mdate = self.derive_date(rath.name)
+                if mdate <= date_older_than_x_days:
+                    old_enough_file_to_mdate[rath] = mdate
+            elif not self.is_checksum(rath.name):
+                logger.warning(f":! {str(rath)}  is unexpected (not an archive)")
+        for rath in sorted_files_by_stem_then_suffix_ignoring_case(old_enough_file_to_mdate):
+            self._bdb.insert(rath, mdate=old_enough_file_to_mdate[rath])
+        self._bdb.commit()
+        self._bdb.update_counts(s)
+
+    def delete_files(self, is_dry_run):
+        logger.log(METHOD_17, f"{is_dry_run=}")
+        rm_action_info = 'would be removed' if is_dry_run else '-- removing'
+        for dirname, basename, d, w, m, d_rm, w_rm, m_rm in self._bdb.iter_marked_for_removal():
+            path = Path(dirname, basename)
+            path_psx = path.as_posix()
+            logger.info(f"-- {path_psx}  {rm_action_info} because it's #{m_rm} in month {m}, #{w_rm} in week {w}, #{d_rm} in day {d}")
+            if not is_dry_run:
+                try:
+                    path.unlink()
+                except OSError as ex:
+                    logger.error(f"** {path_psx}  ** {ex}")
 
 
 def try_to_iterate_dir(path: Path):
@@ -1949,80 +2018,8 @@ def execute(cur: sqlite3.Cursor | sqlite3.Connection, stmt: str, params: tuple |
     return result
 
 
-class Broom:
-
-    def __init__(self, profile_to_settings: ProfileToSettings):
-        self._profile_to_settings = profile_to_settings
-        self._bdb = BroomDB()
-        self.lstat_cache = {}
-
-    @classmethod
-    def is_archive(cls, name: str, archive_format: str) -> bool:
-        return (name.endswith('.' + archive_format) or
-                name.endswith('.' + RumarFormat.TAR.value))
-
-    @staticmethod
-    def is_checksum(name: str) -> bool:
-        return name.endswith(Rumar.CHECKSUM_SUFFIX)
-
-    @classmethod
-    def derive_date(cls, name: str) -> date:
-        iso_date_string = name[:10]
-        y, m, d = iso_date_string.split('-')
-        return date(int(y), int(m), int(d))
-
-    def sweep_all_profiles(self, *, is_dry_run: bool):
-        for profile in self._profile_to_settings:
-            self.sweep_profile(profile, is_dry_run=is_dry_run)
-
-    def sweep_profile(self, profile, *, is_dry_run: bool):
-        logger.info(profile)
-        s = self._profile_to_settings[profile]
-        if ex := try_to_iterate_dir(s.backup_base_dir_for_profile):
-            logger.warning(f"SKIP {profile} - {ex}")
-            return
-        self.gather_info(s)
-        self.delete_files(is_dry_run)
-
-    def gather_info(self, s: Settings):
-        archive_format = RumarFormat(s.archive_format).value
-        date_older_than_x_days = date.today() - timedelta(days=s.min_age_in_days_of_backups_to_sweep)
-        # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
-        if Command.SWEEP in s.commands_using_filters:
-            iterator = iter_matching_files(Rath(s.backup_base_dir_for_profile, lstat_cache=self.lstat_cache), s)
-            logger.debug(f"{s.commands_using_filters=} => iter_matching_files")
-        else:
-            iterator = iter_all_files(Rath(s.backup_base_dir_for_profile, lstat_cache=self.lstat_cache))
-            logger.debug(f"{s.commands_using_filters=} => iter_all_files")
-        old_enough_file_to_mdate = {}
-        for rath in iterator:
-            if self.is_archive(rath.name, archive_format):
-                mdate = self.derive_date(rath.name)
-                if mdate <= date_older_than_x_days:
-                    old_enough_file_to_mdate[rath] = mdate
-            elif not self.is_checksum(rath.name):
-                logger.warning(f":! {str(rath)}  is unexpected (not an archive)")
-        for rath in sorted_files_by_stem_then_suffix_ignoring_case(old_enough_file_to_mdate):
-            self._bdb.insert(rath, mdate=old_enough_file_to_mdate[rath])
-        self._bdb.commit()
-        self._bdb.update_counts(s)
-
-    def delete_files(self, is_dry_run):
-        logger.log(METHOD_17, f"{is_dry_run=}")
-        rm_action_info = 'would be removed' if is_dry_run else '-- removing'
-        for dirname, basename, d, w, m, d_rm, w_rm, m_rm in self._bdb.iter_marked_for_removal():
-            path = Path(dirname, basename)
-            path_psx = path.as_posix()
-            logger.info(f"-- {path_psx}  {rm_action_info} because it's #{m_rm} in month {m}, #{w_rm} in week {w}, #{d_rm} in day {d}")
-            if not is_dry_run:
-                try:
-                    path.unlink()
-                except OSError as ex:
-                    logger.error(f"** {path_psx}  ** {ex}")
-
-
 class BroomDB:
-    DATABASE = me.with_suffix('.sqlite') if logger.level <= logging.DEBUG else ':memory:'
+    DATABASE = ''  # a temporary file - like :memory: but might be flushed to disk if the database becomes large or if SQLite comes under memory pressure
     TABLE_PREFIX = 'broom'
     TABLE_DT_FRMT = '_%Y%m%d_%H%M%S'
     DATE_FORMAT = '%Y-%m-%d'
@@ -2031,10 +2028,16 @@ class BroomDB:
     MONTH_FORMAT = '%Y-%m'
     DUNDER = '__'
 
-    def __init__(self):
-        self._db = sqlite3.connect(self.DATABASE)
+    def __init__(self, profile: str, s: Settings):
+        self._profile = profile
+        self.s = s
+        if logger.level <= logging.DEBUG:
+            database_file = s.db_path.with_name(f"{s.db_path.stem}-broom{s.db_path.suffix}")
+        else:
+            database_file = BroomDB.DATABASE
+        self._db = sqlite3.connect(database_file)
         self._table = f"{self.TABLE_PREFIX}{datetime.now().strftime(self.TABLE_DT_FRMT)}"
-        logger.debug(f"{self.DATABASE} | {self._table}")
+        logger.debug(f"{database_file} | {self._table}")
         self._create_table_if_not_exists()
 
     @classmethod
@@ -2087,6 +2090,9 @@ class BroomDB:
 
     def commit(self):
         self._db.commit()
+
+    def close_db(self):
+        self._db.close()
 
     def update_counts(self, s: Settings):
         self._create_indexes_if_not_exist()
