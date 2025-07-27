@@ -1682,8 +1682,6 @@ class RumarDB:
             if not (run_id := self._run_to_id.get((profile_id, run_datetime_iso))):
                 execute(self._cur, 'INSERT INTO run (profile_id, run_datetime_iso) VALUES (?,?)', (profile_id, run_datetime_iso))
                 run_id = execute(self._cur, 'SELECT max(id) FROM run').fetchone()[0]
-                if run_id in self._run_to_id.values():
-                    raise RuntimeError(f"run_id {run_id} already exists in _run_to_id, although no longer in SQLite: {self._run_to_id}")
                 self._run_to_id[(profile_id, run_datetime_iso)] = run_id
             self._run_id = run_id
         return self._run_id
