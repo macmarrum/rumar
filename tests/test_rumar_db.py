@@ -99,11 +99,14 @@ def set_up_rumar():
         data=dict(reason=reasons, relative_p=relative_ps, archive_path=archive_paths, checksum=checksums),
     )
     yield d
-    rumar._at_end()
-    # moved to the set-up part so that the directory can be inspected manually after the tests
-    # if BASE.exists():
-    #     shutil.rmtree(BASE)
-    # Rather.BASE_PATH = None
+    rumar.lstat_cache.clear()
+    rumardb.close_db()
+    rumardb._profile_to_id.clear()
+    rumardb._run_to_id.clear()
+    rumardb._src_dir_to_id.clear()
+    rumardb._source_to_id.clear()
+    rumardb._bak_dir_to_id.clear()
+    rumardb._backup_to_checksum.clear()
 
 
 class TestRumarDB:

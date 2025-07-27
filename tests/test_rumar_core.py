@@ -9,7 +9,7 @@ from textwrap import dedent
 import pytest
 
 from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, iter_matching_files, is_dir_matching_top_dirs, derive_relative_p, CreateReason, compute_blake2b_checksum
-from utils import Rather, eq_list, _path_to_lstat_
+from utils import Rather, eq_list
 
 
 @pytest.fixture(scope='class')
@@ -25,8 +25,14 @@ def set_up_rumar():
     source_dir = '{BASE}/{profile}'
     """)
     profile_to_settings = make_profile_to_settings_from_toml_text(toml)
+    s = profile_to_settings[profile]
+    if BASE.exists():
+        shutil.rmtree(BASE)
+    if 'memory' not in s.db_path:
+        BASE.mkdir(parents=True)
     rumar = Rumar(profile_to_settings)
     rumar._at_beginning(profile)
+    rumardb = rumar._rdb
     fs_paths = [
         f"/{profile}/file01.txt",
         f"/{profile}/file02.txt",
@@ -60,10 +66,14 @@ def set_up_rumar():
         raths=raths,
     )
     yield d
-    if BASE.exists():
-        shutil.rmtree(BASE)
-    Rather.BASE_PATH = None
-    _path_to_lstat_.clear()
+    rumar.lstat_cache.clear()
+    rumardb.close_db()
+    rumardb._profile_to_id.clear()
+    rumardb._run_to_id.clear()
+    rumardb._src_dir_to_id.clear()
+    rumardb._source_to_id.clear()
+    rumardb._bak_dir_to_id.clear()
+    rumardb._backup_to_checksum.clear()
 
 
 class TestRumarCore:
