@@ -52,7 +52,7 @@ def test_migrate_to_bak_name_and_blob_blake2b(set_up_rumardb):
     # Create the old backup table and dummy views
     cur.executescript('''
         CREATE TABLE backup (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER PRIMARY KEY, 
             run_id INTEGER NOT NULL REFERENCES run (id),
             reason TEXT NOT NULL,
             bak_dir_id INTEGER NOT NULL REFERENCES backup_base_dir_for_profile (id),
@@ -79,6 +79,7 @@ def test_migrate_to_bak_name_and_blob_blake2b(set_up_rumardb):
         (1, 1, 'C', 1, 1, 'subdir/file.txt/2024-01-01_11,00,00+00,00~1000.tar.gz', '2024-01-01T11:00:00+00:00', 1000, '626ea9f0'),
         (2, 1, 'U', 1, 1, 'subdir/file.txt/2024-01-01_22,00,00+00,00~2000.tar.gz', '2024-01-01T22,00,00+00,00', 2000, '785a0dc3')
     ''')
+    db.commit()
     # Perform migration
     RumarDB._migrate_to_bak_name_and_blob_blake2b(db)
     # Verify results

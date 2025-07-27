@@ -1673,17 +1673,21 @@ class RumarDB:
 
     @classmethod
     def _migrate_to_blob_blake2b_if_required(cls, db):
+        backup_exists = False
         blob_blake2b_exists = False
-        for _ in db.execute('''SELECT 1 FROM pragma_table_info('backup') WHERE name = 'blake2b' AND "type" = 'BLOB';'''):
-            blob_blake2b_exists = True
-        if not blob_blake2b_exists:
+        for row in db.execute('''SELECT name, type FROM pragma_table_info('backup');'''):
+            backup_exists = True
+            if row[0] == 'blake2b' and row[1] == 'BLOB':
+                blob_blake2b_exists = True
+                break
+        if backup_exists and not blob_blake2b_exists:
             cls._migrate_to_blob_blake2b(db)
 
     @classmethod
     def _migrate_to_blob_blake2b(cls, db):
         cur = db.cursor()
         cur.execute('ALTER TABLE backup ADD blake2b_bin BLOB')
-        for row in db.execute('SELECT id, blake2b FROM backup'):
+        for row in db.execute('SELECT id, blake2b FROM backup WHERE blake2b IS NOT NULL'):
             id_ = row[0]
             blake2b_as_bytes = bytes.fromhex(row[1]) if row[1] else None
             cur.execute('UPDATE backup SET blake2b_bin = ? WHERE id = ?', (blake2b_as_bytes, id_,))
