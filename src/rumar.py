@@ -1931,7 +1931,7 @@ class RumarDB:
                 self._db.commit()
                 found = True
         if not found:
-            logger.error(f"{params[1:]} not found in the database: {self.s.db_path}")
+            logger.warning(f"{params[1:]} not found in the database: {self.s.db_path}")
 
 
 def execute(cur: sqlite3.Cursor | sqlite3.Connection, stmt: str, params: tuple | None = None, log=logger.debug):
