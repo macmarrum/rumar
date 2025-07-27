@@ -967,7 +967,6 @@ class Rumar:
         if self._errors:
             for e in self._errors:
                 logger.error(e)
-        self._rdb.close()
 
     def _get_archive_checksum(self, archive_path: Path):
         """Gets checksum from .b2 file or from RumarDB. Removes .b2 if zero-size"""
@@ -1644,8 +1643,8 @@ class RumarDB:
     def _load_data_into_memory(self):
         for profile, id_ in execute(self._cur, 'SELECT profile, id FROM profile'):
             self._profile_to_id[profile] = id_
-        for run_datetime_iso, id_ in execute(self._cur, 'SELECT run_datetime_iso, id FROM run'):
-            self._run_to_id[run_datetime_iso] = id_
+        for profile_id, run_datetime_iso, id_ in execute(self._cur, 'SELECT profile_id, run_datetime_iso, id FROM run'):
+            self._run_to_id[(profile_id, run_datetime_iso)] = id_
         for src_dir, id_ in execute(self._cur, 'SELECT src_dir, id FROM source_dir'):
             self._src_dir_to_id[src_dir] = id_
         for src_dir_id, src_path, id_ in execute(self._cur, 'SELECT src_dir_id, src_path, id FROM source'):
@@ -1684,7 +1683,7 @@ class RumarDB:
                 execute(self._cur, 'INSERT INTO run (profile_id, run_datetime_iso) VALUES (?,?)', (profile_id, run_datetime_iso))
                 run_id = execute(self._cur, 'SELECT max(id) FROM run').fetchone()[0]
                 if run_id in self._run_to_id.values():
-                    raise RuntimeError(f'run_id {run_id} already exists in _run_to_id, although no longer in SQLite')
+                    raise RuntimeError(f"run_id {run_id} already exists in _run_to_id, although no longer in SQLite: {self._run_to_id}")
                 self._run_to_id[(profile_id, run_datetime_iso)] = run_id
             self._run_id = run_id
         return self._run_id
@@ -1849,9 +1848,6 @@ class RumarDB:
         self._db.execute('UPDATE backup SET blake2b = ? WHERE bak_dir_id = ? AND src_id = ? AND bak_name = ?', (blake2b_checksum, bak_dir_id, src_id, bak_name))
         self._db.commit()
         self._backup_to_checksum[key] = blake2b_checksum
-
-    def close(self):
-        self._db.close()
 
     def is_run_present(self, run_datetime_iso):
         return run_datetime_iso in self._run_to_id
