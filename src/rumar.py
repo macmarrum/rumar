@@ -455,6 +455,8 @@ class Settings:
             pass
         if self.db_path is None:
             self.db_path = self.backup_base_dir / RUMAR_SQLITE
+        elif isinstance(self.db_path, str) and self.db_path not in [':memory:', '']:
+            self.db_path = Path(self.db_path)
 
     def _setify(self, attribute_name: str):
         attr = getattr(self, attribute_name)
@@ -2038,7 +2040,7 @@ class BroomDB:
         self._profile = profile
         self.s = s
         if logger.level <= logging.DEBUG:
-            database_file = s.db_path.with_name(f"{s.db_path.stem}-broom{s.db_path.suffix}")
+            database_file = s.db_path.with_name(f"{s.db_path.stem}-broom{s.db_path.suffix}") if isinstance(s.db_path, Path) else s.db_path
         else:
             database_file = BroomDB.DATABASE
         self._db = sqlite3.connect(database_file)
