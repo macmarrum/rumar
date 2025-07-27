@@ -1955,7 +1955,7 @@ class Broom:
 
     def __init__(self, profile_to_settings: ProfileToSettings):
         self._profile_to_settings = profile_to_settings
-        self._db = BroomDB()
+        self._bdb = BroomDB()
         self._path_to_lstat = {}
 
     @classmethod
@@ -2005,14 +2005,14 @@ class Broom:
             elif not self.is_checksum(rath.name):
                 logger.warning(f":! {str(rath)}  is unexpected (not an archive)")
         for rath in sorted_files_by_stem_then_suffix_ignoring_case(old_enough_file_to_mdate):
-            self._db.insert(rath, mdate=old_enough_file_to_mdate[rath])
-        self._db.commit()
-        self._db.update_counts(s)
+            self._bdb.insert(rath, mdate=old_enough_file_to_mdate[rath])
+        self._bdb.commit()
+        self._bdb.update_counts(s)
 
     def delete_files(self, is_dry_run):
         logger.log(METHOD_17, f"{is_dry_run=}")
         rm_action_info = 'would be removed' if is_dry_run else '-- removing'
-        for dirname, basename, d, w, m, d_rm, w_rm, m_rm in self._db.iter_marked_for_removal():
+        for dirname, basename, d, w, m, d_rm, w_rm, m_rm in self._bdb.iter_marked_for_removal():
             path = Path(dirname, basename)
             logger.info(f"-- {path.as_posix()}  {rm_action_info} because it's #{m_rm} in month {m}, #{w_rm} in week {w}, #{d_rm} in day {d}")
             if not is_dry_run:
