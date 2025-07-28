@@ -1440,6 +1440,8 @@ class Rumar:
                     path.unlink()
                 except OSError as ex:
                     logger.error(f"** {path_psx}  ** {ex}")
+                else:
+                    self._rdb.mark_backup_as_deleted(path)
 
 
 def try_to_iterate_dir(path: Path):
