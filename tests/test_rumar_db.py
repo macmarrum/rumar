@@ -13,28 +13,27 @@ from utils import Rather
 
 @pytest.fixture(scope='class')
 def set_up_rumar():
-    BASE = Path('/tmp/rumar')
-    Rather.BASE_PATH = BASE
+    BASE_PATH = Path('/tmp/rumar')
+    Rather.BASE_PATH = BASE_PATH
     profile = 'profileA'
     toml = dedent(f"""\
     version = 2
     db_path = ':memory:'
-    # db_path = 'file:mem{id(BASE)}?mode=memory&cache=shared'
-    backup_base_dir = '{BASE}/backup'
+    backup_base_dir = '{BASE_PATH}/backup'
     [{profile}]
-    source_dir = '{BASE}/{profile}'
+    source_dir = '{BASE_PATH}/{profile}'
     """)
     profile_to_settings = make_profile_to_settings_from_toml_text(toml)
-    # clean up any existing BASE tree
-    if BASE.exists():
-        shutil.rmtree(BASE)
+    # clean up any existing BASE_PATH tree
+    if BASE_PATH.exists():
+        shutil.rmtree(BASE_PATH)
     s = profile_to_settings[profile]
-    assert s.backup_base_dir_for_profile == BASE / 'backup' / profile
-    if 'memory' not in s.db_path:
+    assert s.backup_base_dir_for_profile == BASE_PATH / 'backup' / profile
+    if 'memory' not in str(s.db_path):
         s.db_path.parent.mkdir(parents=True, exist_ok=True)
     rumar = Rumar(profile_to_settings)
     rumar._at_beginning(profile)
-    assert rumar.s.backup_base_dir_for_profile == BASE / 'backup' / profile
+    assert rumar.s.backup_base_dir_for_profile == BASE_PATH / 'backup' / profile
     rumardb = rumar._rdb
     fs_paths = [
         f"/{profile}/file01.txt",
@@ -61,18 +60,22 @@ def set_up_rumar():
     raths = [r.as_rath() for r in rathers]
     reasons: list[CreateReason] = []
     relative_ps: list[str] = []
-    archive_paths: list[Path] = []
+    archive_rathers: list[Rather] = []
     checksums: list[str] = []
     reason = CreateReason.CREATE
+    Rather.BASE_PATH = None
     for rather in rathers:
         relative_p = derive_relative_p(rather, rumar.s.source_dir)
         archive_dir = rumar.compose_archive_container_dir(relative_p=relative_p)
-        archive_path = rumar.compose_archive_path(archive_dir, rumar.calc_mtime_str(rather.lstat()), rather.lstat().st_size)
+        lstat = rather.lstat()
+        archive_path = rumar.compose_archive_path(archive_dir, rumar.calc_mtime_str(lstat), lstat.st_size)
+        archive_rather = Rather(archive_path, lstat_cache=rumar.lstat_cache, mtime=lstat.st_mtime, content='x' * lstat.st_size)
         reasons.append(reason)
         relative_ps.append(relative_p)
-        archive_paths.append(archive_path)
+        archive_rathers.append(archive_rather)
         checksums.append(rather.checksum)
-        rumardb.save(reason, relative_p, archive_path, rather.checksum)
+        rumardb.save(reason, relative_p, archive_rather, rather.checksum)
+    Rather.BASE_PATH = BASE_PATH
     # db = rumardb._db
     # print("\n### Database Tables ###")
     # for table, dictionary in [
@@ -90,13 +93,14 @@ def set_up_rumar():
     #     for items in getattr(rumardb, dictionary).items():
     #         print(items)
     d = dict(
+        BASE_PATH=BASE_PATH,
         profile=profile,
         profile_to_settings=profile_to_settings,
         rumar=rumar,
         rumardb=rumardb,
         rathers=rathers,
         raths=raths,
-        data=dict(reason=reasons, relative_p=relative_ps, archive_path=archive_paths, checksum=checksums),
+        data=dict(reason=reasons, relative_ps=relative_ps, archive_rathers=archive_rathers, checksums=checksums),
     )
     yield d
     rumar.lstat_cache.clear()
@@ -119,9 +123,9 @@ class TestRumarDB:
         bak_dir = rumar.s.backup_base_dir_for_profile.as_posix()
         for i, actual in enumerate(db.execute('SELECT profile, reason, bak_dir, src_path, bak_name, blake2b FROM v_backup')):
             reason: CreateReason = data['reason'][i]
-            relative_p = data['relative_p'][i]
-            archive_path: Path = data['archive_path'][i]
-            blake2b = data['checksum'][i]  # bytes | None
+            relative_p = data['relative_ps'][i]
+            archive_path: Path = data['archive_rathers'][i]
+            blake2b = data['checksums'][i]  # bytes | None
             if blake2b is not None:
                 blake2b = blake2b.hex()  # str
             assert actual == (rumar.s.profile, reason.name[0], bak_dir, relative_p, archive_path.name, blake2b)
@@ -130,18 +134,18 @@ class TestRumarDB:
         d = set_up_rumar
         rumardb = d['rumardb']
         data = d['data']
-        archive_paths = data['archive_path']
-        checksums = data['checksum']
+        archive_rathers = data['archive_rathers']
+        checksums = data['checksums']
         for i in range(len(checksums)):
-            assert checksums[i] == rumardb.get_blake2b_checksum(archive_paths[i])
+            assert checksums[i] == rumardb.get_blake2b_checksum(archive_rathers[i])
 
     def test_set_blake2b_checksum_when_not_yet_in_backup(self, set_up_rumar):
         d = set_up_rumar
         data = d['data']
         rumardb = d['rumardb']
         db = rumardb._db
-        archive_path = data['archive_path'][0]
-        relative_p = data['relative_p'][0]
+        archive_path = data['archive_rathers'][0]
+        relative_p = data['relative_ps'][0]
         # verify in RumarDB the initial state of checksum is NULL
         assert (src_id := rumardb.get_src_id(relative_p)) is not None
         assert rumardb._backup_to_checksum[(rumardb.bak_dir_id, src_id, archive_path.name)] is None
@@ -158,7 +162,7 @@ class TestRumarDB:
         d = set_up_rumar
         data = d['data']
         rumardb = d['rumardb']
-        archive_path = data['archive_path'][1]
+        archive_path = data['archive_rathers'][1]
         rx_already_in_backup = re.compile(r'.+ already in backup with a different blake2b_checksum: .+')
         input_checksum = bytes.fromhex('b2c3d4e5')
         with pytest.raises(ValueError, match=rx_already_in_backup):
@@ -169,8 +173,8 @@ class TestRumarDB:
         rumardb = d['rumardb']
         raths = d['raths']
         data = d['data']
-        archive_paths = data['archive_path']
-        expected = list(zip(archive_paths, raths))
+        archive_rathers = data['archive_rathers']
+        expected = list(zip(archive_rathers, raths))
         actual = list(rumardb.iter_latest_archives_and_targets())
         assert actual == expected
 
@@ -179,12 +183,12 @@ class TestRumarDB:
         rumardb = d['rumardb']
         raths = d['raths']
         data = d['data']
-        archive_paths = data['archive_path']
+        archive_rathers = data['archive_rathers']
         directory = Path('/tmp/a-different-directory')
         targets = []
-        for relative_p in data['relative_p']:
+        for relative_p in data['relative_ps']:
             targets.append(directory / relative_p)
-        expected = list(zip(archive_paths, targets))
+        expected = list(zip(archive_rathers, targets))
         actual = list(rumardb.iter_latest_archives_and_targets(directory=directory))
         assert actual == expected
 
@@ -194,9 +198,9 @@ class TestRumarDB:
         rumardb = d['rumardb']
         raths = d['raths']
         data = d['data']
-        archive_paths = data['archive_path']
+        archive_rathers = data['archive_rathers']
         top_archive_dir = Path(rumar.s.backup_base_dir_for_profile, 'A')
-        expected = [(a, t) for (a, t) in zip(archive_paths, raths) if a.as_posix().startswith(top_archive_dir.as_posix())]
+        expected = [(a, t) for (a, t) in zip(archive_rathers, raths) if a.as_posix().startswith(top_archive_dir.as_posix())]
         actual = list(rumardb.iter_latest_archives_and_targets(top_archive_dir=top_archive_dir))
         assert actual == expected
 
@@ -206,7 +210,7 @@ class TestRumarDB:
         rumardb = d['rumardb']
         rathers = d['rathers']
         data = d['data']
-        archive_paths = data['archive_path']
+        archive_rathers = data['archive_rathers']
         # mark source file #1 as deleted
         src_id = 1
         rumardb.init_run_datetime_iso_anew()
@@ -217,15 +221,18 @@ class TestRumarDB:
         i = 1
         rather = rathers[i]
         rather.content = rather.content + '\n' + rumardb._run_datetime_iso
-        updated_archive_path1 = rumar.compose_archive_path(archive_paths[i].parent, rumar.calc_mtime_str(rather.lstat()), rather.lstat().st_size)
-        rumardb.save(CreateReason.UPDATE, data['relative_p'][i], updated_archive_path1, rather.checksum)
+        updated_archive_path1 = rumar.compose_archive_path(archive_rathers[i].parent, rumar.calc_mtime_str(rather.lstat()), rather.lstat().st_size)
+        rumardb.save(CreateReason.UPDATE, data['relative_ps'][i], updated_archive_path1, rather.checksum)
         # mark backup file #2 (index 1) as deleted, so that a previous backup is used
-        rumardb.save(CreateReason.DELETE, data['relative_p'][i], None, None)
+        rumardb.mark_backup_as_deleted(archive_rathers[i])
         # verify
-        updated_archive_paths = [updated_archive_path1, *archive_paths[2:]]
-        expected = list(zip(updated_archive_paths, rathers[1:]))
+        updated_archive_rathers = [updated_archive_path1, *archive_rathers[2:]]
+        expected = list(zip(updated_archive_rathers, rathers[1:]))
         actual = list(rumardb.iter_latest_archives_and_targets())
         assert actual == expected
+        # clean up
+        db.execute('UPDATE backup SET del_run_id = NULL')
+        db.commit()
 
     def test_save_unchanged(self, set_up_rumar):
         d = set_up_rumar
@@ -237,7 +244,7 @@ class TestRumarDB:
         assert actual_unchanged_rows_count == 0
         # call save_unchanged and verify it's been persisted in the DB
         expected_unchanged = []
-        relative_ps = data['relative_p']
+        relative_ps = data['relative_ps']
         for i, relative_p in enumerate(relative_ps):
             if i % 3 == 0:
                 rumardb.save_unchanged(relative_p)
@@ -265,8 +272,8 @@ class TestRumarDB:
         d = set_up_rumar
         rathers = d['rathers']
         data = d['data']
-        relative_ps = data['relative_p']
-        archive_paths = data['archive_path']
+        relative_ps = data['relative_ps']
+        archive_rathers = data['archive_rathers']
         rumardb = d['rumardb']
         rumar = d['rumar']
         db = rumardb._db
@@ -275,9 +282,14 @@ class TestRumarDB:
         # update rather
         rather = rathers[1]
         rather.content = rather.content + '\n' + rumardb._run_datetime_iso
-        archive_dir = archive_paths[1].parent
+        archive_dir = archive_rathers[1].parent
         archive_path = rumar.compose_archive_path(archive_dir, rumar.calc_mtime_str(rather.lstat()), rather.lstat().st_size)
         rumardb.save(CreateReason.UPDATE, relative_ps[1], archive_path, rather.checksum)
+        # update d for next tests
+        d['rathers'][1] = rather
+        Rather.BASE_PATH = None
+        data['archive_rathers'][1] = Rather(archive_path, lstat_cache=rumar.lstat_cache, mtime=rather.lstat().st_mtime, content=rather.content)
+        Rather.BASE_PATH = d['BASE_PATH']
         # mark unchanged files
         input_not_unchanged = []
         expected_unchanged = []
@@ -307,3 +319,21 @@ class TestRumarDB:
         # clean up for next tests
         db.execute('DELETE FROM unchanged')
         assert actual_deleted == expected_deleted
+
+    def test_iter_non_deleted_archive_paths(self, set_up_rumar):
+        d = set_up_rumar
+        data = d['data']
+        rumardb = d['rumardb']
+        db = rumardb._db
+        archive_rathers = data['archive_rathers']
+        expected = []
+        for i, archive_rather in enumerate(archive_rathers):
+            if i % 3 == 0:
+                rumardb.mark_backup_as_deleted(archive_rather)
+            else:
+                expected.append(archive_rather.as_path())
+        actual = list(rumardb.iter_non_deleted_archive_paths())
+        assert actual == expected
+        # clean up
+        db.execute('UPDATE backup SET del_run_id = NULL')
+        db.commit()
