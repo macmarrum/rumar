@@ -1616,8 +1616,7 @@ class RumarDB:
     def init_run_datetime_iso_anew(self):
         """Generate self._run_datetime_iso making sure it's unique.\n
         Set self._run_id to None, so that self.run_id creates a new value."""
-        existing_run_datetime_iso_set = set(tpl[1] for tpl in self._run_to_id)
-        while (run_datetime_iso := self.make_run_datetime_iso()) in existing_run_datetime_iso_set:
+        while self.is_run_present(run_datetime_iso := self.make_run_datetime_iso()):
             sleep(0.25)
         self._run_datetime_iso = run_datetime_iso
         self._run_id = None
@@ -1937,7 +1936,10 @@ class RumarDB:
         self._backup_to_checksum[key] = blake2b_checksum
 
     def is_run_present(self, run_datetime_iso):
-        return run_datetime_iso in self._run_to_id
+        for _, _run_datetime_iso in self._run_to_id:
+            if _run_datetime_iso == run_datetime_iso:
+                return True
+        return False
 
     def get_run_datetime_isos(self, profile: str = None):
         where = f"WHERE profile = '{profile}'" if profile else ''
