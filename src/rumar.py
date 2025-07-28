@@ -1977,7 +1977,7 @@ class RumarDB:
             SELECT max(b.id) id
             FROM backup b
             JOIN run r ON b.run_id = r.id AND r.profile_id = ?
-            AND b.reason != ?  -- exclude deleted backup files
+            AND b.del_run_id IS NULL  -- exclude deleted backup files
             GROUP BY b.src_id
         ) x ON b.id = x.id
         WHERE NOT EXISTS ( -- ignore src files whose latest version is deleted
@@ -1989,7 +1989,7 @@ class RumarDB:
         );''')
         top_archive_dir_psx = top_archive_dir.as_posix() if top_archive_dir else 'None'
         reason_d = CreateReason.DELETE.name[0]
-        for row in execute(self._cur, query, (self.profile_id, reason_d, reason_d,)):
+        for row in execute(self._cur, query, (self.profile_id, reason_d,)):
             bak_dir, src_path, bak_name, src_dir = row
             if top_archive_dir and not f"{bak_dir}/{src_path}".startswith(top_archive_dir_psx):
                 continue
