@@ -2039,10 +2039,10 @@ class BroomDB:
     def __init__(self, profile: str, s: Settings):
         self._profile = profile
         self.s = s
-        if logger.level <= logging.DEBUG:
-            database_file = s.db_path.with_name(f"{s.db_path.stem}-broom{s.db_path.suffix}") if isinstance(s.db_path, Path) else s.db_path
-        else:
+        if logger.level > logging.DEBUG:
             database_file = BroomDB.DATABASE
+        else:  # create a separate broom-database file for debugging purposes or use rumar-database file
+            database_file = s.db_path.with_name(f"{s.db_path.stem}-broom{s.db_path.suffix}") if isinstance(s.db_path, Path) else s.db_path
         self._db = sqlite3.connect(database_file)
         self._table = f"{self.TABLE_PREFIX}{datetime.now().strftime(self.TABLE_DT_FRMT)}"
         logger.debug(f"{database_file} | {self._table}")
