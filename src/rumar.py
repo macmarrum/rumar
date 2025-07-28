@@ -1997,10 +1997,9 @@ class RumarDB:
             yield Path(bak_dir, src_path, bak_name), _directory / src_path
 
     def mark_backup_as_deleted(self, archive_path: Path):
-        # by using self.src_dir_id it's assumed source_dir was the same at the time the archive was created as it is now
-        src_path = derive_relative_p(archive_path.parent, self.s.source_dir)
-        src_id = self._source_to_id[(self.src_dir_id, src_path)]
-        # by using self.bak_dir_id it's assumed backup_base_dir_for_profile was the same at the time the archive was created as it is now
+        archive_dir = archive_path.parent
+        relative_p = derive_relative_p(archive_dir, self.s.backup_base_dir_for_profile)
+        src_id = self._source_to_id[(self.src_dir_id, relative_p)]
         params = (self.run_id, self.bak_dir_id, src_id, archive_path.name)
         found = False
         if src_id:
