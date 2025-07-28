@@ -1291,6 +1291,12 @@ class Rumar:
         logger.info(f":  {answer=}  {target}")
         return answer in ['y', 'Y']
 
+    def reconcile_backup_files_with_disk_and_mark_missing_as_deleted(self):
+        for archive_path in self._rdb.iter_non_deleted_archive_paths():
+            print('a>', archive_path)
+            if not archive_path.exists():
+                self._rdb.mark_backup_as_deleted(archive_path)
+
     def extract_latest_file_on_disk(self, backup_base_dir_for_profile, archive_dir: Path, directory: Path, overwrite: bool, meta_diff: bool,
                                     filenames: list[str] | None = None, archive_file: Path | None = None):
         if archive_file is None:

@@ -18,7 +18,7 @@ def set_up_rumar():
     profile = 'profileA'
     toml = dedent(f"""\
     version = 2
-    db_path = ':memory:'
+    #db_path = ':memory:'
     backup_base_dir = '{BASE_PATH}/backup'
     [{profile}]
     source_dir = '{BASE_PATH}/{profile}'
@@ -334,6 +334,49 @@ class TestRumarDB:
                 expected.append(archive_rather.as_path())
         actual = list(rumardb.iter_non_deleted_archive_paths())
         assert actual == expected
+        # clean up
+        db.execute('UPDATE backup SET del_run_id = NULL')
+        db.commit()
+
+    def test_reconcile_backup_files_with_disk_and_mark_missing_as_deleted(self, set_up_rumar):
+        d = set_up_rumar
+        data = d['data']
+        rumar = d['rumar']
+        rumardb = d['rumardb']
+        db = rumardb._db
+        # make only every 3rd archive_rather
+        expected_deleted = []
+        expected_intact = []
+        for i, archive_rather in enumerate(data['archive_rathers']):
+            if i % 3 == 0:
+                print('++', archive_rather.make())
+                expected_intact.append(archive_rather.as_path())
+            else:
+                expected_deleted.append(archive_rather.as_path())
+        # run the method under test
+        rumar.reconcile_backup_files_with_disk_and_mark_missing_as_deleted()
+        # get the data for validation
+        actual_deleted = []
+        actual_intact = []
+        query = dedent('''\
+        SELECT bak_dir, src_path, bak_name, del_run_id
+        FROM backup b
+        JOIN backup_base_dir_for_profile p ON b.bak_dir_id = p.id
+        JOIN source s ON b.src_id = s.id
+        JOIN run r ON b.run_id = r.id AND r.profile_id = ?
+        ''')
+        run_id = rumardb.run_id
+        for i, row in enumerate(db.execute(query, (rumardb.profile_id,))):
+            # print('a>', row)
+            bak_dir, src_path, bak_name, del_run_id = row
+            archive_path = Path(bak_dir, src_path, bak_name)
+            if del_run_id:
+                assert del_run_id == run_id
+                actual_deleted.append(archive_path)
+            else:
+                actual_intact.append(archive_path)
+        assert actual_intact == expected_intact
+        assert actual_deleted == expected_deleted
         # clean up
         db.execute('UPDATE backup SET del_run_id = NULL')
         db.commit()
