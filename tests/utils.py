@@ -89,6 +89,9 @@ class Rather(Rath):
     def as_rath(self):
         return Rath(self, lstat_cache=self.lstat_cache)
 
+    def as_path(self):
+        return Path(self)
+
     @property
     def checksum(self) -> bytes | None:
         if self._checksum is Rather.NONE:
