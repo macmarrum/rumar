@@ -2013,6 +2013,17 @@ class RumarDB:
         if not found:
             logger.warning(f"{params[1:]} not found in the database: {self.s.db_path}")
 
+    def iter_non_deleted_archive_paths(self):
+        query = dedent('''\
+        SELECT bd.bak_dir, s.src_path, b.bak_name
+        FROM backup b
+        JOIN backup_base_dir_for_profile bd ON b.bak_dir_id = bd.id
+        JOIN "source" s ON b.src_id = s.id
+        JOIN run r ON b.run_id = r.id AND r.profile_id = ?
+        WHERE del_run_id IS NULL;''')
+        for row in execute(self._cur, query, (self.profile_id,)):
+            yield Path(*row)
+
 
 def execute(cur: sqlite3.Cursor | sqlite3.Connection, stmt: str, params: tuple | None = None, log=logger.debug):
     if params:
