@@ -2003,13 +2003,14 @@ class RumarDB:
         params = (self.run_id, self.bak_dir_id, src_id, archive_path.name)
         found = False
         if src_id:
-            execute(self._cur, dedent('''\
+            execute(cur := self._db.cursor(), dedent('''\
                 UPDATE backup
                 SET del_run_id = ?
                 WHERE bak_dir_id = ? AND src_id = ? AND bak_name = ?;'''), params)
-            if self._cur.rowcount > 0:
+            if cur.rowcount > 0:
                 self._db.commit()
                 found = True
+            cur.close()
         if not found:
             logger.warning(f"{params[1:]} not found in the database: {self.s.db_path}")
 
