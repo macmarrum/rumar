@@ -1401,11 +1401,11 @@ class Rumar:
         if ex := try_to_iterate_dir(s.backup_base_dir_for_profile):
             logger.warning(f"SKIP {profile} - {ex}")
             return
-        self.gather_info(s)
-        self.delete_files(is_dry_run)
+        self.scan_disk_and_mark_archive_files_for_deletion(s)
+        self.delete_marked_archive_files(is_dry_run)
         self._at_end(of_sweep=True)
 
-    def gather_info(self, s: Settings):
+    def scan_disk_and_mark_archive_files_for_deletion(self, s: Settings):
         archive_format = RumarFormat(s.archive_format).value
         date_older_than_x_days = date.today() - timedelta(days=s.min_age_in_days_of_backups_to_sweep)
         # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
@@ -1428,7 +1428,7 @@ class Rumar:
         self._bdb.commit()
         self._bdb.update_counts(s)
 
-    def delete_files(self, is_dry_run):
+    def delete_marked_archive_files(self, is_dry_run):
         logger.log(METHOD_17, f"{is_dry_run=}")
         rm_action_info = 'would be removed' if is_dry_run else '-- removing'
         for dirname, basename, d, w, m, d_rm, w_rm, m_rm in self._bdb.iter_marked_for_removal():
