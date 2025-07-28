@@ -963,8 +963,9 @@ class Rumar:
         self._rdb = RumarDB(self._profile, self.s, self._rdb_cache)
         self._bdb = BroomDB(self._profile, self.s)
 
-    def _at_end(self):
-        self._rdb.identify_and_save_deleted()
+    def _at_end(self, *, of_sweep=False):
+        if not of_sweep:
+            self._rdb.identify_and_save_deleted()
         self._rdb.close_db()
         self._bdb.close_db()
         self._profile = None  # safeguard so that self.s will complain
@@ -1402,7 +1403,7 @@ class Rumar:
             return
         self.gather_info(s)
         self.delete_files(is_dry_run)
-        self._at_end()
+        self._at_end(of_sweep=True)
 
     def gather_info(self, s: Settings):
         archive_format = RumarFormat(s.archive_format).value
