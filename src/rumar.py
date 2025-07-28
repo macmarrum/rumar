@@ -1238,19 +1238,19 @@ class Rumar:
         if top_archive_dir:
             should_attempt_recursive = False
             for dirpath, dirnames, filenames in os.walk(top_archive_dir):
-                if archive_file := find_last_file_in_basedir(top_archive_dir, filenames, RX_ARCHIVE_SUFFIX, nonzero=True):
-                    self.extract_latest_file(self.s.backup_base_dir_for_profile, top_archive_dir, directory, overwrite, meta_diff, filenames, archive_file)
+                if archive_file := find_on_disk_last_file_in_directory(top_archive_dir, filenames, RX_ARCHIVE_SUFFIX, nonzero=True):
+                    self.extract_latest_file_on_disk(self.s.backup_base_dir_for_profile, top_archive_dir, directory, overwrite, meta_diff, filenames, archive_file)
                 else:
                     should_attempt_recursive = True
                 break
             if should_attempt_recursive:
                 for dirpath, dirnames, filenames in os.walk(top_archive_dir):
-                    self.extract_latest_file(self.s.backup_base_dir_for_profile, Path(dirpath), directory, overwrite, meta_diff, filenames)
+                    self.extract_latest_file_on_disk(self.s.backup_base_dir_for_profile, Path(dirpath), directory, overwrite, meta_diff, filenames)
         else:
             for basedir, dirnames, filenames in os.walk(self.s.backup_base_dir_for_profile):
                 if filenames:
                     top_archive_dir = Path(basedir)  # the original file, in the mirrored directory tree
-                    self.extract_latest_file(self.s.backup_base_dir_for_profile, top_archive_dir, directory, overwrite, meta_diff, filenames)
+                    self.extract_latest_file_on_disk(self.s.backup_base_dir_for_profile, top_archive_dir, directory, overwrite, meta_diff, filenames)
         self._at_end()
 
     def extract_for_profile(self, profile: str, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
@@ -1291,10 +1291,10 @@ class Rumar:
         logger.info(f":  {answer=}  {target}")
         return answer in ['y', 'Y']
 
-    def extract_latest_file(self, backup_base_dir_for_profile, archive_dir: Path, directory: Path, overwrite: bool, meta_diff: bool,
-                            filenames: list[str] | None = None, archive_file: Path | None = None):
+    def extract_latest_file_on_disk(self, backup_base_dir_for_profile, archive_dir: Path, directory: Path, overwrite: bool, meta_diff: bool,
+                                    filenames: list[str] | None = None, archive_file: Path | None = None):
         if archive_file is None:
-            archive_file = find_last_file_in_basedir(archive_dir, filenames, RX_ARCHIVE_SUFFIX)
+            archive_file = find_on_disk_last_file_in_directory(archive_dir, filenames, RX_ARCHIVE_SUFFIX)
         if archive_file:
             relative_file_parent = derive_relative_p(archive_dir.parent, backup_base_dir_for_profile)
             target_file = directory / relative_file_parent / archive_dir.name
@@ -1479,15 +1479,15 @@ def find_last_file_in_dir(archive_dir: Path, pattern: Pattern | None = None, non
     return None
 
 
-def find_last_file_in_basedir(basedir: str | Path, filenames: list[str] | None = None, pattern: Pattern | None = None, nonzero=True) -> Path | None:
+def find_on_disk_last_file_in_directory(directory: str | Path, filenames: list[str] | None = None, pattern: Pattern | None = None, nonzero=True) -> Path | None:
     """As in: `for basedir, dirnames, filenames in os.walk(top_dir):`
     :return: Path of `filename` matching `pattern`, and of size > 0 if nonzero
     """
     if filenames is None:
-        filenames = [de.name for de in os.scandir(basedir) if de.is_file()]
+        filenames = [de.name for de in os.scandir(directory) if de.is_file()]
     for file in sorted(filenames, reverse=True):
         if pattern is None or pattern.search(file):
-            path = Path(basedir, file)
+            path = Path(directory, file)
             if not nonzero or path.stat().st_size > 0:
                 return path
     return None
@@ -1805,7 +1805,7 @@ class RumarDB:
     def _save_initial_state(self):
         """Walks `backup_base_dir_for_profile` and saves latest archive of each source, whether the source file currently exists or not"""
         for basedir, dirnames, filenames in os.walk(self.s.backup_base_dir_for_profile):
-            if latest_archive := find_last_file_in_basedir(basedir, filenames, RX_ARCHIVE_SUFFIX):
+            if latest_archive := find_on_disk_last_file_in_directory(basedir, filenames, RX_ARCHIVE_SUFFIX):
                 relative_archive_dir = derive_relative_p(latest_archive.parent, self.s.backup_base_dir_for_profile)
                 file_path = self.s.source_dir / relative_archive_dir
                 relative_p = derive_relative_p(file_path, self.s.source_dir)
