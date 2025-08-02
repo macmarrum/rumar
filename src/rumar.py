@@ -1288,7 +1288,7 @@ class Rumar:
             target = str(target_dir)
         else:
             target = str(directory)
-        answer = input(f"\n   Begin extraction into {target}?  [N/y] ")
+        answer = input(f"\n   Begin extraction into {target}?  [y/N] ")
         logger.info(f":  {answer=}  {target}")
         return answer in ['y', 'Y']
 
@@ -1337,7 +1337,7 @@ class Rumar:
 
     @staticmethod
     def _ask_to_overwrite(target_file):
-        answer = input(f"\n{target_file}\n The above file exists. Overwrite it? [N/y] ")
+        answer = input(f"\n{target_file}\n The above file exists. Overwrite it? [y/N] ")
         logger.info(f":  {answer=}  {target_file}")
         return answer in ['y', 'Y']
 
