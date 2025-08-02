@@ -1293,7 +1293,6 @@ class Rumar:
 
     def reconcile_backup_files_with_disk_and_mark_missing_as_deleted(self):
         for archive_path in self._rdb.iter_non_deleted_archive_paths():
-            print('a>', archive_path)
             if not archive_path.exists():
                 self._rdb.mark_backup_as_deleted(archive_path)
 
