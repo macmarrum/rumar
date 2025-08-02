@@ -105,6 +105,9 @@ class Rather(Rath):
         # Tip: set it to Rather.NONE to get NULL blake2b even when content is not None
         self._checksum = value
 
+    def clone(self):
+        return Rather(*self.parts, lstat_cache=self.lstat_cache, mtime=self._mtime, content=self._content, chmod=self._mode, islnk=S_ISLNK(self._mode), isdir=S_ISDIR(self._mode))
+
 
 def eq(path: Path, other: Path):
     """Compare two Path objects for equality\n
