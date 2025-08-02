@@ -769,7 +769,7 @@ def find_matching_pattern(relative_p: str, patterns: list[Pattern]):
     return None
 
 
-def sorted_files_by_stem_then_suffix_ignoring_case(matching_files: Iterable[Path]):
+def sorted_files_by_stem_then_suffix_ignoring_case(matching_files: Iterable[Rath]):
     """sort by stem then suffix, i.e. 'abc.txt' before 'abc(2).txt'; ignore case"""
     return sorted(matching_files, key=lambda x: (x.stem.lower(), x.suffix.lower()))
 
@@ -944,7 +944,7 @@ class Rumar:
                             with rath.open('rb') as f:
                                 checksum = compute_blake2b_checksum(f)
                             latest_checksum = self._get_archive_checksum(latest_archive)
-                            logger.info(f':- {relative_p}  {latest_mtime_str}  {latest_checksum}')
+                            logger.info(f':- {relative_p}  {latest_mtime_str}  {latest_checksum.hex() if latest_checksum else None}')
                             is_changed = checksum != latest_checksum
                         # else:  # newer mtime, same size, not instructed to do checksum comparison => no backup
                 if is_changed:
@@ -995,7 +995,7 @@ class Rumar:
                         logger.debug(f':- remove {str(checksum_file)}')
         return latest_checksum
 
-    def _save_checksum_if_big(self, size, checksum, relative_p, archive_dir, mtime_str):
+    def _save_checksum_if_big(self, size: int, checksum: bytes, relative_p: str, archive_dir: Path, mtime_str: str):
         """Save checksum if file is big, to save computation time in the future.
         The checksum might not be needed, therefore the cost/benefit ration needs to be considered, i.e.
         whether it's better to save an already computed checksum to disk (time to save it and delete it in the future),
@@ -1018,7 +1018,7 @@ class Rumar:
         """
         if size > self.CHECKSUM_SIZE_THRESHOLD:
             checksum_file = archive_dir / f"{mtime_str}{self.ARCHIVE_SEP}{size}{self.CHECKSUM_SUFFIX}"
-            logger.info(f':  {relative_p}  {checksum}')
+            logger.info(f':  {relative_p}  {checksum.hex()}')
             archive_dir.mkdir(parents=True, exist_ok=True)
             checksum_file.write_text(checksum)
 
