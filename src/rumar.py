@@ -810,9 +810,9 @@ class Rumar:
         self.lstat_cache: dict[Path, os.stat_result] = {}
         self._warnings = []
         self._errors = []
-        self._rdb: RumarDB = None  # initiated per profile in _at_beginning to support db_path per profile
+        self._rdb: RumarDB = None  # initiated per profile in _init_for_profile to support db_path per profile
         self._rdb_cache = {}
-        self._bdb: BroomDB = None  # initiated per profile in _at_beginning to support db_path per profile
+        self._bdb: BroomDB = None  # initiated per profile in _init_for_profile to support db_path per profile
 
     @staticmethod
     def should_ignore_for_archive(lstat: os.stat_result) -> bool:
@@ -908,7 +908,7 @@ class Rumar:
         """Create a backup for the specified profile
         """
         logger.info(f"{profile=}")
-        self._at_beginning(profile)
+        self._init_for_profile(profile)
         errors = []
         for d in [self.s.source_dir, self.s.backup_base_dir]:
             if ex := try_to_iterate_dir(d):
@@ -953,9 +953,9 @@ class Rumar:
                     self._create(CreateReason.UPDATE, rath, relative_p, archive_dir, mtime_str, size, checksum)
                 else:
                     self._rdb.save_unchanged(relative_p)
-        self._at_end()
+        self._finalize_profile_changes()
 
-    def _at_beginning(self, profile: str):
+    def _init_for_profile(self, profile: str):
         self._profile = profile  # for self.s to work
         self.lstat_cache.clear()
         self._warnings.clear()
@@ -963,8 +963,8 @@ class Rumar:
         self._rdb = RumarDB(self._profile, self.s, self._rdb_cache)
         self._bdb = BroomDB(self._profile, self.s)
 
-    def _at_end(self, *, of_sweep=False):
-        if not of_sweep:
+    def _finalize_profile_changes(self, *, for_sweep=False):
+        if not for_sweep:
             self._rdb.identify_and_save_deleted()
         self._rdb.close_db()
         self._bdb.close_db()
@@ -1187,7 +1187,7 @@ class Rumar:
         if not run_present or not profile:
             logger.warning(f"SKIP {run_datetime_iso!r} - no corresponding profile found")
             return
-        self._at_beginning(profile)
+        self._init_for_profile(profile)
         msgs = []
         if directory and (ex := try_to_iterate_dir(directory)):
             msgs.append(f"SKIP {run_datetime_iso!r} - cannot access target directory - {ex}")
@@ -1210,12 +1210,12 @@ class Rumar:
             else:
                 target_path = original_source_path
             self.extract_archive(backup_path, target_path, overwrite, meta_diff)
-        self._at_end()
+        self._finalize_profile_changes()
 
     def extract_for_profile2(self, profile: str, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
         """Extract the lastest version of each file found in backup hierarchy for profile
         """
-        self._at_beginning(profile)
+        self._init_for_profile(profile)
         if directory is None:
             directory = self._profile_to_settings[profile].source_dir
         msgs = []
@@ -1251,12 +1251,12 @@ class Rumar:
                 if filenames:
                     top_archive_dir = Path(basedir)  # the original file, in the mirrored directory tree
                     self.extract_latest_file_on_disk(self.s.backup_base_dir_for_profile, top_archive_dir, directory, overwrite, meta_diff, filenames)
-        self._at_end()
+        self._finalize_profile_changes()
 
     def extract_for_profile(self, profile: str, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
         """Extract the lastest version of each file recorded in the DB for the profile
         """
-        self._at_beginning(profile)
+        self._init_for_profile(profile)
         _directory = directory or self.s.source_dir
         msgs = []
         if ex := try_to_iterate_dir(_directory):
@@ -1278,7 +1278,7 @@ class Rumar:
         self.reconcile_backup_files_with_disk(top_archive_dir)
         for archive_file, target_file in self._rdb.iter_latest_archives_and_targets(top_archive_dir, directory):
             self.extract_archive(archive_file, target_file, overwrite, meta_diff)
-        self._at_end()
+        self._finalize_profile_changes()
 
     @staticmethod
     def _confirm_extraction_into_directory(directory: Path, top_archive_dir: Path, backup_base_dir_for_profile: Path):
@@ -1405,14 +1405,14 @@ class Rumar:
 
     def sweep_profile(self, profile, *, is_dry_run: bool):
         logger.info(profile)
-        self._at_beginning(profile)
+        self._init_for_profile(profile)
         s = self._profile_to_settings[profile]
         if ex := try_to_iterate_dir(s.backup_base_dir_for_profile):
             logger.warning(f"SKIP {profile} - {ex}")
             return
         self.scan_disk_and_mark_archive_files_for_deletion(s)
         self.delete_marked_archive_files(is_dry_run)
-        self._at_end(of_sweep=True)
+        self._finalize_profile_changes(for_sweep=True)
 
     def scan_disk_and_mark_archive_files_for_deletion(self, s: Settings):
         archive_format = RumarFormat(s.archive_format).value

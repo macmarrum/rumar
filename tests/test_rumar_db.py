@@ -31,7 +31,7 @@ def _set_up_rumar():
     if 'memory' not in str(s.db_path):
         s.db_path.parent.mkdir(parents=True, exist_ok=True)
     rumar = Rumar(profile_to_settings)
-    rumar._at_beginning(profile)
+    rumar._init_for_profile(profile)
     assert rumar.s.backup_base_dir_for_profile == BASE_PATH / 'backup' / profile
     rumardb = rumar._rdb
     fs_paths = [

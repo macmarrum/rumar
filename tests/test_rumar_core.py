@@ -31,7 +31,7 @@ def set_up_rumar():
     if 'memory' not in s.db_path:
         BASE.mkdir(parents=True)
     rumar = Rumar(profile_to_settings)
-    rumar._at_beginning(profile)
+    rumar._init_for_profile(profile)
     rumardb = rumar._rdb
     fs_paths = [
         f"/{profile}/file01.txt",
