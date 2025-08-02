@@ -968,6 +968,8 @@ class Rumar:
             self._rdb.identify_and_save_deleted()
         self._rdb.close_db()
         self._bdb.close_db()
+        self._rdb = None
+        self._bdb = None
         self._profile = None  # safeguard so that self.s will complain
         if self._warnings:
             for w in self._warnings:
