@@ -1254,7 +1254,7 @@ class Rumar:
         self._at_end()
 
     def extract_for_profile(self, profile: str, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
-        """Extract the lastest version of each file recorded in the DB for profile
+        """Extract the lastest version of each file recorded in the DB for the profile
         """
         self._at_beginning(profile)
         _directory = directory or self.s.source_dir
@@ -1275,6 +1275,7 @@ class Rumar:
             return
         if not self._confirm_extraction_into_directory(_directory, top_archive_dir, self.s.backup_base_dir_for_profile):
             return
+        self.reconcile_backup_files_with_disk(top_archive_dir)
         for archive_file, target_file in self._rdb.iter_latest_archives_and_targets(top_archive_dir, directory):
             self.extract_archive(archive_file, target_file, overwrite, meta_diff)
         self._at_end()
@@ -1291,10 +1292,13 @@ class Rumar:
         logger.info(f":  {answer=}  {target}")
         return answer in ['y', 'Y']
 
-    def reconcile_backup_files_with_disk_and_mark_missing_as_deleted(self):
+    def reconcile_backup_files_with_disk(self, top_archive_dir: Path = None):
+        """Reconcile backup files with disk files and, in the DB, mark missing as deleted"""
         for archive_path in self._rdb.iter_non_deleted_archive_paths():
-            if not archive_path.exists():
-                self._rdb.mark_backup_as_deleted(archive_path)
+            if top_archive_dir is None or archive_path.is_relative_to(top_archive_dir):
+                if not archive_path.exists():
+                    logger.info(f"{archive_path} no longer exist - marking as deleted")
+                    self._rdb.mark_backup_as_deleted(archive_path)
 
     def extract_latest_file_on_disk(self, backup_base_dir_for_profile, archive_dir: Path, directory: Path, overwrite: bool, meta_diff: bool,
                                     filenames: list[str] | None = None, archive_file: Path | None = None):

@@ -362,7 +362,7 @@ class TestRumarDB:
         db.execute('UPDATE backup SET del_run_id = NULL')
         db.commit()
 
-    def test_reconcile_backup_files_with_disk_and_mark_missing_as_deleted(self, set_up_rumar):
+    def test_reconcile_backup_files_with_disk(self, set_up_rumar):
         d = set_up_rumar
         data = d['data']
         rumar = d['rumar']
@@ -378,7 +378,7 @@ class TestRumarDB:
             else:
                 expected_deleted.append(archive_rather.as_path())
         ## run the method under test
-        rumar.reconcile_backup_files_with_disk_and_mark_missing_as_deleted()
+        rumar.reconcile_backup_files_with_disk()
         ## get the data for validation
         actual_deleted = []
         actual_intact = []
