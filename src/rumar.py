@@ -311,7 +311,7 @@ class Settings:
       a list of top-directory paths
       if present, only files from those dirs and their descendant subdirs will be considered
       the paths can be relative to _**source_dir**_ or absolute, but always under _**source_dir**_
-      absolute paths start with a root (`/` or `{drive}:\`), unlike relative paths
+      absolute paths start with a root (`/` or `{drive}:\`)
       if missing, _**source_dir**_ and all its descendant subdirs will be considered
     excluded_top_dirs: list[str]
       used by: create, sweep
