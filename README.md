@@ -118,10 +118,10 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
   the paths/globs can be partial, relative to _**source_dir**_ or absolute, but always under _**source_dir**_\
   e.g. `['My Music\*.m3u']`\
   on MS Windows, global-pattern matching is case-insensitive\
-  caution: a leading path separator in a path/glob indicates a root directory, e.g. `['\My Music\*']`\
+  ⚠️ caution: a leading path separator in a path/glob indicates a root directory, e.g. `['\My Music\*']`\
   means `C:\My Music\*` or `D:\My Music\*`; use `['*\My Music\*']` to match `C:\Users\Mac\Documents\My Music\*`\
-  **full_match** is used if running on Python 3.13+: `**` is supported; patters should always include a path separator e.g. `**/*.txt`\
-  see also https://docs.python.org/3/library/fnmatch.html and https://docs.python.org/3.13/library/pathlib.html#pathlib.PurePath.full_match
+  ⚠️ caution: **full_match** is used if running on Python >= 3.13: `**` means multiple segments, `*` means a single segment or part of a segment; therefore, when using `*` as part of a segment, always include a path separator e.g. `My Music\*.mp3`, `**/*.txt`\
+  see also https://docs.python.org/3/library/fnmatch.html and https://docs.python.org/3.13/library/pathlib.html#pathlib-pattern-language
 * **excluded_files_as_glob**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
   like _**included_files_as_glob**_, but for exclusion
 * **included_files_as_regex**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
