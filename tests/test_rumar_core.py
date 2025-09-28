@@ -8,8 +8,14 @@ from textwrap import dedent
 
 import pytest
 
-from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, iter_matching_files, is_dir_matching_top_dirs, derive_relative_p, CreateReason, compute_blake2b_checksum
+from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, iter_matching_files, derive_relative_psx, CreateReason, compute_blake2b_checksum, can_exclude_dir, can_include_dir
 from utils import Rather, eq_list
+
+
+def _is_dir_match(path, s, relative_psx):
+    if can_exclude_dir(path, s, relative_psx):
+        return False
+    return can_include_dir(path, s, relative_psx)
 
 
 @pytest.fixture(scope='class')
@@ -18,7 +24,7 @@ def set_up_rumar():
     Rather.BASE_PATH = BASE
     profile = 'profileA'
     toml = dedent(f"""\
-    version = 2
+    version = 3
     db_path = ':memory:'
     backup_base_dir = '{BASE}/backup-base-dir'
     [{profile}]
@@ -100,10 +106,10 @@ class TestRumarCore:
         rumar = d['rumar']
         R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
         actual = [
-            is_dir_matching_top_dirs(R(f"/{profile}"), '/', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/A"), '/A', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/AA"), '/AA', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/B"), '/B', settings),
+            _is_dir_match(R(f"/{profile}"), settings, '/'),
+            _is_dir_match(R(f"/{profile}/A"), settings, '/A'),
+            _is_dir_match(R(f"/{profile}/AA"), settings, '/AA'),
+            _is_dir_match(R(f"/{profile}/B"), settings, '/B'),
         ]
         expected = [
             True,
@@ -113,7 +119,7 @@ class TestRumarCore:
         ]
         assert actual == expected
 
-    def test_is_dir_matching_top_dirs__inc_single(self, set_up_rumar):
+    def test_is_top_dir_match__inc_single(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
@@ -125,21 +131,19 @@ class TestRumarCore:
                            )
         rumar = d['rumar']
         R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
+        expected = {
+            f"/{profile}": True,
+            f"/{profile}/A": False,
+            f"/{profile}/AA": True,
+            f"/{profile}/B": False,
+        }
         actual = [
-            is_dir_matching_top_dirs(R(f"/{profile}"), '/', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/A"), '/A', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/AA"), '/AA', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/B"), '/B', settings),
+            _is_dir_match(r := R(psx), settings, r.as_posix())
+            for psx in expected.keys()
         ]
-        expected = [
-            True,
-            False,
-            True,
-            False,
-        ]
-        assert actual == expected
+        assert actual == [*expected.values()]
 
-    def test_is_dir_matching_top_dirs__exc_several(self, set_up_rumar):
+    def test_is_top_dir_match__exc_several(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
@@ -152,10 +156,10 @@ class TestRumarCore:
         rumar = d['rumar']
         R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
         actual = [
-            is_dir_matching_top_dirs(R(f"/{profile}"), '/', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/A"), '/A', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/AA"), '/AA', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/B"), '/B', settings),
+            _is_dir_match(R(f"/{profile}"), settings, '/'),
+            _is_dir_match(R(f"/{profile}/A"), settings, '/A'),
+            _is_dir_match(R(f"/{profile}/AA"), settings, '/AA'),
+            _is_dir_match(R(f"/{profile}/B"), settings, '/B'),
         ]
         expected = [
             True,
@@ -165,7 +169,7 @@ class TestRumarCore:
         ]
         assert actual == expected
 
-    def test_is_dir_matching_top_dirs__exc_mulit_level(self, set_up_rumar):
+    def test_is_top_dir_match__exc_mulit_level(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
@@ -178,12 +182,12 @@ class TestRumarCore:
         rumar = d['rumar']
         R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
         actual = [
-            is_dir_matching_top_dirs(R(f"/{profile}"), '/', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/A"), '/A', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/AA"), '/AA', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/B"), '/B', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/A/A-A"), '/A/A-A', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/A/A-B"), '/A/A-B', settings),
+            _is_dir_match(R(f"/{profile}"), settings, '/'),
+            _is_dir_match(R(f"/{profile}/A"), settings, '/A'),
+            _is_dir_match(R(f"/{profile}/AA"), settings, '/AA'),
+            _is_dir_match(R(f"/{profile}/B"), settings, '/B'),
+            _is_dir_match(R(f"/{profile}/A/A-A"), settings, '/A/A-A'),
+            _is_dir_match(R(f"/{profile}/A/A-B"), settings, '/A/A-B'),
         ]
         expected = [
             True,
@@ -195,7 +199,7 @@ class TestRumarCore:
         ]
         assert actual == expected
 
-    def test_is_dir_matching_top_dirs__inc_and_exc_mulit_level(self, set_up_rumar):
+    def test_is_top_dir_match__inc_and_exc_mulit_level(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
@@ -209,12 +213,12 @@ class TestRumarCore:
         rumar = d['rumar']
         R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
         actual = [
-            is_dir_matching_top_dirs(R(f"/{profile}"), '/', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/A"), '/A', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/AA"), '/AA', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/B"), '/B', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/A/A-A"), '/A/A-A', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/A/A-B"), '/A/A-B', settings),
+            _is_dir_match(R(f"/{profile}"), settings, '/'),
+            _is_dir_match(R(f"/{profile}/A"), settings, '/A'),
+            _is_dir_match(R(f"/{profile}/AA"), settings, '/AA'),
+            _is_dir_match(R(f"/{profile}/B"), settings, '/B'),
+            _is_dir_match(R(f"/{profile}/A/A-A"), settings, '/A/A-A'),
+            _is_dir_match(R(f"/{profile}/A/A-B"), settings, '/A/A-B'),
         ]
         expected = [
             True,
@@ -226,7 +230,7 @@ class TestRumarCore:
         ]
         assert actual == expected
 
-    def test_is_dir_matching_top_dirs__inc__all_and_exc_single_lower_level(self, set_up_rumar):
+    def test_is_top_dir_match__inc__all_and_exc_single_lower_level(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
@@ -239,12 +243,12 @@ class TestRumarCore:
         rumar = d['rumar']
         R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
         actual = [
-            is_dir_matching_top_dirs(R(f"/{profile}"), '/', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/A"), '/A', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/AA"), '/AA', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/B"), '/B', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/A/A-A"), '/A/A-A', settings),
-            is_dir_matching_top_dirs(R(f"/{profile}/A/A-B"), '/A/A-B', settings),
+            _is_dir_match(R(f"/{profile}"), settings, '/'),
+            _is_dir_match(R(f"/{profile}/A"), settings, '/A'),
+            _is_dir_match(R(f"/{profile}/AA"), settings, '/AA'),
+            _is_dir_match(R(f"/{profile}/B"), settings, '/B'),
+            _is_dir_match(R(f"/{profile}/A/A-A"), settings, '/A/A-A'),
+            _is_dir_match(R(f"/{profile}/A/A-B"), settings, '/A/A-B'),
         ]
         expected = [
             True,
@@ -263,7 +267,7 @@ class TestRumarCore:
         R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
         top_rath = R(f"/{profile}")
         dir_rath = R(f"/{profile}/A")
-        actual = derive_relative_p(dir_rath, top_rath, with_leading_slash=True)
+        actual = derive_relative_psx(dir_rath, top_rath, with_leading_slash=True)
         assert actual == '/A'
 
     def test_derive_relative_p_without_leading_slash(self, set_up_rumar):
@@ -273,7 +277,7 @@ class TestRumarCore:
         R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
         top_rath = R(f"/{profile}")
         dir_rath = R(f"/{profile}/A/B/C/d.txt")
-        actual = derive_relative_p(dir_rath, top_rath, with_leading_slash=False)
+        actual = derive_relative_psx(dir_rath, top_rath, with_leading_slash=False)
         assert actual == 'A/B/C/d.txt'
 
     def test_002_fs_test_iter_matching_files__inc_top_and_inc_glob(self, set_up_rumar):
@@ -283,7 +287,7 @@ class TestRumarCore:
         settings = profile_to_settings[profile]
         settings = replace(settings,
                            included_top_dirs=['AA'],
-                           included_files_as_glob=['**/*1.*'],
+                           included_files_as_glob=['*/*1.*'],
                            )
         rumar = d['rumar']
         R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache).as_rath()
@@ -301,7 +305,7 @@ class TestRumarCore:
         reason = CreateReason.CREATE
         rathers = d['rathers']
         rather = rathers[14]
-        relative_p = derive_relative_p(rather, settings.source_dir)
+        relative_p = derive_relative_psx(rather, settings.source_dir)
         archive_dir = rumar.compose_archive_container_dir(relative_p=relative_p)
         lstat = rather.lstat()
         mtime_str = rumar.calc_mtime_str(lstat)

@@ -1,7 +1,7 @@
 import os
 from _stat import S_IFLNK, S_IFDIR, S_IFREG, S_ISDIR, S_ISLNK
 from io import BytesIO
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Sequence
 
 from rumar import Rath, compute_blake2b_checksum
@@ -164,3 +164,11 @@ def eq_seq_via_set(path_seq: Sequence[Path], other_seq: Sequence[Path]):
     path_set = {PathEq(p) for p in path_seq}
     other_set = {PathEq(o) for o in other_seq}
     return path_set == other_set
+
+
+def make_absolute_path(base_path: PurePath, relative_or_absolute: str | PurePath):
+    path_cls = base_path.__class__  # to allow PureWindowsPath on Posix and vice versa, for testing purposes
+    if (relative_or_absolute_path := path_cls(relative_or_absolute)).is_absolute():
+        return relative_or_absolute_path
+    else:
+        return base_path / relative_or_absolute

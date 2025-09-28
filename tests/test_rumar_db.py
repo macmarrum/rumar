@@ -7,7 +7,7 @@ from textwrap import dedent
 
 import pytest
 
-from rumar import Rumar, make_profile_to_settings_from_toml_text, CreateReason, derive_relative_p
+from rumar import Rumar, make_profile_to_settings_from_toml_text, CreateReason, derive_relative_psx
 from utils import Rather
 
 
@@ -64,7 +64,7 @@ def _set_up_rumar():
     reason = CreateReason.CREATE
     Rather.BASE_PATH = None
     for rather in rathers:
-        relative_p = derive_relative_p(rather, rumar.s.source_dir)
+        relative_p = derive_relative_psx(rather, rumar.s.source_dir)
         archive_dir = rumar.compose_archive_container_dir(relative_p=relative_p)
         lstat = rather.lstat()
         archive_path = rumar.compose_archive_path(archive_dir, rumar.calc_mtime_str(lstat), lstat.st_size)

@@ -47,7 +47,7 @@ or inside `%APPDATA%` on NT (MS Windows).
 `rumar.toml`
 <!-- rumar.toml example begin -->
 ```toml
-# schema version - always 2
+# schema version
 version = 2
 # settings common for all profiles
 backup_base_dir = 'C:\Users\Mac\Backup'
@@ -66,12 +66,32 @@ excluded_files_as_glob = ['desktop.ini', '*.exe', '*.msi']
 ["# this profile's name starts with a hash, therefore it will be ignored"]
 source_dir = "this setting won't be loaded"
 ```
+#### For Python >= 3.13
+```toml
+# schema version
+version = 3
+# settings common for all profiles
+backup_base_dir = 'C:\Users\Mac\Backup'
+
+# setting for individual profiles - override any common ones
+
+["My Documents"]
+source_dir = 'C:\Users\Mac\Documents'
+excluded_files = ['My Music\**', 'My Pictures\**', 'My Videos\**', '**\desktop.ini', '**\Thumbs.db']
+
+[Desktop]
+source_dir = 'C:\Users\Mac\Desktop'
+excluded_files = ['**\desktop.ini', '**\*.exe', '**\*.msi']
+
+["# this profile's name starts with a hash, therefore it will be ignored"]
+source_dir = "this setting won't be loaded"
+```
 <!-- rumar.toml example end -->
 
 ### Settings details
 
 Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is loaded.\
-**version** indicates schema version and for now is always `2`.
+**version** indicates schema version – currently `3`.
 
 <!-- settings pydoc begin -->
 * **backup_base_dir**: str &nbsp; &nbsp; _used by: create, sweep_\
@@ -91,17 +111,30 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
   see also https://docs.python.org/3/library/tarfile.html#supported-tar-formats and https://www.gnu.org/software/tar/manual/html_section/Formats.html
 * **source_dir**: str &nbsp; &nbsp; _used by: create, extract_\
   path to the directory which is to be archived
+* **included_files**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
+  ⚠️ caution: uses **PurePath.full_match(...)**, which was added in Python 3.13\
+  a list of glob patterns, also known as shell-style wildcards, i.e. `** * ? [seq] [!seq]`; `**` means multiple segments, `*` means a single segment or a part of a segment\
+  if present, only files matching the patterns will be considered\
+  on Windows, global-pattern matching is case-insensitive, and both `\` and `/` can be used\
+  the paths/globs can be absolute or relative to _**source_dir**_, e.g. `My Documents\*.txt`, `my-file-in-source-dir.log`\
+  see also https://docs.python.org/3.13/library/pathlib.html#pathlib-pattern-language
+* **excluded_files**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
+  ⚠️ caution: uses **PurePath.full_match(...)**, which was added in Python 3.13\
+  like _**included_files**_, but for exclusion
 * **included_top_dirs**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
+  ❌ deprecated: use _**included_files**_ instead, if on Python >= 3.13, e.g. `top dir 1/**`\
   a list of top-directory paths\
   if present, only files from those dirs and their descendant subdirs will be considered\
   the paths can be relative to _**source_dir**_ or absolute, but always under _**source_dir**_\
   absolute paths start with a root (`/` or `{drive}:\`)\
   if missing, _**source_dir**_ and all its descendant subdirs will be considered
 * **excluded_top_dirs**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
+  ❌ deprecated: use _**excluded_files**_ instead, if on Python >= 3.13, e.g. `top dir 3/**`\
   like _**included_top_dirs**_, but for exclusion\
   a list of paths under _**source_dir**_ or, if specified, any of _**included_top_dirs**_, that are to be excluded\
   e.g. included_top_dirs = ['Project1', 'Project3']; excluded_top_dirs = ['Project1/Vision/Pictures']
 * **included_dirs_as_regex**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
+  ❌ deprecated: use _**included_files**_ instead, if on Python >= 3.13\
   a list of regex patterns, applied after _**..._top_dirs**_\
   if present, only matching directories will be included\
   `/` must be used as the path separator, also on MS Windows\
@@ -111,8 +144,10 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
   regex-pattern matching is case-sensitive – use `(?i)` at each pattern's beginning for case-insensitive matching\
   see also https://docs.python.org/3/library/re.html
 * **excluded_dirs_as_regex**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
+  ❌ deprecated: use _**excluded_files**_ instead, if on Python >= 3.13\
   like _**included_dirs_as_regex**_, but for exclusion
 * **included_files_as_glob**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
+  ❌ deprecated: use _**included_files**_ instead, if on Python >= 3.13\
   a list of glob patterns, also known as shell-style wildcards, i.e. `* ? [seq] [!seq]`\
   if present, only matching files will be considered; applied after _**..._top_dirs**_ and _**..._dirs_as_regex**_\
   the paths/globs can be partial, relative to _**source_dir**_ or absolute, but always under _**source_dir**_\
@@ -120,13 +155,13 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
   on MS Windows, global-pattern matching is case-insensitive\
   ⚠️ caution: a leading path separator in a path/glob indicates a root directory, e.g. `['\My Music\*']`\
   means `C:\My Music\*` or `D:\My Music\*`; use `['*\My Music\*']` to match `C:\Users\Mac\Documents\My Music\*`\
-  ⚠️ caution: **full_match** is used if running on Python >= 3.13: `**` means multiple segments, `*` means a single segment or part of a segment; therefore, when using `*` as part of a segment, always include a path separator e.g. `My Music\*.mp3`, `**/*.txt`\
   see also https://docs.python.org/3/library/fnmatch.html and https://docs.python.org/3.13/library/pathlib.html#pathlib-pattern-language
 * **excluded_files_as_glob**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
+  ❌ deprecated: use _**excluded_files**_ instead, if on Python >= 3.13\
   like _**included_files_as_glob**_, but for exclusion
 * **included_files_as_regex**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
   like _**included_dirs_as_regex**_, but for files\
-  applied after _**..._top_dirs**_ and _**..._dirs_as_regex**_ and _**..._files_as_glob**_
+  applied after _**..._top_dirs**_ and _**..._dirs_as_regex**_ and _**..._files_as_glob**_ and _**..._files**_
 * **excluded_files_as_regex**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
   like _**included_files_as_regex**_, but for exclusion
 * **checksum_comparison_if_same_size**: bool = False &nbsp; &nbsp; _used by: create_\
@@ -155,16 +190,29 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
   determines which commands can use the filters specified in the included_* and excluded_* settings\
   by default, filters are used only by _**create**_, i.e. _**sweep**_ considers all created backups (no filter is applied)\
   a filter for _**sweep**_ could be used to e.g. never remove backups from the first day of a month:\
+  `excluded_files = ['**/[0-9][0-9][0-9][0-9]-[0-9][0-9]-01_*.tar*']` or\
   `excluded_files_as_regex = ['/\d\d\d\d-\d\d-01_\d\d,\d\d,\d\d(\.\d{6})?[+-]\d\d,\d\d~\d+(~.+)?\.tar(\.(gz|bz2|xz))?$']`\
   it's best when the setting is part of a separate profile, i.e. a copy made for _**sweep**_,\
   otherwise _**create**_ will also seek such files to be excluded
 * **db_path**: str = _**backup_base_dir**_/rumar.sqlite
 <!-- settings pydoc end -->
 
+### Settings schema version 3 vs 2
+
+Version 3 has the additional settings _**included_files**_ and _**excluded_files**_.
+They rely on `PurePath.full_match(...)`, which was added in Python 3.13.\
+The new settings remove the need for the following ones:
+* _**included_top_dirs**_
+* _**excluded_top_dirs**_
+* _**included_dirs_as_regex**_
+* _**excluded_dirs_as_regex**_
+* _**included_files_as_glob**_
+* _**excluded_files_as_glob**_
+
 ### Settings schema version 2 vs 1
 
-Version 1 contained `sha256_comparison_if_same_size`.\
-In version 2 it's `checksum_comparison_if_same_size`.
+Version 1 contained _**sha256_comparison_if_same_size**_.\
+In version 2 it's _**checksum_comparison_if_same_size**_.
 
 ## Logging settings
 

@@ -30,11 +30,11 @@ from enum import Enum
 from hashlib import blake2b
 from io import BufferedIOBase
 from os import PathLike
-from pathlib import Path
+from pathlib import Path, PurePath
 from stat import S_ISDIR, S_ISSOCK, S_ISDOOR, S_ISLNK
 from textwrap import dedent
 from time import sleep
-from typing import Union, Literal, Pattern, Any, Iterable, cast, Generator, Callable
+from typing import Union, Literal, Pattern, Any, Iterable, cast, Generator, Callable, Sequence
 
 vi = sys.version_info
 PY_VER = (vi.major, vi.minor)
@@ -172,7 +172,7 @@ RUMAR_SQLITE = 'rumar.sqlite'
 RX_ARCHIVE_SUFFIX = re.compile(r'(\.(?:tar(?:\.(?:gz|bz2|xz))?|zipx))$')
 
 
-def main():
+def main(argv: Sequence[str] = None):
     parser = argparse.ArgumentParser()
     parser.add_argument('-t', '--toml', type=mk_abs_path, default=get_default_path(suffix='.toml'),
                         help=('path to settings; '
@@ -207,7 +207,7 @@ def main():
     parser_sweep.set_defaults(func=sweep)
     parser_sweep.add_argument('-d', '--dry-run', action=store_true)
     add_profile_args_to_parser(parser_sweep, required=True)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     # pass args to the appropriate function
     args.func(args)
 
@@ -306,8 +306,21 @@ class Settings:
     source_dir: str
       used by: create, extract
       path to the directory which is to be archived
+    included_files: list[str]
+      used by: create, sweep
+      ⚠️ caution: uses **PurePath.full_match(...)**, which is available on Python >= 3.13
+      a list of glob patterns, also known as shell-style wildcards, i.e. `** * ? [seq] [!seq]`; `**` means multiple segments, `*` means a single segment or a part of a segment
+      if present, only files matching the patterns will be considered
+      on Windows, global-pattern matching is case-insensitive, and both `\` and `/` can be used
+      the paths/globs can be absolute or relative to _**source_dir**_, e.g. `My Documents\*.txt`, `my-file-in-source-dir.log`
+      see also https://docs.python.org/3.13/library/pathlib.html#pathlib-pattern-language
+    excluded_files: list[str]
+      used by: create, sweep
+      ⚠️ caution: uses **PurePath.full_match(...)**, which is available on Python >= 3.13
+      like _**included_files**_, but for exclusion
     included_top_dirs: list[str]
       used by: create, sweep
+      ❌ deprecated: use _**included_files**_ instead, if on Python >= 3.13, e.g. `./top dir 1/**`
       a list of top-directory paths
       if present, only files from those dirs and their descendant subdirs will be considered
       the paths can be relative to _**source_dir**_ or absolute, but always under _**source_dir**_
@@ -315,11 +328,13 @@ class Settings:
       if missing, _**source_dir**_ and all its descendant subdirs will be considered
     excluded_top_dirs: list[str]
       used by: create, sweep
+      ❌ deprecated: use _**excluded_files**_ instead, if on Python >= 3.13, e.g. `./top dir 3/**`
       like _**included_top_dirs**_, but for exclusion
       a list of paths under _**source_dir**_ or, if specified, any of _**included_top_dirs**_, that are to be excluded
       e.g. included_top_dirs = ['Project1', 'Project3']; excluded_top_dirs = ['Project1/Vision/Pictures']
     included_dirs_as_regex: list[str]
       used by: create, sweep
+      ❌ deprecated: use _**included_files**_ instead, if on Python >= 3.13
       a list of regex patterns, applied after _**..._top_dirs**_
       if present, only matching directories will be included
       `/` must be used as the path separator, also on MS Windows
@@ -330,9 +345,11 @@ class Settings:
       see also https://docs.python.org/3/library/re.html
     excluded_dirs_as_regex: list[str]
       used by: create, sweep
+      ❌ deprecated: use _**excluded_files**_ instead, if on Python >= 3.13
       like _**included_dirs_as_regex**_, but for exclusion
     included_files_as_glob: list[str]
       used by: create, sweep
+      ❌ deprecated: use _**included_files**_ instead, if on Python >= 3.13
       a list of glob patterns, also known as shell-style wildcards, i.e. `* ? [seq] [!seq]`
       if present, only matching files will be considered; applied after _**..._top_dirs**_ and _**..._dirs_as_regex**_
       the paths/globs can be partial, relative to _**source_dir**_ or absolute, but always under _**source_dir**_
@@ -340,15 +357,15 @@ class Settings:
       on MS Windows, global-pattern matching is case-insensitive
       ⚠️ caution: a leading path separator in a path/glob indicates a root directory, e.g. `['\My Music\*']`
       means `C:\My Music\*` or `D:\My Music\*`; use `['*\My Music\*']` to match `C:\Users\Mac\Documents\My Music\*`
-      ⚠️ caution: **full_match** is used if running on Python >= 3.13: `**` means multiple segments, `*` means a single segment or part of a segment; therefore, when using `*` as part of a segment, always include a path separator e.g. `My Music\*.mp3`, `**/*.txt`
-      see also https://docs.python.org/3/library/fnmatch.html and https://docs.python.org/3.13/library/pathlib.html#pathlib-pattern-language
+      see also https://docs.python.org/3/library/fnmatch.html and https://en.wikipedia.org/wiki/Glob_(programming)
     excluded_files_as_glob: list[str]
       used by: create, sweep
+      ❌ deprecated: use _**excluded_files**_ instead, if on Python >= 3.13
       like _**included_files_as_glob**_, but for exclusion
     included_files_as_regex: list[str]
       used by: create, sweep
       like _**included_dirs_as_regex**_, but for files
-      applied after _**..._top_dirs**_ and _**..._dirs_as_regex**_ and _**..._files_as_glob**_
+      applied after _**..._top_dirs**_ and _**..._dirs_as_regex**_ and _**..._files_as_glob**_ and _**..._files**_
     excluded_files_as_regex: list[str]
       used by: create, sweep
       like _**included_files_as_regex**_, but for exclusion
@@ -385,6 +402,7 @@ class Settings:
       determines which commands can use the filters specified in the included_* and excluded_* settings
       by default, filters are used only by _**create**_, i.e. _**sweep**_ considers all created backups (no filter is applied)
       a filter for _**sweep**_ could be used to e.g. never remove backups from the first day of a month:
+      `excluded_files = ['**/[0-9][0-9][0-9][0-9]-[0-9][0-9]-01_*.tar*']` or
       `excluded_files_as_regex = ['/\d\d\d\d-\d\d-01_\d\d,\d\d,\d\d(\.\d{6})?[+-]\d\d,\d\d~\d+(~.+)?\.tar(\.(gz|bz2|xz))?$']`
       it's best when the setting is part of a separate profile, i.e. a copy made for _**sweep**_,
       otherwise _**create**_ will also seek such files to be excluded
@@ -395,6 +413,8 @@ class Settings:
     backup_base_dir: Union[str, Path]
     source_dir: Union[str, Path]
     backup_base_dir_for_profile: Path | str | None = None
+    included_files: Union[set[Path], list[str]] = field(default_factory=list)
+    excluded_files: Union[set[Path], list[str]] = field(default_factory=list)
     included_top_dirs: Union[set[Path], list[str]] = field(default_factory=list)
     excluded_top_dirs: Union[set[Path], list[str]] = field(default_factory=list)
     included_dirs_as_regex: Union[list[Pattern], list[str]] = field(default_factory=list)
@@ -435,6 +455,10 @@ class Settings:
             self._pathlify('backup_base_dir_for_profile')
         else:
             self.backup_base_dir_for_profile = self.backup_base_dir / self.profile
+        self._absolutopathosetify('included_files')
+        if any(g.removesuffix('**') == self.source_dir for g in self.included_files):
+            raise ValueError(f"included_files contains source_dir[/**]")  # guard against messing up iter_matching_files (skip files in top_dir when only top dirs are specified)
+        self._absolutopathosetify('excluded_files')
         self._absolutopathosetify('included_top_dirs')
         self._setify('included_files_as_glob')
         self._absolutopathosetify('excluded_top_dirs')
@@ -474,7 +498,7 @@ class Settings:
             if not p.is_absolute():
                 lst.append(self.source_dir / p)
             else:
-                if not p.as_posix().startswith(self.source_dir.as_posix()):
+                if not p.is_relative_to(self.source_dir):
                     raise ValueError(f"{attribute_name}: {p} is not under {self.source_dir}!")
                 lst.append(p)
         setattr(self, attribute_name, set(lst))
@@ -501,9 +525,13 @@ class Settings:
     def __str__(self):
         return ("{"
                 f"profile: {self.profile!r}, "
-                f"backup_base_dir_for_profile: {self.backup_base_dir_for_profile.as_posix()!r}, "
-                f"source_dir: {self.source_dir.as_posix()!r}"
+                f"backup_base_dir_for_profile: {self.backup_base_dir_for_profile.__str__()!r}, "
+                f"source_dir: {self.source_dir.__str__()!r}"
                 "}")
+
+    def print(self):
+        for attrib in vars(self):
+            print(f"{attrib}: {getattr(self, attrib)}")
 
     def update(self, **kwargs):
         for key, value in kwargs.items():
@@ -557,8 +585,8 @@ def make_profile_to_settings_from_toml_text(toml_str) -> ProfileToSettings:
 
 def verify_and_remove_version(toml_dict):
     version = toml_dict.get('version', 'missing')
-    if version != 2:
-        logger.warning(f"rumar.toml version is {version} - expected `version = 2`")
+    if version != 3:
+        logger.warning(f"rumar.toml version is {version} - expected `version = 3`")
     if any('sha256_comparison_if_same_size' in dct for dct in toml_dict.values() if isinstance(dct, dict)):
         msg = 'found sha256_comparison_if_same_size - expected checksum_comparison_if_same_size'
         logger.error(msg)
@@ -632,106 +660,117 @@ def iter_all_files(top_path: Rath) -> Generator[Rath, None, None]:
         yield from iter_all_files(dir_rath)
 
 
-def iter_matching_files(top_path: Rath, s: Settings) -> Generator[Rath, None, None]:
+def iter_matching_files(top_rath: Rath, s: Settings) -> Generator[Rath, None, None]:
     """
-    Note: symlinks to directories are considered files
-    :param top_path: usually `s.source_dir` or `s.backup_base_dir_for_profile`
+    Recursively yields files from a directory that match the criteria in Settings.
+    NB Symlinks to directories are considered files.
+    :raises OSError: if a directory cannot be accessed
     """
-    inc_dirs_rx = s.included_dirs_as_regex
-    exc_dirs_rx = s.excluded_dirs_as_regex
-    inc_files_rx = s.included_files_as_regex
-    exc_files_rx = s.excluded_files_as_regex
 
-    def _iter_matching_files(directory: Rath, skip_files=False) -> Generator[Rath, None, None]:
-        dir_raths = {}  # to preserve order
-        file_raths = {}  # to preserve order
-        for rath in directory.iterdir():
+    def _iter_matching_files(root_rath: Rath, s: Settings, *, is_top_dir=False) -> Generator[Rath, None, None]:
+        dirs = []
+        for rath in sorted(root_rath.iterdir()):
+            relative_psx = derive_relative_psx(rath, top_rath, with_leading_slash=True)
             if S_ISDIR(rath.lstat().st_mode):
-                dir_rath = rath
-                relative_dir_p = derive_relative_p(dir_rath, top_path, with_leading_slash=True)
-                if is_dir_matching_top_dirs(dir_rath, relative_dir_p, s):  # matches top_dirs, now check regex
-                    if inc_dirs_rx:  # only included paths must be considered
-                        if find_matching_pattern(relative_dir_p, inc_dirs_rx):
-                            dir_raths[dir_rath] = None
-                        else:
-                            logger.log(DEBUG_13, f"|d ...{relative_dir_p}  -- skipping dir (none of included_dirs_as_regex matches)")
-                    else:
-                        dir_raths[dir_rath] = None
-                    if exc_dirs_rx and dir_rath in dir_raths and (exc_rx := find_matching_pattern(relative_dir_p, exc_dirs_rx)):
-                        del dir_raths[dir_rath]
-                        logger.log(DEBUG_14, f"|d ...{relative_dir_p}  -- skipping dir (matches '{exc_rx}')")
-                else:  # doesn't match top_dirs
-                    pass
-            else:  # a file
-                if skip_files:
+                if can_exclude_dir(rath, s, relative_psx):
                     continue
-                file_rath = rath
-                relative_file_p = derive_relative_p(file_rath, top_path, with_leading_slash=True)
-                if is_file_matching_glob(file_rath, relative_file_p, s):  # matches glob, now check regex
-                    if inc_files_rx:  # only included paths must be considered
-                        if find_matching_pattern(relative_file_p, inc_files_rx):
-                            file_raths[file_rath] = None
-                        else:
-                            logger.log(DEBUG_13, f"|f ...{relative_file_p}  -- skipping (none of included_files_as_regex matches)")
-                    else:
-                        file_raths[file_rath] = None
-                    if exc_files_rx and file_rath in file_raths and (exc_rx := find_matching_pattern(relative_file_p, exc_files_rx)):
-                        del file_raths[file_rath]
-                        logger.log(DEBUG_14, f"|f ...{relative_file_p}  -- skipping (matches '{exc_rx}')")
-                else:  # doesn't match glob
-                    pass
-        for file_rath in file_raths:
-            yield file_rath
-        for dir_rath in dir_raths:
-            yield from _iter_matching_files(dir_rath)
+                if can_include_dir(rath, s, relative_psx):
+                    dirs.append(rath)
+            else:
+                if is_top_dir and (s.included_top_dirs or all(g.as_posix().endswith('/**') for g in s.included_files)):
+                    continue  # skip files in top_dir when only top dirs are specified
+                if can_exclude_file(rath, s, relative_psx):
+                    continue
+                if can_include_file(rath, s, relative_psx):
+                    yield rath
+        for dir_path in dirs:
+            yield from _iter_matching_files(dir_path, s)
 
-    # initially run without files if only selected dirs are to be processed
-    yield from _iter_matching_files(top_path, skip_files=s.included_top_dirs or False)
+    yield from _iter_matching_files(top_rath, s, is_top_dir=True)
 
 
-def is_dir_matching_top_dirs(dir_path: Path, relative_dir_p: str, s: Settings) -> bool:
-    """ Considers included_top_dirs and excluded_top_dirs """
-    dir_path_psx_ = dir_path.as_posix() + '/'
-    for exc_top_psx_ in (p.as_posix() + '/' for p in s.excluded_top_dirs):
-        if dir_path_psx_.startswith(exc_top_psx_):
-            logger.log(DEBUG_14, f"|D ...{relative_dir_p}  -- skipping (matches excluded_top_dirs)")
-            return False
-    if not s.included_top_dirs:
-        logger.log(DEBUG_11, f"=D ...{relative_dir_p}  -- including all (no included_top_dirs)")
+def can_exclude_dir(path: Path, s: Settings, relative_psx: str) -> bool:
+    if exc_full_glob_path := find_full_matching_full_glob_path(path, s.excluded_files):
+        logger.log(DEBUG_14, f"|D ...{relative_psx}  -- skipping (matches '{exc_full_glob_path.relative_to(s.source_dir)}')")
         return True
-    for inc_top_psx_ in (p.as_posix() + '/' for p in s.included_top_dirs):
-        # Example
-        # source_dir = '/home'
-        # included_top_dirs = ['/home/docs', '/home/pics']
-        if dir_path_psx_.startswith(inc_top_psx_):
-            # current dir_path_psx_ = '/home/docs/med'
-            # '/home/docs/med'.startswith('/home/docs')
-            logger.log(DEBUG_12, f"=D ...{relative_dir_p}  -- matches included_top_dirs")
-            return True
-        if inc_top_psx_.startswith(dir_path_psx_):
-            # current dir_path_psx_ = '/home'
-            # '/home/docs'.startswith('/home')
-            # this is to keep the path in dirs of os.walk(), i.e. to avoid excluding the entire tree
-            # but not for files, i.e. files in '/home' must be skipped
-            # no logging - dir_path is included for technical reasons only
-            return True
-    logger.log(DEBUG_13, f"|D ...{relative_dir_p}  -- skipping (doesn't match dirnames and/or top_dirs)")
+    if exc_top_dir := find_matching_top_path(path, s.excluded_top_dirs):
+        logger.log(DEBUG_14, f"|D ...{relative_psx}  -- skipping (matches '{exc_top_dir}')")
+        return True
+    if exc_patt := find_matching_pattern(relative_psx, s.excluded_dirs_as_regex):
+        logger.log(DEBUG_14, f"|d ...{relative_psx}  -- skipping (matches '{exc_patt}')")
+        return True
     return False
 
 
-def is_file_matching_glob(file_path: Path, relative_p: str, s: Settings) -> bool:
-    for file_as_glob in s.excluded_files_as_glob:
-        if file_path.full_match(file_as_glob) if PY_VER >= (3, 13) else file_path.match(file_as_glob):
-            logger.log(DEBUG_14, f"|F ...{relative_p}  -- skipping (matches excluded_files_as_glob {file_as_glob!r})")
-            return False
-    if not s.included_files_as_glob:
-        logger.log(DEBUG_11, f"=F ...{relative_p}  -- including all (no included_files_as_glob)")
+def can_include_dir(path: Path, s: Settings, relative_psx: str) -> bool:
+    if not s.included_files and not s.included_files_as_regex and not s.included_top_dirs:
+        logger.log(DEBUG_13, f"=D ...{relative_psx}  -- include all (no included_files, _as_regex, _top_dirs)")
         return True
-    for file_as_glob in s.included_files_as_glob:
-        if file_path.full_match(file_as_glob) if PY_VER >= (3, 13) else file_path.match(file_as_glob):
-            logger.log(DEBUG_12, f"=F ...{relative_p}  -- matches included_files_as_glob {file_as_glob!r}")
-            return True
-    logger.log(DEBUG_13, f"|F ...{relative_p}  -- skipping file (doesn't match file glob)")
+    for inc_full_glob_path in s.included_files:
+        if '/**' in (inc_glob_posix := inc_full_glob_path.as_posix()):
+            # Recursive pattern /** found - use the segments before /** for matching;
+            # any other pattern after /** will be handled by can_include_file()
+            prefix_glob_posix = inc_glob_posix.split('/**', 1)[0]
+            if (path.full_match(prefix_glob_posix + '/**')  # match dir_path itself and any descendants
+                    or path.full_match(prefix_glob_posix)  # Python bug #139580 @ 3.13.7
+                    or is_full_match_by_equivalent_segments(path, Path(prefix_glob_posix))):  # match any ancestors
+                logger.log(DEBUG_14, f"|D ...{relative_psx}  -- matches '{inc_full_glob_path.relative_to(s.source_dir)}'")
+                return True
+        else:
+            # No recursive pattern /** found - compare using the same number of initial segments
+            if is_full_match_by_equivalent_segments(path, inc_full_glob_path):
+                logger.log(DEBUG_14, f"|D ...{relative_psx}  -- matches '{inc_full_glob_path.relative_to(s.source_dir)}'")
+                return True
+    if find_matching_top_path(path, s.included_top_dirs):
+        logger.log(DEBUG_13, f"=D ...{relative_psx}  -- matches included_top_dirs")
+        return True
+    if any(inc_top_dir.is_relative_to(path) for inc_top_dir in s.included_top_dirs):
+        logger.log(DEBUG_13, f"=D ...{relative_psx}  -- matches: ancestor of any included_top_dirs")
+        return True
+    if inc_patt := find_matching_pattern(relative_psx, s.included_dirs_as_regex):
+        logger.log(DEBUG_13, f"=d ...{relative_psx}  -- matches '{inc_patt}'")
+        return True
+    logger.log(DEBUG_14, f"|D ...{relative_psx}  -- skipping (no match in included_files, _dirs_as_regex, _top_dirs)")
+    return False
+
+
+def is_full_match_by_equivalent_segments(path: PurePath, absolute_glob_path: PurePath):
+    """Full-matches using the same number of initial segments"""
+    path_parts = path.parts
+    glob_path_parts = absolute_glob_path.parts
+    num_parts_to_compare = min(len(path_parts), len(glob_path_parts))
+    equivalent_path = Path(*path_parts[:num_parts_to_compare])
+    equivalent_glob_path = Path(*glob_path_parts[:num_parts_to_compare])
+    return equivalent_path.full_match(equivalent_glob_path)
+
+
+def can_exclude_file(path: Path, s: Settings, relative_psx: str) -> bool:
+    if exc_full_glob_path := find_full_matching_full_glob_path(path, s.excluded_files):
+        logger.log(DEBUG_14, f"|F ...{relative_psx}  -- skipping (matches '{exc_full_glob_path.relative_to(s.source_dir)}')")
+        return True
+    if exc_patt := find_matching_pattern(relative_psx, s.excluded_files_as_regex):
+        logger.log(DEBUG_14, f"|f ...{relative_psx}  -- skipping (matches '{exc_patt}')")
+        return True
+    if exc_glob := find_matching_glob(path, s.excluded_files_as_glob):
+        logger.log(DEBUG_14, f"|F ...{relative_psx}  -- skipping (matches '{exc_glob}')")
+        return True
+    return False
+
+
+def can_include_file(path: Path, s: Settings, relative_psx: str) -> bool:
+    if not s.included_files and not s.included_files_as_regex and not s.included_files_as_glob:
+        logger.log(DEBUG_13, f"=F ...{relative_psx}  -- include all (no included_files, _as_regex, _as_glob)")
+        return True
+    if inc_full_glob_path := find_full_matching_full_glob_path(path, s.included_files):
+        logger.log(DEBUG_13, f"=F ...{relative_psx}  -- matches '{inc_full_glob_path.relative_to(s.source_dir)}'")
+        return True
+    if inc_patt := find_matching_pattern(relative_psx, s.included_files_as_regex):
+        logger.log(DEBUG_14, f"|f ...{relative_psx}  -- matches '{inc_patt}'")
+        return True
+    if inc_glob := find_matching_glob(path, s.included_files_as_glob):
+        logger.log(DEBUG_13, f"=F ...{relative_psx}  -- matches '{inc_glob}'")
+        return True
+    logger.log(DEBUG_14, f"|F ...{relative_psx}  -- skipping (no match in included_files, _as_regex, _as_glob)")
     return False
 
 
@@ -742,9 +781,9 @@ def not_used(func):
 @not_used
 def find_sep(g: str) -> str:
     """
-    included_files_as_glob can use a slash or a backslash as a path separator
-    :return the path separator which is used
-    :raise ValueError if both backslash and slash are found in the glob
+    included_files[_as_glob] can use a slash or a backslash as a path separator
+    :returns: the path separator which is used
+    :raises ValueError: if both backslash and slash are found in the glob
     """
     msg = 'Found both a backslash and a slash in `{}` - expected either one or the other'
     sep = None
@@ -757,15 +796,36 @@ def find_sep(g: str) -> str:
     return sep
 
 
-def derive_relative_p(path: Path, base_dir: Path, with_leading_slash=False) -> str:
+def derive_relative_psx(path: Path, base_dir: Path, with_leading_slash=False) -> str:
     return f"{'/' if with_leading_slash else ''}{path.relative_to(base_dir).as_posix()}"
 
 
-def find_matching_pattern(relative_p: str, patterns: list[Pattern]):
+def find_matching_pattern(relative_p: str, patterns: Sequence[Pattern]):
     # logger.debug(f"{relative_p}, {[p.pattern for p in patterns]}")
     for rx in patterns:
         if rx.search(relative_p):
             return rx.pattern
+    return None
+
+
+def find_matching_glob(path: PurePath, globs: Sequence[str]):
+    for g in globs:
+        if path.match(g):
+            return g
+    return None
+
+
+def find_matching_top_path(path: Path, top_paths: Sequence[Path]):
+    for top_path in top_paths:
+        if path.is_relative_to(top_path):
+            return top_path
+    return None
+
+
+def find_full_matching_full_glob_path(path: PurePath, full_glob_paths: Sequence[Path]):
+    for full_glob_path in full_glob_paths:
+        if path.full_match(full_glob_path):
+            return full_glob_path
     return None
 
 
@@ -917,7 +977,7 @@ class Rumar:
             logger.warning(f"SKIP {profile} - {'; '.join(errors)}")
             return
         for rath in self.source_files:
-            relative_p = derive_relative_p(rath, self.s.source_dir)
+            relative_p = derive_relative_psx(rath, self.s.source_dir)
             lstat = rath.lstat()  # don't follow symlinks - pathlib calls stat for each is_*()
             mtime = lstat.st_mtime
             mtime_dt = datetime.fromtimestamp(mtime).astimezone()
@@ -1109,7 +1169,7 @@ class Rumar:
         if not relative_p or path:
             raise AttributeError('** either relative_p or path must be provided')
         if not relative_p:
-            relative_p = derive_relative_p(path, self.s.source_dir)
+            relative_p = derive_relative_psx(path, self.s.source_dir)
         return self.s.backup_base_dir_for_profile / relative_p
 
     def calc_archive_format_and_compresslevel_kwargs(self, rath: Rath) -> tuple[RumarFormat, dict]:
@@ -1144,7 +1204,7 @@ class Rumar:
                 logger.info(f"-| {file_rath}  -- ignoring file for archiving: socket/door")
                 continue
             if s.file_deduplication and (duplicate := self.find_duplicate(file_rath)):
-                logger.info(f"{derive_relative_p(file_rath, source_dir)!r} -- skipping: duplicate of {derive_relative_p(duplicate, source_dir)!r}")
+                logger.info(f"{derive_relative_psx(file_rath, source_dir)!r} -- skipping: duplicate of {derive_relative_psx(duplicate, source_dir)!r}")
                 continue
             matching_files.append(file_rath)
         return sorted_files_by_stem_then_suffix_ignoring_case(matching_files)
@@ -1196,7 +1256,7 @@ class Rumar:
         if top_dir:
             if not top_dir.is_absolute():
                 top_dir = self.s.source_dir / top_dir
-            relative_top_dir = derive_relative_p(top_dir, self.s.source_dir)  # includes validation
+            relative_top_dir = derive_relative_psx(top_dir, self.s.source_dir)  # includes validation
         else:
             relative_top_dir = None  # no filtering
         if msgs:
@@ -1207,7 +1267,7 @@ class Rumar:
             backup_path = self.s.backup_base_dir_for_profile / bak_path
             original_source_path = self.s.source_dir / src_path
             if directory:  # different target dir requested
-                relative_target_file = derive_relative_p(original_source_path, self.s.backup_base_dir_for_profile)  # includes validation
+                relative_target_file = derive_relative_psx(original_source_path, self.s.backup_base_dir_for_profile)  # includes validation
                 target_path = directory / relative_target_file
             else:
                 target_path = original_source_path
@@ -1268,7 +1328,7 @@ class Rumar:
                 top_archive_dir = self.s.backup_base_dir_for_profile / top_archive_dir
             if ex := try_to_iterate_dir(top_archive_dir):
                 msgs.append(f"SKIP {profile!r} - archive-dir doesn't exist - {ex}")
-            elif not top_archive_dir.as_posix().startswith(self.s.backup_base_dir_for_profile.as_posix()):
+            elif not top_archive_dir.relative_to(self.s.backup_base_dir_for_profile):
                 msgs.append(f"SKIP {profile!r} - archive-dir is not under backup_base_dir_for_profile: "
                             f"top_archive_dir={str(top_archive_dir)!r} backup_base_dir_for_profile={str(self.s.backup_base_dir_for_profile)!r}")
         logger.info(f"{profile=} top_archive_dir={str(top_archive_dir) if top_archive_dir else None!r} directory={str(_directory)!r} {overwrite=} {meta_diff=}")
@@ -1285,7 +1345,7 @@ class Rumar:
     @staticmethod
     def _confirm_extraction_into_directory(directory: Path, top_archive_dir: Path, backup_base_dir_for_profile: Path):
         if top_archive_dir:
-            relative_top_archive_dir = derive_relative_p(top_archive_dir, backup_base_dir_for_profile)
+            relative_top_archive_dir = derive_relative_psx(top_archive_dir, backup_base_dir_for_profile)
             target_dir = directory / relative_top_archive_dir
             target = str(target_dir)
         else:
@@ -1307,7 +1367,7 @@ class Rumar:
         if archive_file is None:
             archive_file = find_on_disk_last_file_in_directory(archive_dir, filenames, RX_ARCHIVE_SUFFIX)
         if archive_file:
-            relative_file_parent = derive_relative_p(archive_dir.parent, backup_base_dir_for_profile)
+            relative_file_parent = derive_relative_psx(archive_dir.parent, backup_base_dir_for_profile)
             target_file = directory / relative_file_parent / archive_dir.name
             self.extract_archive(archive_file, target_file, overwrite, meta_diff)
         else:
@@ -1324,7 +1384,7 @@ class Rumar:
         if target_file_exists:
             if meta_diff and self.derive_mtime_size(archive_file) == (self.calc_mtime_str(st_stat), st_stat.st_size):
                 should_extract = False
-                logger.info(f"skipping {derive_relative_p(archive_file.parent, self.s.backup_base_dir_for_profile)} - mtime and size are the same as in the target file")
+                logger.info(f"skipping {derive_relative_psx(archive_file.parent, self.s.backup_base_dir_for_profile)} - mtime and size are the same as in the target file")
             elif overwrite or self._ask_to_overwrite(target_file):
                 should_extract = True
             else:
@@ -1816,9 +1876,9 @@ class RumarDB:
         """Walks `backup_base_dir_for_profile` and saves latest archive of each source, whether the source file currently exists or not"""
         for basedir, dirnames, filenames in os.walk(self.s.backup_base_dir_for_profile):
             if latest_archive := find_on_disk_last_file_in_directory(basedir, filenames, RX_ARCHIVE_SUFFIX):
-                relative_archive_dir = derive_relative_p(latest_archive.parent, self.s.backup_base_dir_for_profile)
+                relative_archive_dir = derive_relative_psx(latest_archive.parent, self.s.backup_base_dir_for_profile)
                 file_path = self.s.source_dir / relative_archive_dir
-                relative_p = derive_relative_p(file_path, self.s.source_dir)
+                relative_p = derive_relative_psx(file_path, self.s.source_dir)
                 checksum_file = Rumar.compose_checksum_file_path(latest_archive)
                 try:
                     blake2b_checksum = checksum_file.read_text(UTF8)
@@ -1919,7 +1979,7 @@ class RumarDB:
 
     def get_blake2b_checksum(self, archive_path: Path) -> bytes | None:
         if bak_dir_id := self.bak_dir_id:
-            src_path = derive_relative_p(archive_path.parent, self.s.backup_base_dir_for_profile)
+            src_path = derive_relative_psx(archive_path.parent, self.s.backup_base_dir_for_profile)
             src_id = self._source_to_id[(self.src_dir_id, src_path)]
             bak_name = archive_path.name
             return self._backup_to_checksum.get((bak_dir_id, src_id, bak_name))
@@ -1929,7 +1989,7 @@ class RumarDB:
         bak_dir = self.s.backup_base_dir_for_profile.as_posix()
         bak_dir_id = self.bak_dir_id
         src_dir_id = self.src_dir_id
-        src_path = derive_relative_p(archive_path.parent, self.s.backup_base_dir_for_profile)
+        src_path = derive_relative_psx(archive_path.parent, self.s.backup_base_dir_for_profile)
         src_id = self._source_to_id[(src_dir_id, src_path)]
         bak_name = archive_path.name
         key = (bak_dir_id, src_id, bak_name)
@@ -2011,7 +2071,7 @@ class RumarDB:
 
     def mark_backup_as_deleted(self, archive_path: Path):
         archive_dir = archive_path.parent
-        relative_p = derive_relative_p(archive_dir, self.s.backup_base_dir_for_profile)
+        relative_p = derive_relative_psx(archive_dir, self.s.backup_base_dir_for_profile)
         src_id = self._source_to_id[(self.src_dir_id, relative_p)]
         params = (self.run_id, self.bak_dir_id, src_id, archive_path.name)
         found = False

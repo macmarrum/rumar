@@ -1,5 +1,5 @@
 # schema version
-version = 3
+version = 2
 # settings common for all profiles
 backup_base_dir = 'C:\Users\Mac\Backup'
 
@@ -7,11 +7,12 @@ backup_base_dir = 'C:\Users\Mac\Backup'
 
 ["My Documents"]
 source_dir = 'C:\Users\Mac\Documents'
-excluded_files = ['My Music\**', 'My Pictures\**', 'My Videos\**', '**\desktop.ini', '**\Thumbs.db']
+excluded_top_dirs = ['My Music', 'My Pictures', 'My Videos']
+excluded_files_as_glob = ['desktop.ini', 'Thumbs.db']
 
 [Desktop]
 source_dir = 'C:\Users\Mac\Desktop'
-excluded_files = ['**\desktop.ini', '**\*.exe', '**\*.msi']
+excluded_files_as_glob = ['desktop.ini', '*.exe', '*.msi']
 
 ["# this profile's name starts with a hash, therefore it will be ignored"]
 source_dir = "this setting won't be loaded"
