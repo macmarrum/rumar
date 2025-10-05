@@ -8,7 +8,7 @@ from textwrap import dedent
 
 import pytest
 
-from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, iter_matching_files, derive_relative_psx, CreateReason, compute_blake2b_checksum, can_exclude_dir, can_include_dir
+from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, iter_matching_files, derive_relative_psx, CreateReason, can_exclude_dir, can_include_dir, can_exclude_file, can_include_file
 from utils import Rather, eq_list
 
 
@@ -16,6 +16,12 @@ def _is_dir_match(path, s, relative_psx):
     if can_exclude_dir(path, s, relative_psx):
         return False
     return can_include_dir(path, s, relative_psx)
+
+
+def _can_match_file(path, s, relative_psx):
+    if can_exclude_file(path, s, relative_psx):
+        return False
+    return can_include_file(path, s, relative_psx)
 
 
 @pytest.fixture(scope='class')
@@ -155,18 +161,16 @@ class TestRumarCore:
                            )
         rumar = d['rumar']
         R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
-        actual = [
-            _is_dir_match(R(f"/{profile}"), settings, '/'),
-            _is_dir_match(R(f"/{profile}/A"), settings, '/A'),
-            _is_dir_match(R(f"/{profile}/AA"), settings, '/AA'),
-            _is_dir_match(R(f"/{profile}/B"), settings, '/B'),
-        ]
-        expected = [
-            True,
-            False,
-            True,
-            False,
-        ]
+        expected = {
+            f"/{profile}": True,
+            f"/{profile}/A": False,
+            f"/{profile}/AA": True,
+            f"/{profile}/B": False,
+        }
+        actual = {
+            psx: _is_dir_match(r := R(psx), settings, r.as_posix())
+            for psx in expected.keys()
+        }
         assert actual == expected
 
     def test_is_top_dir_match__exc_mulit_level(self, set_up_rumar):
@@ -260,6 +264,47 @@ class TestRumarCore:
         ]
         assert actual == expected
 
+    def test_can_match_file(self, set_up_rumar):
+        d = set_up_rumar
+        profile = d['profile']
+        profile_to_settings = d['profile_to_settings']
+        settings = profile_to_settings[profile]
+        settings = replace(settings,  # NOTE: local settings dict, not in rumar
+                           included_files=['A/A-A/**'],
+                           excluded_files=['A/A-A/????1[4-5]*'],
+                           included_dirs_as_regex=[r'/A-B$'],
+                           included_top_dirs=['AA'],
+                           included_files_as_glob=['*.csv'],
+                           excluded_files_as_glob=['*1.*'],
+                           )
+        rumar = d['rumar']
+        R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
+        expected = {
+            f"/{profile}/file01.txt": False,
+            f"/{profile}/file02.txt": False,
+            f"/{profile}/file03.csv": True,
+            f"/{profile}/A/file04.txt": False,
+            f"/{profile}/A/file05.txt": False,
+            f"/{profile}/A/file06.csv": True,
+            f"/{profile}/B/file07.txt": False,
+            f"/{profile}/B/file08.txt": False,
+            f"/{profile}/B/file09.csv": True,
+            f"/{profile}/AA/file10.txt": True,
+            f"/{profile}/AA/file11.txt": False,
+            f"/{profile}/AA/file12.csv": True,
+            f"/{profile}/A/A-A/file13.txt": True,
+            f"/{profile}/A/A-A/file14.txt": False,
+            f"/{profile}/A/A-A/file15.csv": False,
+            f"/{profile}/A/A-B/file16.txt": True,
+            f"/{profile}/A/A-B/file17.txt": True,
+            f"/{profile}/A/A-B/file18.csv": True,
+        }
+        actual = {
+            psx: _can_match_file(r := R(psx), settings, r.as_posix())
+            for psx in expected.keys()
+        }
+        assert actual == expected
+
     def test_derive_relative_p_with_leading_slash(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
@@ -291,7 +336,12 @@ class TestRumarCore:
                            )
         rumar = d['rumar']
         R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache).as_rath()
-        expected = [R(f"/{profile}/AA/file11.txt"), ]
+        expected = [R(p) for p in [
+            f"/{profile}/file01.txt",
+            f"/{profile}/AA/file10.txt",
+            f"/{profile}/AA/file11.txt",
+            f"/{profile}/AA/file12.csv",
+        ]]
         top_rath = R(f"/{profile}")
         actual = list(iter_matching_files(top_rath, settings))
         assert eq_list(actual, expected)
