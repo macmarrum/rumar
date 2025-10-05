@@ -21,7 +21,8 @@ class Rather(Rath):
                  islnk: bool = False,
                  isdir: bool = False):
         if self.BASE_PATH:
-            args = [self.BASE_PATH, Path(*args).relative_to('/')]
+            relative_args = p.parts[1:] if (p := Path(*args)).is_absolute() else args
+            args = [self.BASE_PATH, *relative_args]
         super().__init__(*args, lstat_cache=lstat_cache if lstat_cache is not None else _path_to_lstat_)
         self._mtime = mtime
         self._content = f"{self}\n" if content == '' else content  # can be None, to produce None checksum for NULL blake2b
