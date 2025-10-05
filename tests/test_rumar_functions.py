@@ -1,8 +1,9 @@
+from dataclasses import asdict
 from pathlib import PureWindowsPath, PurePosixPath
 
 import pytest
 
-from rumar import is_file_glob_match, Settings
+from rumar import find_matching_full_glob_path, Settings
 from utils import make_absolute_path
 
 
@@ -59,25 +60,33 @@ def test_make_absolute__nt_dot_slash_pattern_should_expand():
     assert actual == expected
 
 
-def test_is_file_glob_match__posix_absolute_exact_should_match(settings):
-    settings.included_files = ['/source/dir/a/b/c.txt']
+def test_find_matching_full_glob_path__posix_absolute_exact_should_match(settings):
+    included_files = ['/source/dir/a/b/c.txt']
+    d = asdict(settings) | dict(included_files=included_files)
+    settings = Settings(**d)
     file_path = PurePosixPath('/source/dir/a/b/c.txt')
-    assert is_file_glob_match(file_path, settings, '')
+    assert find_matching_full_glob_path(file_path, settings.included_files)
 
 
-def test_is_file_glob_match__posix_relative_exact_should_match(settings):
-    settings.included_files = ['a/b/c.txt']
+def test_find_matching_full_glob_path__posix_relative_exact_should_match(settings):
+    included_files = ['a/b/c.txt']
+    d = asdict(settings) | dict(included_files=included_files)
+    settings = Settings(**d)
     file_path = PurePosixPath('/source/dir/a/b/c.txt')
-    assert is_file_glob_match(file_path, settings, '')
+    assert find_matching_full_glob_path(file_path, settings.included_files)
 
 
-def test_is_file_glob_match__posix_absolute_starstar_should_match(settings):
-    settings.included_files = ['/source/dir/**/c.txt']
+def test_find_matching_full_glob_path__posix_absolute_starstar_should_match(settings):
+    included_files = ['/source/dir/**/c.txt']
+    d = asdict(settings) | dict(included_files=included_files)
+    settings = Settings(**d)
     file_path = PurePosixPath('/source/dir/a/b/c.txt')
-    assert is_file_glob_match(file_path, settings, '')
+    assert find_matching_full_glob_path(file_path, settings.included_files)
 
 
-def test_is_file_glob_match__posix_relative_starstar_should_match(settings):
-    settings.included_files = ['a/**/c.txt']
+def test_find_matching_full_glob_path__posix_relative_starstar_should_match(settings):
+    included_files = ['a/**/c.txt']
+    d = asdict(settings) | dict(included_files=included_files)
+    settings = Settings(**d)
     file_path = PurePosixPath('/source/dir/a/b/c.txt')
-    assert is_file_glob_match(file_path, settings, '')
+    assert find_matching_full_glob_path(file_path, settings.included_files)
