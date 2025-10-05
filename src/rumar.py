@@ -648,13 +648,13 @@ class Rath(Path):
         return Rath(*pathsegments, lstat_cache=self.lstat_cache)
 
 
-def iter_all_files(top_path: Rath) -> Generator[Rath, None, None]:
+def iter_all_files(top_rath: Rath) -> Generator[Rath, None, None]:
     """
     Note: symlinks to directories are considered files
-    :param top_path: usually `s.source_dir` or `s.backup_base_dir_for_profile`
+    :param top_rath: usually `s.source_dir` or `s.backup_base_dir_for_profile`
     """
     dir_raths = []
-    for rath in top_path.iterdir():
+    for rath in sorted(top_rath.iterdir()):
         if S_ISDIR(rath.lstat().st_mode):
             dir_raths.append(rath)
         else:
