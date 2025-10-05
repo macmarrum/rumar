@@ -688,21 +688,21 @@ def iter_matching_files(top_rath: Rath, s: Settings) -> Generator[Rath, None, No
                     continue
                 if can_include_file(rath, s, relative_psx):
                     yield rath
-        for dir_path in dirs:
-            yield from _iter_matching_files(dir_path, s)
+        for dir_rath in dirs:
+            yield from _iter_matching_files(dir_rath, s)
 
     yield from _iter_matching_files(top_rath, s, is_top_dir=True)
 
 
 def can_exclude_dir(path: Path, s: Settings, relative_psx: str) -> bool:
     if exc_full_glob_path := find_matching_full_glob_path(path, s.excluded_files):
-        logger.log(DEBUG_14, f"|D ...{relative_psx}  -- skipping (matches '{exc_full_glob_path.relative_to(s.source_dir)}')")
+        logger.log(DEBUG_14, f"|D ...{relative_psx}  -- skipping (matches full glob '{exc_full_glob_path.relative_to(s.source_dir)}')")
         return True
     if exc_top_dir := find_matching_top_path(path, s.excluded_top_dirs):
-        logger.log(DEBUG_14, f"|D ...{relative_psx}  -- skipping (matches '{exc_top_dir}')")
+        logger.log(DEBUG_14, f"|D ...{relative_psx}  -- skipping (matches top dir '{exc_top_dir}')")
         return True
     if exc_patt := find_matching_pattern(relative_psx, s.excluded_dirs_as_regex):
-        logger.log(DEBUG_14, f"|d ...{relative_psx}  -- skipping (matches '{exc_patt}')")
+        logger.log(DEBUG_14, f"|d ...{relative_psx}  -- skipping (matches regex '{exc_patt}')")
         return True
     return False
 
@@ -751,13 +751,13 @@ def is_full_match_by_equivalent_segments(path: PurePath, absolute_glob_path: Pur
 
 def can_exclude_file(path: Path, s: Settings, relative_psx: str) -> bool:
     if exc_full_glob_path := find_matching_full_glob_path(path, s.excluded_files):
-        logger.log(DEBUG_14, f"|F ...{relative_psx}  -- skipping (matches '{exc_full_glob_path.relative_to(s.source_dir)}')")
-        return True
-    if exc_patt := find_matching_pattern(relative_psx, s.excluded_files_as_regex):
-        logger.log(DEBUG_14, f"|f ...{relative_psx}  -- skipping (matches '{exc_patt}')")
+        logger.log(DEBUG_14, f"|F ...{relative_psx}  -- skipping (matches full glob '{exc_full_glob_path.relative_to(s.source_dir)}')")
         return True
     if exc_glob := find_matching_glob(path, s.excluded_files_as_glob):
-        logger.log(DEBUG_14, f"|F ...{relative_psx}  -- skipping (matches '{exc_glob}')")
+        logger.log(DEBUG_14, f"|F ...{relative_psx}  -- skipping (matches glob '{exc_glob}')")
+        return True
+    if exc_patt := find_matching_pattern(relative_psx, s.excluded_files_as_regex):
+        logger.log(DEBUG_14, f"|f ...{relative_psx}  -- skipping (matches regex '{exc_patt}')")
         return True
     return False
 
