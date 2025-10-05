@@ -456,8 +456,8 @@ class Settings:
         else:
             self.backup_base_dir_for_profile = self.backup_base_dir / self.profile
         self._absolutopathosetify('included_files')
-        if any(g.removesuffix('**') == self.source_dir for g in self.included_files):
-            raise ValueError(f"included_files contains source_dir[/**]")  # guard against messing up iter_matching_files (skip files in top_dir when only top dirs are specified)
+        if any(Path(g.as_posix().removesuffix('/**')) == self.source_dir for g in self.included_files):
+            raise ValueError('included_files contains source_dir[/**]')  # guard against messing up iter_matching_files (skip files in top_dir when only top dirs are specified)
         self._absolutopathosetify('excluded_files')
         self._absolutopathosetify('included_top_dirs')
         self._setify('included_files_as_glob')
