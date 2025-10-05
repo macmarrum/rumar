@@ -34,7 +34,7 @@ from pathlib import Path, PurePath
 from stat import S_ISDIR, S_ISSOCK, S_ISDOOR, S_ISLNK
 from textwrap import dedent
 from time import sleep
-from typing import Union, Literal, Pattern, Any, Iterable, cast, Generator, Callable, Sequence
+from typing import Union, Literal, Pattern, Any, Iterable, cast, Generator, Callable, Sequence, ClassVar
 
 vi = sys.version_info
 PY_VER = (vi.major, vi.minor)
@@ -408,7 +408,6 @@ class Settings:
       otherwise _**create**_ will also seek such files to be excluded
     db_path: str = _**backup_base_dir**_/rumar.sqlite
     """
-    SUFFIXES_SEP: str = field(default=',', init=False, repr=False)
     profile: str
     backup_base_dir: Union[str, Path]
     source_dir: Union[str, Path]
@@ -428,7 +427,8 @@ class Settings:
     password: bytes | str | None = None
     zip_compression_method: int = zipfile.ZIP_DEFLATED
     compression_level: int = 3
-    no_compression_suffixes_default: str = (
+    SUFFIXES_SEP: ClassVar[str] = ','
+    NO_COMPRESSION_SUFFIXES_DEFAULT: ClassVar[str] = (
         '7z,zip,zipx,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,'
         'xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,cbz,'
         'png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,kdbx'
@@ -468,7 +468,7 @@ class Settings:
         self._patternify('included_files_as_regex')
         self._patternify('excluded_dirs_as_regex')
         self._patternify('excluded_files_as_regex')
-        self.suffixes_without_compression = {f".{s}" for s in self.SUFFIXES_SEP.join([self.no_compression_suffixes_default, self.no_compression_suffixes]).split(self.SUFFIXES_SEP) if s}
+        self.suffixes_without_compression = {f".{s}" for s in self.SUFFIXES_SEP.join([self.NO_COMPRESSION_SUFFIXES_DEFAULT, self.no_compression_suffixes]).split(self.SUFFIXES_SEP) if s}
         # https://stackoverflow.com/questions/71846054/-cast-a-string-to-an-enum-during-instantiation-of-a-dataclass-
         if self.archive_format is None:
             self.archive_format = RumarFormat.TGZ
