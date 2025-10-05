@@ -764,6 +764,10 @@ def can_include_file(path: Path, s: Settings, relative_psx: str) -> bool:
     if inc_full_glob_path := find_full_matching_full_glob_path(path, s.included_files):
         logger.log(DEBUG_13, f"=F ...{relative_psx}  -- matches '{inc_full_glob_path.relative_to(s.source_dir)}'")
         return True
+    relative_parent_psx = derive_relative_psx(path.parent, s.source_dir)
+    if inc_patt := find_matching_pattern(relative_parent_psx, s.included_dirs_as_regex):
+        logger.log(DEBUG_14, f"|f ...{relative_psx}  -- matches dir '{inc_patt}'")
+        return True
     if inc_patt := find_matching_pattern(relative_psx, s.included_files_as_regex):
         logger.log(DEBUG_14, f"|f ...{relative_psx}  -- matches '{inc_patt}'")
         return True
@@ -800,10 +804,9 @@ def derive_relative_psx(path: Path, base_dir: Path, with_leading_slash=False) ->
     return f"{'/' if with_leading_slash else ''}{path.relative_to(base_dir).as_posix()}"
 
 
-def find_matching_pattern(relative_p: str, patterns: Sequence[Pattern]):
-    # logger.debug(f"{relative_p}, {[p.pattern for p in patterns]}")
+def find_matching_pattern(relative_psx: str, patterns: Sequence[Pattern]):
     for rx in patterns:
-        if rx.search(relative_p):
+        if rx.search(relative_psx):
             return rx.pattern
     return None
 
