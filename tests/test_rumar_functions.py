@@ -1,9 +1,10 @@
 from dataclasses import asdict
-from pathlib import PureWindowsPath, PurePosixPath
+from pathlib import PureWindowsPath, PurePosixPath, Path
+from textwrap import dedent
 
 import pytest
 
-from rumar import find_matching_full_glob_path, Settings
+from rumar import find_matching_full_glob_path, Settings, RX_ARCHIVE_NAME, find_on_disk_last_file_in_directory
 from utils import make_absolute_path
 
 
@@ -90,3 +91,15 @@ def test_find_matching_full_glob_path__posix_relative_starstar_should_match(sett
     settings = Settings(**d)
     file_path = PurePosixPath('/source/dir/a/b/c.txt')
     assert find_matching_full_glob_path(file_path, settings.included_files)
+
+
+def test_find_on_disk_last_file_in_directory__without_nonzero_check():
+    directory = Path('/base')
+    files = [ln for ln in dedent('''\
+        2024-08-03_07,23,10.700584+02,00~622.tar.gz
+        2024-11-18_22,55,23.718723+01,00~633.tar.gz
+        2025-09-09_07,34,20.318301+02,00~761~comment.tar.gz
+        ''').splitlines() if ln and not ln.startswith('#')]
+    expected = directory / files[-1]
+    actual = find_on_disk_last_file_in_directory(directory, files, RX_ARCHIVE_NAME, nonzero=False)
+    assert actual == expected, f"Expected {expected}, but got {actual}"

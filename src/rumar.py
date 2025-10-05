@@ -170,6 +170,8 @@ PathAlike = Union[str, PathLike[str]]
 UTF8 = 'UTF-8'
 RUMAR_SQLITE = 'rumar.sqlite'
 RX_ARCHIVE_SUFFIX = re.compile(r'(\.(?:tar(?:\.(?:gz|bz2|xz))?|zipx))$')
+# Example: 2023-04-30_09,48,20.872144+02,00~123~ab12~LNK
+RX_ARCHIVE_NAME = re.compile(r'^\d\d\d\d-\d\d-\d\d_\d\d,\d\d,\d\d(?:\.\d\d\d\d\d\d)?\+\d\d,\d\d~\d+.*' + RX_ARCHIVE_SUFFIX.pattern)
 
 
 def main(argv: Sequence[str] = None):
@@ -1888,7 +1890,7 @@ class RumarDB:
     def _save_initial_state(self):
         """Walks `backup_base_dir_for_profile` and saves latest archive of each source, whether the source file currently exists or not"""
         for basedir, dirnames, filenames in os.walk(self.s.backup_base_dir_for_profile):
-            if latest_archive := find_on_disk_last_file_in_directory(basedir, filenames, RX_ARCHIVE_SUFFIX):
+            if latest_archive := find_on_disk_last_file_in_directory(basedir, filenames, RX_ARCHIVE_NAME):
                 relative_archive_dir = derive_relative_psx(latest_archive.parent, self.s.backup_base_dir_for_profile)
                 file_path = self.s.source_dir / relative_archive_dir
                 relative_p = derive_relative_psx(file_path, self.s.source_dir)
