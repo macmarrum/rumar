@@ -456,8 +456,9 @@ class Settings:
         else:
             self.backup_base_dir_for_profile = self.backup_base_dir / self.profile
         self._absolutopathosetify('included_files')
+        # guard against messing up iter_matching_files (skip file matching in top_dir when only top-level dirs are specified)
         if any(Path(g.as_posix().removesuffix('/**')) == self.source_dir for g in self.included_files):
-            raise ValueError('included_files contains source_dir[/**]')  # guard against messing up iter_matching_files (skip files in top_dir when only top dirs are specified)
+            raise ValueError('included_files contains source_dir[/**]')
         self._absolutopathosetify('excluded_files')
         self._absolutopathosetify('included_top_dirs')
         self._setify('included_files_as_glob')
@@ -677,8 +678,10 @@ def iter_matching_files(top_rath: Rath, s: Settings) -> Generator[Rath, None, No
                 if can_include_dir(rath, s, relative_psx):
                     dirs.append(rath)
             else:
-                if is_top_dir and (s.included_top_dirs or all(g.as_posix().endswith('/**') for g in s.included_files)):
-                    continue  # skip files in top_dir when only top dirs are specified
+                # optimize for large s.source_dir to skip file matching in top_dir when only top-level dirs are specified
+                if (is_top_dir and not (s.included_files_as_regex or s.included_files_as_glob)
+                        and (s.included_top_dirs or all((g.as_posix().endswith('/**') and g.parent == s.source_dir) for g in s.included_files))):
+                    continue
                 if can_exclude_file(rath, s, relative_psx):
                     continue
                 if can_include_file(rath, s, relative_psx):
@@ -690,7 +693,7 @@ def iter_matching_files(top_rath: Rath, s: Settings) -> Generator[Rath, None, No
 
 
 def can_exclude_dir(path: Path, s: Settings, relative_psx: str) -> bool:
-    if exc_full_glob_path := find_full_matching_full_glob_path(path, s.excluded_files):
+    if exc_full_glob_path := find_matching_full_glob_path(path, s.excluded_files):
         logger.log(DEBUG_14, f"|D ...{relative_psx}  -- skipping (matches '{exc_full_glob_path.relative_to(s.source_dir)}')")
         return True
     if exc_top_dir := find_matching_top_path(path, s.excluded_top_dirs):
@@ -745,7 +748,7 @@ def is_full_match_by_equivalent_segments(path: PurePath, absolute_glob_path: Pur
 
 
 def can_exclude_file(path: Path, s: Settings, relative_psx: str) -> bool:
-    if exc_full_glob_path := find_full_matching_full_glob_path(path, s.excluded_files):
+    if exc_full_glob_path := find_matching_full_glob_path(path, s.excluded_files):
         logger.log(DEBUG_14, f"|F ...{relative_psx}  -- skipping (matches '{exc_full_glob_path.relative_to(s.source_dir)}')")
         return True
     if exc_patt := find_matching_pattern(relative_psx, s.excluded_files_as_regex):
@@ -761,16 +764,17 @@ def can_include_file(path: Path, s: Settings, relative_psx: str) -> bool:
     if not s.included_files and not s.included_files_as_regex and not s.included_files_as_glob:
         logger.log(DEBUG_13, f"=F ...{relative_psx}  -- include all (no included_files, _as_regex, _as_glob)")
         return True
-    if inc_full_glob_path := find_full_matching_full_glob_path(path, s.included_files):
+    if inc_full_glob_path := find_matching_full_glob_path(path, s.included_files):
         logger.log(DEBUG_13, f"=F ...{relative_psx}  -- matches '{inc_full_glob_path.relative_to(s.source_dir)}'")
-        return True
-    relative_parent_psx = derive_relative_psx(path.parent, s.source_dir)
-    if inc_patt := find_matching_pattern(relative_parent_psx, s.included_dirs_as_regex):
-        logger.log(DEBUG_14, f"|f ...{relative_psx}  -- matches dir '{inc_patt}'")
         return True
     if inc_patt := find_matching_pattern(relative_psx, s.included_files_as_regex):
         logger.log(DEBUG_14, f"|f ...{relative_psx}  -- matches '{inc_patt}'")
         return True
+    if path != s.source_dir:
+        relative_parent_psx = derive_relative_psx(path.parent, s.source_dir, with_leading_slash=True)
+        if inc_patt := find_matching_pattern(relative_parent_psx, s.included_dirs_as_regex):
+            logger.log(DEBUG_14, f"|f ...{relative_psx}  -- matches dir '{inc_patt}'")
+            return True
     if inc_glob := find_matching_glob(path, s.included_files_as_glob):
         logger.log(DEBUG_13, f"=F ...{relative_psx}  -- matches '{inc_glob}'")
         return True
@@ -825,9 +829,12 @@ def find_matching_top_path(path: Path, top_paths: Sequence[Path]):
     return None
 
 
-def find_full_matching_full_glob_path(path: PurePath, full_glob_paths: Sequence[Path]):
+def find_matching_full_glob_path(path: PurePath, full_glob_paths: Sequence[Path]):
     for full_glob_path in full_glob_paths:
         if path.full_match(full_glob_path):
+            return full_glob_path
+        # Python bug #139580 @ 3.13.7
+        if full_glob_path.as_posix().endswith('/**') and path.full_match(full_glob_path.parent):
             return full_glob_path
     return None
 
