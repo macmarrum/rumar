@@ -682,7 +682,7 @@ def iter_matching_files(top_rath: Rath, s: Settings) -> Generator[Rath, None, No
             else:
                 # optimize for large s.source_dir to skip file matching in top_dir when only top-level dirs are specified
                 if (is_top_dir and not (s.included_files_as_regex or s.included_files_as_glob)
-                        and (s.included_top_dirs or all((g.as_posix().endswith('/**') and g.parent == s.source_dir) for g in s.included_files))):
+                        and (s.included_top_dirs or (s.included_files and all((g.as_posix().endswith('/**') and g.parent == s.source_dir) for g in s.included_files)))):
                     continue
                 if can_exclude_file(rath, s, relative_psx):
                     continue
