@@ -1027,6 +1027,7 @@ class Rumar:
                     logger.info(f":= {relative_p}  {latest_mtime_str}  {latest_size} =: last backup")
                     self._create(CreateReason.UPDATE, rath, relative_p, archive_dir, mtime_str, size, checksum)
                 else:
+                    logger.debug(f":== {relative_p}  {latest_mtime_str}  {latest_size} ==: unchanged")
                     self._rdb.save_unchanged(relative_p)
         self._finalize_profile_changes()
 
