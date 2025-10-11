@@ -670,9 +670,10 @@ def iter_matching_files(top_rath: Rath, s: Settings) -> Generator[Rath, None, No
     :raises OSError: if a directory cannot be accessed
     """
 
-    def _iter_matching_files(root_rath: Rath, s: Settings, *, is_top_dir=False) -> Generator[Rath, None, None]:
+    def _iter_matching_files(root_rath: Rath, s: Settings) -> Generator[Rath, None, None]:
         dirs = []
         for rath in sorted(root_rath.iterdir()):
+            ## path relative to top_rath (not the local root_rath)
             _relative_psx = derive_relative_psx(rath, top_rath, with_leading_slash=True)
             if S_ISDIR(rath.lstat().st_mode):
                 if can_exclude_dir(rath, s, _relative_psx):
@@ -680,10 +681,6 @@ def iter_matching_files(top_rath: Rath, s: Settings) -> Generator[Rath, None, No
                 if can_include_dir(rath, s, _relative_psx):
                     dirs.append(rath)
             else:
-                # optimize for large s.source_dir to skip file matching in top_dir when only top-level dirs are specified
-                if (is_top_dir and not (s.included_files_as_regex or s.included_files_as_glob)
-                        and (s.included_top_dirs or (s.included_files and all((g.as_posix().endswith('/**') and g.parent == s.source_dir) for g in s.included_files)))):
-                    continue
                 if can_exclude_file(rath, s, _relative_psx):
                     continue
                 if can_include_file(rath, s, _relative_psx):
@@ -691,7 +688,7 @@ def iter_matching_files(top_rath: Rath, s: Settings) -> Generator[Rath, None, No
         for dir_rath in dirs:
             yield from _iter_matching_files(dir_rath, s)
 
-    yield from _iter_matching_files(top_rath, s, is_top_dir=True)
+    yield from _iter_matching_files(top_rath, s)
 
 
 def can_exclude_dir(path: Path, s: Settings, _relative_psx: str) -> bool:
