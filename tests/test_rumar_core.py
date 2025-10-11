@@ -14,15 +14,15 @@ from utils import Rather, eq_list
 
 
 def _can_match_dir(path, s, relative_psx):
-    if can_exclude_dir(path, s, relative_psx):
+    if can_exclude_dir(path, s, relative_psx, initial_top_path=s.source_dir):
         return 0
-    return 1 if can_include_dir(path, s, relative_psx) else 0
+    return 1 if can_include_dir(path, s, relative_psx, initial_top_path=s.source_dir) else 0
 
 
 def _can_match_file(path, s, relative_psx):
-    if can_exclude_file(path, s, relative_psx):
+    if can_exclude_file(path, s, relative_psx, initial_top_path=s.source_dir):
         return 0
-    return 1 if can_include_file(path, s, relative_psx) else 0
+    return 1 if can_include_file(path, s, relative_psx, initial_top_path=s.source_dir) else 0
 
 
 @pytest.fixture(scope='module')
