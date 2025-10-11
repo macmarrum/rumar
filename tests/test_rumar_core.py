@@ -147,6 +147,42 @@ class TestRumarCore:
         }
         assert actual == expected
 
+    def test_can_match_dir__inc_full_stars_single__no_exc(self, set_up_rumar):
+        d = set_up_rumar
+        profile = d['profile']
+        profile_to_settings = d['profile_to_settings']
+        settings = profile_to_settings[profile]
+        settings = replace(settings,  # NOTE: local settings dict, not in rumar
+                           included_files=['A/**'],
+                           )
+        rumar = d['rumar']
+        R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
+        expected = {
+            'file01.txt': False,
+            'file02.txt': False,
+            'file03.csv': False,
+            'A/file04.txt': True,
+            'A/file05.txt': True,
+            'A/file06.csv': True,
+            'B/file07.txt': False,
+            'B/file08.txt': False,
+            'B/file09.csv': False,
+            'AA/file10.txt': False,
+            'AA/file11.txt': False,
+            'AA/file12.csv': False,
+            'A/A-A/file13.txt': True,
+            'A/A-A/file14.txt': True,
+            'A/A-A/file15.csv': True,
+            'A/A-B/file16.txt': True,
+            'A/A-B/file17.txt': True,
+            'A/A-B/file18.csv': True,
+        }
+        actual = {
+            psx: _can_match_file(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
+            for psx in expected.keys()
+        }
+        assert actual == expected
+
     def test_can_match_dir__no_inc__exc_top_dir_several(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
