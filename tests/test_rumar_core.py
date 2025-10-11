@@ -503,6 +503,30 @@ class TestMatching:
         }
         assert actual == expected
 
+    def test_can_match_dir__no_inc__exc_full_stars_single_subdir(self, set_up_rumar):
+        d = set_up_rumar
+        profile = d['profile']
+        profile_to_settings = d['profile_to_settings']
+        settings = profile_to_settings[profile]
+        settings = replace(settings,  # NOTE: local settings dict, not in rumar
+                           excluded_files=['A/A-A/**'],
+                           )
+        rumar = d['rumar']
+        R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
+        expected = {
+            '': 1,
+            'A': 1,
+            'A/A-A': 0,
+            'A/A-B': 1,
+            'B': 1,
+            'AA': 1,
+        }
+        actual = {
+            psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
+            for psx in expected.keys()
+        }
+        assert actual == expected
+
     def test_can_match_file__no_inc__exc_full_stars_single_subdir(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
