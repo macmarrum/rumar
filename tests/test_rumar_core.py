@@ -24,7 +24,7 @@ def _can_match_file(path, s, relative_psx):
     return 1 if can_include_file(path, s, relative_psx) else 0
 
 
-@pytest.fixture(scope='class')
+@pytest.fixture(scope='module')
 def set_up_rumar():
     BASE = Path('/tmp/rumar')
     Rather.BASE_PATH = BASE
@@ -88,17 +88,32 @@ def set_up_rumar():
     rumardb._backup_to_checksum.clear()
 
 
-class TestRumarCore:
+class TestDeriveRelativePsx:
 
-    def test_001_fs_iter_all_files(self, set_up_rumar):
+    def test_derive_relative_psx__with_leading_slash(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
-        rumar: Rumar = d['rumar']
-        raths: list[Rath] = d['raths']
-        expected = sorted(raths)
-        top_dir = Rather(f"/{profile}", lstat_cache=rumar.lstat_cache)
-        actual = sorted(iter_all_files(top_dir))
-        assert eq_list(actual, expected)
+        rumar = d['rumar']
+        R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
+        top_rath = R('A')
+        dir_rath = R('A/B/C/c1.txt')
+        expected = '/B/C/c1.txt'
+        actual = derive_relative_psx(dir_rath, top_rath, with_leading_slash=True)
+        assert actual == expected
+
+    def test_derive_relative_psx__without_leading_slash(self, set_up_rumar):
+        d = set_up_rumar
+        profile = d['profile']
+        rumar = d['rumar']
+        R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
+        top_rath = R('A')
+        dir_rath = R('A/B/C/c1.txt')
+        expected = 'B/C/c1.txt'
+        actual = derive_relative_psx(dir_rath, top_rath, with_leading_slash=False)
+        assert actual == expected
+
+
+class TestMatching:
 
     def test_can_match_dir__no_inc__no_exc(self, set_up_rumar):
         d = set_up_rumar
@@ -542,27 +557,18 @@ class TestRumarCore:
         }
         assert actual == expected
 
-    def test_derive_relative_p_with_leading_slash(self, set_up_rumar):
-        d = set_up_rumar
-        profile = d['profile']
-        rumar = d['rumar']
-        R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
-        top_rath = R('A')
-        dir_rath = R('A/B/C/c1.txt')
-        expected = '/B/C/c1.txt'
-        actual = derive_relative_psx(dir_rath, top_rath, with_leading_slash=True)
-        assert actual == expected
 
-    def test_derive_relative_p_without_leading_slash(self, set_up_rumar):
+class TestIterFiles:
+
+    def test_001_fs_iter_all_files(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
-        rumar = d['rumar']
-        R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
-        top_rath = R('A')
-        dir_rath = R('A/B/C/c1.txt')
-        expected = 'B/C/c1.txt'
-        actual = derive_relative_psx(dir_rath, top_rath, with_leading_slash=False)
-        assert actual == expected
+        rumar: Rumar = d['rumar']
+        raths: list[Rath] = d['raths']
+        expected = sorted(raths)
+        top_dir = Rather(f"/{profile}", lstat_cache=rumar.lstat_cache)
+        actual = sorted(iter_all_files(top_dir))
+        assert eq_list(actual, expected)
 
     def test_002_fs_test_iter_matching_files__inc_top_and_inc_glob(self, set_up_rumar):
         d = set_up_rumar
@@ -600,6 +606,9 @@ class TestRumarCore:
             for psx in expected.keys()
         }
         assert actual == expected
+
+
+class TestCreateTar:
 
     def test_create_tar(self, set_up_rumar):
         d = set_up_rumar
