@@ -14,14 +14,14 @@ from utils import Rather, eq_list
 
 def _can_match_dir(path, s, relative_psx):
     if can_exclude_dir(path, s, relative_psx):
-        return False
-    return can_include_dir(path, s, relative_psx)
+        return 0
+    return 1 if can_include_dir(path, s, relative_psx) else 0
 
 
 def _can_match_file(path, s, relative_psx):
     if can_exclude_file(path, s, relative_psx):
-        return False
-    return can_include_file(path, s, relative_psx)
+        return 0
+    return 1 if can_include_file(path, s, relative_psx) else 0
 
 
 @pytest.fixture(scope='class')
@@ -112,10 +112,10 @@ class TestRumarCore:
         rumar = d['rumar']
         R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
         expected = {
-            '': True,
-            'A': True,
-            'AA': True,
-            'B': True,
+            '': 1,
+            'A': 1,
+            'AA': 1,
+            'B': 1,
         }
         actual = {
             psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
@@ -136,10 +136,10 @@ class TestRumarCore:
         rumar = d['rumar']
         R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
         expected = {
-            '': True,
-            'A': False,
-            'AA': True,
-            'B': False,
+            '': 1,
+            'A': 0,
+            'AA': 1,
+            'B': 0,
         }
         actual = {
             psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
@@ -158,24 +158,24 @@ class TestRumarCore:
         rumar = d['rumar']
         R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
         expected = {
-            'file01.txt': False,
-            'file02.txt': False,
-            'file03.csv': False,
-            'A/file04.txt': True,
-            'A/file05.txt': True,
-            'A/file06.csv': True,
-            'B/file07.txt': False,
-            'B/file08.txt': False,
-            'B/file09.csv': False,
-            'AA/file10.txt': False,
-            'AA/file11.txt': False,
-            'AA/file12.csv': False,
-            'A/A-A/file13.txt': True,
-            'A/A-A/file14.txt': True,
-            'A/A-A/file15.csv': True,
-            'A/A-B/file16.txt': True,
-            'A/A-B/file17.txt': True,
-            'A/A-B/file18.csv': True,
+            'file01.txt': 0,
+            'file02.txt': 0,
+            'file03.csv': 0,
+            'A/file04.txt': 1,
+            'A/file05.txt': 1,
+            'A/file06.csv': 1,
+            'B/file07.txt': 0,
+            'B/file08.txt': 0,
+            'B/file09.csv': 0,
+            'AA/file10.txt': 0,
+            'AA/file11.txt': 0,
+            'AA/file12.csv': 0,
+            'A/A-A/file13.txt': 1,
+            'A/A-A/file14.txt': 1,
+            'A/A-A/file15.csv': 1,
+            'A/A-B/file16.txt': 1,
+            'A/A-B/file17.txt': 1,
+            'A/A-B/file18.csv': 1,
         }
         actual = {
             psx: _can_match_file(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
@@ -196,10 +196,10 @@ class TestRumarCore:
         rumar = d['rumar']
         R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
         expected = {
-            '': True,
-            'A': False,
-            'AA': True,
-            'B': False,
+            '': 1,
+            'A': 0,
+            'AA': 1,
+            'B': 0,
         }
         actual = {
             psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
@@ -220,12 +220,12 @@ class TestRumarCore:
         rumar = d['rumar']
         R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
         expected = {
-            '': True,
-            'A': True,
-            'AA': True,
-            'B': False,
-            'A/A-A': False,
-            'A/A-B': True,
+            '': 1,
+            'A': 1,
+            'AA': 1,
+            'B': 0,
+            'A/A-A': 0,
+            'A/A-B': 1,
         }
         actual = {
             psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
@@ -247,12 +247,12 @@ class TestRumarCore:
         rumar = d['rumar']
         R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
         expected = {
-            '': True,
-            'A': True,
-            'AA': False,
-            'B': False,
-            'A/A-A': False,
-            'A/A-B': True,
+            '': 1,
+            'A': 1,
+            'AA': 0,
+            'B': 0,
+            'A/A-A': 0,
+            'A/A-B': 1,
         }
         actual = {
             psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
@@ -273,12 +273,12 @@ class TestRumarCore:
         rumar = d['rumar']
         R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
         expected = {
-            '': True,
-            'A': True,
-            'AA': True,
-            'B': True,
-            'A/A-A': False,
-            'A/A-B': True,
+            '': 1,
+            'A': 1,
+            'AA': 1,
+            'B': 1,
+            'A/A-A': 0,
+            'A/A-B': 1,
         }
         actual = {
             psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
@@ -302,24 +302,24 @@ class TestRumarCore:
         rumar = d['rumar']
         R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
         expected = {
-            'file01.txt': False,
-            'file02.txt': False,
-            'file03.csv': True,
-            'A/file04.txt': False,
-            'A/file05.txt': False,
-            'A/file06.csv': True,
-            'B/file07.txt': False,
-            'B/file08.txt': False,
-            'B/file09.csv': True,
-            'AA/file10.txt': True,
-            'AA/file11.txt': False,
-            'AA/file12.csv': True,
-            'A/A-A/file13.txt': True,
-            'A/A-A/file14.txt': False,
-            'A/A-A/file15.csv': False,
-            'A/A-B/file16.txt': True,
-            'A/A-B/file17.txt': True,
-            'A/A-B/file18.csv': True,
+            'file01.txt': 0,
+            'file02.txt': 0,
+            'file03.csv': 1,
+            'A/file04.txt': 0,
+            'A/file05.txt': 0,
+            'A/file06.csv': 1,
+            'B/file07.txt': 0,
+            'B/file08.txt': 0,
+            'B/file09.csv': 1,
+            'AA/file10.txt': 1,
+            'AA/file11.txt': 0,
+            'AA/file12.csv': 1,
+            'A/A-A/file13.txt': 1,
+            'A/A-A/file14.txt': 0,
+            'A/A-A/file15.csv': 0,
+            'A/A-B/file16.txt': 1,
+            'A/A-B/file17.txt': 1,
+            'A/A-B/file18.csv': 1,
         }
         actual = {
             psx: _can_match_file(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
@@ -361,24 +361,24 @@ class TestRumarCore:
         rumar = d['rumar']
         R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
         expected = {
-            'file01.txt': True,
-            'file02.txt': False,
-            'file03.csv': False,
-            'A/file04.txt': False,
-            'A/file05.txt': False,
-            'A/file06.csv': False,
-            'B/file07.txt': False,
-            'B/file08.txt': False,
-            'B/file09.csv': False,
-            'AA/file10.txt': True,
-            'AA/file11.txt': True,
-            'AA/file12.csv': True,
-            'A/A-A/file13.txt': False,
-            'A/A-A/file14.txt': False,
-            'A/A-A/file15.csv': False,
-            'A/A-B/file16.txt': False,
-            'A/A-B/file17.txt': False,
-            'A/A-B/file18.csv': False,
+            'file01.txt': 1,
+            'file02.txt': 0,
+            'file03.csv': 0,
+            'A/file04.txt': 0,
+            'A/file05.txt': 0,
+            'A/file06.csv': 0,
+            'B/file07.txt': 0,
+            'B/file08.txt': 0,
+            'B/file09.csv': 0,
+            'AA/file10.txt': 1,
+            'AA/file11.txt': 1,
+            'AA/file12.csv': 1,
+            'A/A-A/file13.txt': 0,
+            'A/A-A/file14.txt': 0,
+            'A/A-A/file15.csv': 0,
+            'A/A-B/file16.txt': 0,
+            'A/A-B/file17.txt': 0,
+            'A/A-B/file18.csv': 0,
         }
         actual = {
             psx: _can_match_file(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
