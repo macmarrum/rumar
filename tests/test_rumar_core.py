@@ -105,10 +105,6 @@ class TestRumarCore:
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
         settings = profile_to_settings[profile]
-        settings = replace(settings,  # NOTE: update local settings dict, not in rumar
-                           included_files_as_glob=['*.csv'],
-                           excluded_files_as_glob=['*1.*'],
-                           )
         rumar = d['rumar']
         R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
         expected = {
@@ -130,8 +126,6 @@ class TestRumarCore:
         settings = profile_to_settings[profile]
         settings = replace(settings,  # NOTE: local settings dict, not in rumar
                            included_top_dirs=['AA'],
-                           included_files_as_glob=['*.csv'],
-                           excluded_files_as_glob=['*1.*'],
                            )
         rumar = d['rumar']
         R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
@@ -214,8 +208,6 @@ class TestRumarCore:
         settings = profile_to_settings[profile]
         settings = replace(settings,  # NOTE: local settings dict, not in rumar
                            excluded_top_dirs=['A', 'B'],
-                           included_files_as_glob=['*.csv'],
-                           excluded_files_as_glob=['*1.*'],
                            )
         rumar = d['rumar']
         R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
@@ -298,8 +290,6 @@ class TestRumarCore:
         settings = profile_to_settings[profile]
         settings = replace(settings,  # NOTE: local settings dict, not in rumar
                            excluded_top_dirs=['A/A-A', 'B'],
-                           included_files_as_glob=['*.csv'],
-                           excluded_files_as_glob=['*1.*'],
                            )
         rumar = d['rumar']
         R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
@@ -361,8 +351,6 @@ class TestRumarCore:
         settings = replace(settings,  # NOTE: local settings dict, not in rumar
                            included_top_dirs=['A'],
                            excluded_top_dirs=['A/A-A'],
-                           included_files_as_glob=['*.csv'],
-                           excluded_files_as_glob=['*1.*'],
                            )
         rumar = d['rumar']
         R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
@@ -424,8 +412,6 @@ class TestRumarCore:
         settings = profile_to_settings[profile]
         settings = replace(settings,  # NOTE: local settings dict, not in rumar
                            excluded_top_dirs=['A/A-A'],
-                           included_files_as_glob=['*.csv'],
-                           excluded_files_as_glob=['*1.*'],
                            )
         rumar = d['rumar']
         R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
