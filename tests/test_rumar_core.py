@@ -712,6 +712,7 @@ class TestCreateTar:
         checksum = rather.checksum
         rumar._create_tar(reason, rather, relative_p, archive_dir, mtime_str, size, checksum)
         archive_path = rumar.compose_archive_path(archive_dir, mtime_str, size, '')
+        print('\n##', f"archive_path: {archive_path}")
         actual_checksum = rumar.compute_checksum_of_file_in_archive(archive_path, settings.password)
         assert actual_checksum == checksum
         member = None
@@ -720,3 +721,31 @@ class TestCreateTar:
         assert member.name == rather.name
         assert member.mtime == lstat.st_mtime
         assert member.size == size
+
+    def test_create_tar_zst(self, set_up_rumar):
+        d = set_up_rumar
+        profile = d['profile']
+        profile_to_settings = d['profile_to_settings']
+        rumar = d['rumar']
+        rumar.s.update(archive_format='tar.zst')
+        reason = CreateReason.CREATE
+        rathers = d['rathers']
+        rather = rathers[14]
+        relative_p = derive_relative_psx(rather, rumar.s.source_dir)
+        archive_dir = rumar.compose_archive_container_dir(relative_p=relative_p)
+        lstat = rather.lstat()
+        mtime_str = rumar.calc_mtime_str(lstat)
+        size = lstat.st_size
+        checksum = rather.checksum
+        rumar._create_tar(reason, rather, relative_p, archive_dir, mtime_str, size, checksum)
+        archive_path = rumar.compose_archive_path(archive_dir, mtime_str, size, '')
+        print('\n##', f"archive_path: {archive_path}")
+        actual_checksum = rumar.compute_checksum_of_file_in_archive(archive_path, rumar.s.password)
+        assert actual_checksum == checksum
+        member = None
+        with tarfile.open(archive_path, 'r') as tf:
+            member = tf.next()
+        assert member.name == rather.name
+        assert member.mtime == lstat.st_mtime
+        assert member.size == size
+        rumar.s.update(archive_format='tar')
