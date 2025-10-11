@@ -100,7 +100,7 @@ class TestRumarCore:
         actual = sorted(iter_all_files(top_dir))
         assert eq_list(actual, expected)
 
-    def test_inc_no_inc_or_exc(self, set_up_rumar):
+    def test_can_match_dir__no_inc_or_exc(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
@@ -111,18 +111,16 @@ class TestRumarCore:
                            )
         rumar = d['rumar']
         R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
-        actual = [
-            _can_match_dir(R(f"/{profile}"), settings, '/'),
-            _can_match_dir(R(f"/{profile}/A"), settings, '/A'),
-            _can_match_dir(R(f"/{profile}/AA"), settings, '/AA'),
-            _can_match_dir(R(f"/{profile}/B"), settings, '/B'),
-        ]
-        expected = [
-            True,
-            True,
-            True,
-            True,
-        ]
+        expected = {
+            f"/{profile}": True,
+            f"/{profile}/A": True,
+            f"/{profile}/AA": True,
+            f"/{profile}/B": True,
+        }
+        actual = {
+            psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
+            for psx in expected.keys()
+        }
         assert actual == expected
 
     def test_can_match_dir__inc_single(self, set_up_rumar):
@@ -143,11 +141,11 @@ class TestRumarCore:
             f"/{profile}/AA": True,
             f"/{profile}/B": False,
         }
-        actual = [
-            _can_match_dir(r := R(psx), settings, r.as_posix())
+        actual = {
+            psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
             for psx in expected.keys()
-        ]
-        assert actual == [*expected.values()]
+        }
+        assert actual == expected
 
     def test_can_match_dir__exc_several(self, set_up_rumar):
         d = set_up_rumar
@@ -168,7 +166,7 @@ class TestRumarCore:
             f"/{profile}/B": False,
         }
         actual = {
-            psx: _can_match_dir(r := R(psx), settings, r.as_posix())
+            psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
             for psx in expected.keys()
         }
         assert actual == expected
@@ -185,22 +183,18 @@ class TestRumarCore:
                            )
         rumar = d['rumar']
         R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
-        actual = [
-            _can_match_dir(R(f"/{profile}"), settings, '/'),
-            _can_match_dir(R(f"/{profile}/A"), settings, '/A'),
-            _can_match_dir(R(f"/{profile}/AA"), settings, '/AA'),
-            _can_match_dir(R(f"/{profile}/B"), settings, '/B'),
-            _can_match_dir(R(f"/{profile}/A/A-A"), settings, '/A/A-A'),
-            _can_match_dir(R(f"/{profile}/A/A-B"), settings, '/A/A-B'),
-        ]
-        expected = [
-            True,
-            True,
-            True,
-            False,
-            False,
-            True,
-        ]
+        expected = {
+            f"/{profile}": True,
+            f"/{profile}/A": True,
+            f"/{profile}/AA": True,
+            f"/{profile}/B": False,
+            f"/{profile}/A/A-A": False,
+            f"/{profile}/A/A-B": True,
+        }
+        actual = {
+            psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
+            for psx in expected.keys()
+        }
         assert actual == expected
 
     def test_can_match_dir__inc_and_exc_mulit_level(self, set_up_rumar):
@@ -216,22 +210,18 @@ class TestRumarCore:
                            )
         rumar = d['rumar']
         R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
-        actual = [
-            _can_match_dir(R(f"/{profile}"), settings, '/'),
-            _can_match_dir(R(f"/{profile}/A"), settings, '/A'),
-            _can_match_dir(R(f"/{profile}/AA"), settings, '/AA'),
-            _can_match_dir(R(f"/{profile}/B"), settings, '/B'),
-            _can_match_dir(R(f"/{profile}/A/A-A"), settings, '/A/A-A'),
-            _can_match_dir(R(f"/{profile}/A/A-B"), settings, '/A/A-B'),
-        ]
-        expected = [
-            True,
-            True,
-            False,
-            False,
-            False,
-            True,
-        ]
+        expected = {
+            f"/{profile}": True,
+            f"/{profile}/A": True,
+            f"/{profile}/AA": False,
+            f"/{profile}/B": False,
+            f"/{profile}/A/A-A": False,
+            f"/{profile}/A/A-B": True,
+        }
+        actual = {
+            psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
+            for psx in expected.keys()
+        }
         assert actual == expected
 
     def test_can_match_dir__inc_all_and_exc_single_lower_level(self, set_up_rumar):
@@ -246,22 +236,18 @@ class TestRumarCore:
                            )
         rumar = d['rumar']
         R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
-        actual = [
-            _can_match_dir(R(f"/{profile}"), settings, '/'),
-            _can_match_dir(R(f"/{profile}/A"), settings, '/A'),
-            _can_match_dir(R(f"/{profile}/AA"), settings, '/AA'),
-            _can_match_dir(R(f"/{profile}/B"), settings, '/B'),
-            _can_match_dir(R(f"/{profile}/A/A-A"), settings, '/A/A-A'),
-            _can_match_dir(R(f"/{profile}/A/A-B"), settings, '/A/A-B'),
-        ]
-        expected = [
-            True,
-            True,
-            True,
-            True,
-            False,
-            True,
-        ]
+        expected = {
+            f"/{profile}": True,
+            f"/{profile}/A": True,
+            f"/{profile}/AA": True,
+            f"/{profile}/B": True,
+            f"/{profile}/A/A-A": False,
+            f"/{profile}/A/A-B": True,
+        }
+        actual = {
+            psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
+            for psx in expected.keys()
+        }
         assert actual == expected
 
     def test_can_match_file(self, set_up_rumar):
@@ -300,7 +286,7 @@ class TestRumarCore:
             f"/{profile}/A/A-B/file18.csv": True,
         }
         actual = {
-            psx: _can_match_file(r := R(psx), settings, r.as_posix())
+            psx: _can_match_file(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
             for psx in expected.keys()
         }
         assert actual == expected
@@ -312,8 +298,9 @@ class TestRumarCore:
         R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
         top_rath = R(f"/{profile}")
         dir_rath = R(f"/{profile}/A")
+        expected = '/A'
         actual = derive_relative_psx(dir_rath, top_rath, with_leading_slash=True)
-        assert actual == '/A'
+        assert actual == expected
 
     def test_derive_relative_p_without_leading_slash(self, set_up_rumar):
         d = set_up_rumar
@@ -322,8 +309,9 @@ class TestRumarCore:
         R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
         top_rath = R(f"/{profile}")
         dir_rath = R(f"/{profile}/A/B/C/d.txt")
+        expected = 'A/B/C/d.txt'
         actual = derive_relative_psx(dir_rath, top_rath, with_leading_slash=False)
-        assert actual == 'A/B/C/d.txt'
+        assert actual == expected
 
     def test_002_fs_test_iter_matching_files__inc_top_and_inc_glob(self, set_up_rumar):
         d = set_up_rumar
