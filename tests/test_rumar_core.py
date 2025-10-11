@@ -147,7 +147,7 @@ class TestRumarCore:
         }
         assert actual == expected
 
-    def test_can_match_dir__inc_full_stars_single__no_exc(self, set_up_rumar):
+    def test_can_match_file__inc_full_stars_single__no_exc(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
