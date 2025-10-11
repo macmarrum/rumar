@@ -100,7 +100,7 @@ class TestRumarCore:
         actual = sorted(iter_all_files(top_dir))
         assert eq_list(actual, expected)
 
-    def test_can_match_dir__no_inc_or_exc(self, set_up_rumar):
+    def test_can_match_dir__no_inc__no_exc(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
@@ -123,7 +123,7 @@ class TestRumarCore:
         }
         assert actual == expected
 
-    def test_can_match_dir__inc_single(self, set_up_rumar):
+    def test_can_match_dir__inc_top_dir_single__no_exc(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
@@ -147,7 +147,7 @@ class TestRumarCore:
         }
         assert actual == expected
 
-    def test_can_match_dir__exc_several(self, set_up_rumar):
+    def test_can_match_dir__no_inc__exc_top_dir_several(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
@@ -171,7 +171,7 @@ class TestRumarCore:
         }
         assert actual == expected
 
-    def test_can_match_dir__exc_mulit_level(self, set_up_rumar):
+    def test_can_match_dir__no_inc__exc_top_dir_multi_level(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
@@ -197,7 +197,7 @@ class TestRumarCore:
         }
         assert actual == expected
 
-    def test_can_match_dir__inc_and_exc_mulit_level(self, set_up_rumar):
+    def test_can_match_dir__inc_top_dir_single__exc_top_dir_subdir(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
@@ -224,7 +224,7 @@ class TestRumarCore:
         }
         assert actual == expected
 
-    def test_can_match_dir__inc_all_and_exc_single_lower_level(self, set_up_rumar):
+    def test_can_match_dir__no_inc__exc_top_dir_single_subdir(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
@@ -250,7 +250,7 @@ class TestRumarCore:
         }
         assert actual == expected
 
-    def test_can_match_file(self, set_up_rumar):
+    def test_can_match_file__inc_full_single_dir__exc_full_seq_in_same_dir__inc_dir_rx_single__inc_top_dir_single__inc_glob__exc_glob(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
