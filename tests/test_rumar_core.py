@@ -110,12 +110,12 @@ class TestRumarCore:
                            excluded_files_as_glob=['*1.*'],
                            )
         rumar = d['rumar']
-        R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
+        R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
         expected = {
-            f"/{profile}": True,
-            f"/{profile}/A": True,
-            f"/{profile}/AA": True,
-            f"/{profile}/B": True,
+            '': True,
+            'A': True,
+            'AA': True,
+            'B': True,
         }
         actual = {
             psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
@@ -134,12 +134,12 @@ class TestRumarCore:
                            excluded_files_as_glob=['*1.*'],
                            )
         rumar = d['rumar']
-        R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
+        R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
         expected = {
-            f"/{profile}": True,
-            f"/{profile}/A": False,
-            f"/{profile}/AA": True,
-            f"/{profile}/B": False,
+            '': True,
+            'A': False,
+            'AA': True,
+            'B': False,
         }
         actual = {
             psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
@@ -158,12 +158,12 @@ class TestRumarCore:
                            excluded_files_as_glob=['*1.*'],
                            )
         rumar = d['rumar']
-        R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
+        R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
         expected = {
-            f"/{profile}": True,
-            f"/{profile}/A": False,
-            f"/{profile}/AA": True,
-            f"/{profile}/B": False,
+            '': True,
+            'A': False,
+            'AA': True,
+            'B': False,
         }
         actual = {
             psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
@@ -182,14 +182,14 @@ class TestRumarCore:
                            excluded_files_as_glob=['*1.*'],
                            )
         rumar = d['rumar']
-        R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
+        R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
         expected = {
-            f"/{profile}": True,
-            f"/{profile}/A": True,
-            f"/{profile}/AA": True,
-            f"/{profile}/B": False,
-            f"/{profile}/A/A-A": False,
-            f"/{profile}/A/A-B": True,
+            '': True,
+            'A': True,
+            'AA': True,
+            'B': False,
+            'A/A-A': False,
+            'A/A-B': True,
         }
         actual = {
             psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
@@ -209,14 +209,14 @@ class TestRumarCore:
                            excluded_files_as_glob=['*1.*'],
                            )
         rumar = d['rumar']
-        R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
+        R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
         expected = {
-            f"/{profile}": True,
-            f"/{profile}/A": True,
-            f"/{profile}/AA": False,
-            f"/{profile}/B": False,
-            f"/{profile}/A/A-A": False,
-            f"/{profile}/A/A-B": True,
+            '': True,
+            'A': True,
+            'AA': False,
+            'B': False,
+            'A/A-A': False,
+            'A/A-B': True,
         }
         actual = {
             psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
@@ -235,14 +235,14 @@ class TestRumarCore:
                            excluded_files_as_glob=['*1.*'],
                            )
         rumar = d['rumar']
-        R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
+        R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
         expected = {
-            f"/{profile}": True,
-            f"/{profile}/A": True,
-            f"/{profile}/AA": True,
-            f"/{profile}/B": True,
-            f"/{profile}/A/A-A": False,
-            f"/{profile}/A/A-B": True,
+            '': True,
+            'A': True,
+            'AA': True,
+            'B': True,
+            'A/A-A': False,
+            'A/A-B': True,
         }
         actual = {
             psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
@@ -264,26 +264,26 @@ class TestRumarCore:
                            excluded_files_as_glob=['*1.*'],
                            )
         rumar = d['rumar']
-        R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
+        R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
         expected = {
-            f"/{profile}/file01.txt": False,
-            f"/{profile}/file02.txt": False,
-            f"/{profile}/file03.csv": True,
-            f"/{profile}/A/file04.txt": False,
-            f"/{profile}/A/file05.txt": False,
-            f"/{profile}/A/file06.csv": True,
-            f"/{profile}/B/file07.txt": False,
-            f"/{profile}/B/file08.txt": False,
-            f"/{profile}/B/file09.csv": True,
-            f"/{profile}/AA/file10.txt": True,
-            f"/{profile}/AA/file11.txt": False,
-            f"/{profile}/AA/file12.csv": True,
-            f"/{profile}/A/A-A/file13.txt": True,
-            f"/{profile}/A/A-A/file14.txt": False,
-            f"/{profile}/A/A-A/file15.csv": False,
-            f"/{profile}/A/A-B/file16.txt": True,
-            f"/{profile}/A/A-B/file17.txt": True,
-            f"/{profile}/A/A-B/file18.csv": True,
+            'file01.txt': False,
+            'file02.txt': False,
+            'file03.csv': True,
+            'A/file04.txt': False,
+            'A/file05.txt': False,
+            'A/file06.csv': True,
+            'B/file07.txt': False,
+            'B/file08.txt': False,
+            'B/file09.csv': True,
+            'AA/file10.txt': True,
+            'AA/file11.txt': False,
+            'AA/file12.csv': True,
+            'A/A-A/file13.txt': True,
+            'A/A-A/file14.txt': False,
+            'A/A-A/file15.csv': False,
+            'A/A-B/file16.txt': True,
+            'A/A-B/file17.txt': True,
+            'A/A-B/file18.csv': True,
         }
         actual = {
             psx: _can_match_file(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
@@ -295,10 +295,10 @@ class TestRumarCore:
         d = set_up_rumar
         profile = d['profile']
         rumar = d['rumar']
-        R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
-        top_rath = R(f"/{profile}")
-        dir_rath = R(f"/{profile}/A")
-        expected = '/A'
+        R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
+        top_rath = R('A')
+        dir_rath = R('A/B/C/c1.txt')
+        expected = '/B/C/c1.txt'
         actual = derive_relative_psx(dir_rath, top_rath, with_leading_slash=True)
         assert actual == expected
 
@@ -306,10 +306,10 @@ class TestRumarCore:
         d = set_up_rumar
         profile = d['profile']
         rumar = d['rumar']
-        R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
-        top_rath = R(f"/{profile}")
-        dir_rath = R(f"/{profile}/A/B/C/d.txt")
-        expected = 'A/B/C/d.txt'
+        R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
+        top_rath = R('A')
+        dir_rath = R('A/B/C/c1.txt')
+        expected = 'B/C/c1.txt'
         actual = derive_relative_psx(dir_rath, top_rath, with_leading_slash=False)
         assert actual == expected
 
@@ -323,16 +323,32 @@ class TestRumarCore:
                            included_files_as_glob=['*/*1.*'],
                            )
         rumar = d['rumar']
-        R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache).as_rath()
-        expected = [R(p) for p in [
-            f"/{profile}/file01.txt",
-            f"/{profile}/AA/file10.txt",
-            f"/{profile}/AA/file11.txt",
-            f"/{profile}/AA/file12.csv",
-        ]]
-        top_rath = R(f"/{profile}")
-        actual = list(iter_matching_files(top_rath, settings))
-        assert eq_list(actual, expected)
+        R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
+        expected = {
+            'file01.txt': True,
+            'file02.txt': False,
+            'file03.csv': False,
+            'A/file04.txt': False,
+            'A/file05.txt': False,
+            'A/file06.csv': False,
+            'B/file07.txt': False,
+            'B/file08.txt': False,
+            'B/file09.csv': False,
+            'AA/file10.txt': True,
+            'AA/file11.txt': True,
+            'AA/file12.csv': True,
+            'A/A-A/file13.txt': False,
+            'A/A-A/file14.txt': False,
+            'A/A-A/file15.csv': False,
+            'A/A-B/file16.txt': False,
+            'A/A-B/file17.txt': False,
+            'A/A-B/file18.csv': False,
+        }
+        actual = {
+            psx: _can_match_file(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
+            for psx in expected.keys()
+        }
+        assert actual == expected
 
     def test_create_tar(self, set_up_rumar):
         d = set_up_rumar
