@@ -909,7 +909,7 @@ class Rumar:
     def set_mtime(target_path: Path, mtime: datetime):
         try:
             os.utime(target_path, (0, mtime.timestamp()))
-        except:
+        except OSError:
             logger.error(f">> error setting mtime -> {sys.exc_info()}")
 
     @classmethod
@@ -1782,7 +1782,6 @@ class RumarDB:
         db.commit()
         cur.close()
         cls._recreate_backup_via_backup_old(db)
-        pass
 
     @classmethod
     def _alter_backup_add_del_run_id_if_required(cls, db):
