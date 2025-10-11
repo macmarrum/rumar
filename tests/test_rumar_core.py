@@ -1,6 +1,7 @@
 # Copyright (C) 2023-2025  macmarrum (at) outlook (dot) ie
 # SPDX-License-Identifier: GPL-3.0-or-later
 import shutil
+import sys
 import tarfile
 from dataclasses import replace
 from pathlib import Path
@@ -158,6 +159,7 @@ class TestMatching:
         }
         assert actual == expected
 
+    @pytest.mark.skipif(sys.version_info < (3, 13), reason="full_match requires python 3.13 or higher")
     def test_can_match_dir__inc_full_stars_single__no_exc(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
@@ -182,6 +184,7 @@ class TestMatching:
         }
         assert actual == expected
 
+    @pytest.mark.skipif(sys.version_info < (3, 13), reason="full_match requires python 3.13 or higher")
     def test_can_match_file__inc_full_stars_single__no_exc(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
@@ -242,6 +245,7 @@ class TestMatching:
         }
         assert actual == expected
 
+    @pytest.mark.skipif(sys.version_info < (3, 13), reason="full_match requires python 3.13 or higher")
     def test_can_match_dir__no_inc__exc_full_stars_several(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
@@ -266,6 +270,7 @@ class TestMatching:
         }
         assert actual == expected
 
+    @pytest.mark.skipif(sys.version_info < (3, 13), reason="full_match requires python 3.13 or higher")
     def test_can_match_file__no_inc__exc_full_stars_several(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
@@ -328,6 +333,7 @@ class TestMatching:
         }
         assert actual == expected
 
+    @pytest.mark.skipif(sys.version_info < (3, 13), reason="full_match requires python 3.13 or higher")
     def test_can_match_dir__no_inc__exc_full_stars_multi_level(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
@@ -352,6 +358,7 @@ class TestMatching:
         }
         assert actual == expected
 
+    @pytest.mark.skipif(sys.version_info < (3, 13), reason="full_match requires python 3.13 or higher")
     def test_can_match_file__no_inc__exc_full_stars_multi_level(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
@@ -415,6 +422,7 @@ class TestMatching:
         }
         assert actual == expected
 
+    @pytest.mark.skipif(sys.version_info < (3, 13), reason="full_match requires python 3.13 or higher")
     def test_can_match_dir__inc_full_stars_single__exc_full_stars_subdir(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
@@ -440,6 +448,7 @@ class TestMatching:
         }
         assert actual == expected
 
+    @pytest.mark.skipif(sys.version_info < (3, 13), reason="full_match requires python 3.13 or higher")
     def test_can_match_file__inc_full_stars_single__exc_full_stars_subdir(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
@@ -503,6 +512,7 @@ class TestMatching:
         }
         assert actual == expected
 
+    @pytest.mark.skipif(sys.version_info < (3, 13), reason="full_match requires python 3.13 or higher")
     def test_can_match_dir__no_inc__exc_full_stars_single_subdir(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
@@ -527,6 +537,7 @@ class TestMatching:
         }
         assert actual == expected
 
+    @pytest.mark.skipif(sys.version_info < (3, 13), reason="full_match requires python 3.13 or higher")
     def test_can_match_file__no_inc__exc_full_stars_single_subdir(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
@@ -565,6 +576,7 @@ class TestMatching:
 
     #######################################################################
 
+    @pytest.mark.skipif(sys.version_info < (3, 13), reason="full_match requires python 3.13 or higher")
     def test_can_match_file__no_inc__exc_full_star_single_midlevel_dir(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
@@ -601,6 +613,7 @@ class TestMatching:
         }
         assert actual == expected
 
+    @pytest.mark.skipif(sys.version_info < (3, 13), reason="full_match requires python 3.13 or higher")
     def test_can_match_file__inc_full_single_dir__exc_full_seq_in_same_dir__inc_dir_rx_single__inc_top_dir_single__inc_glob__exc_glob(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
@@ -722,10 +735,9 @@ class TestCreateTar:
         assert member.mtime == lstat.st_mtime
         assert member.size == size
 
+    @pytest.mark.skipif(sys.version_info < (3, 14), reason="zstd requires Python 3.14 or higher")
     def test_create_tar_zst(self, set_up_rumar):
         d = set_up_rumar
-        profile = d['profile']
-        profile_to_settings = d['profile_to_settings']
         rumar = d['rumar']
         rumar.s.update(archive_format='tar.zst')
         reason = CreateReason.CREATE
