@@ -663,32 +663,28 @@ def iter_all_files(top_rath: Rath) -> Generator[Rath, None, None]:
         yield from iter_all_files(dir_rath)
 
 
-def iter_matching_files(top_rath: Rath, s: Settings) -> Generator[Rath, None, None]:
+def iter_matching_files(top_rath: Rath, s: Settings, *, initial_top_rath: Rath = None) -> Generator[Rath, None, None]:
     """
-    Recursively yields files from a directory that match the criteria in Settings.
-    NB Symlinks to directories are considered files.
+    Iters top_rath, yielding matching files from each matching directory, as per Settings\n
+    Note: symlinks to directories are considered files
     :raises OSError: if a directory cannot be accessed
     """
-
-    def _iter_matching_files(root_rath: Rath, s: Settings) -> Generator[Rath, None, None]:
-        dirs = []
-        for rath in sorted(root_rath.iterdir()):
-            ## path relative to top_rath (not the local root_rath)
-            _relative_psx = derive_relative_psx(rath, top_rath, with_leading_slash=True)
-            if S_ISDIR(rath.lstat().st_mode):
-                if can_exclude_dir(rath, s, _relative_psx):
-                    continue
-                if can_include_dir(rath, s, _relative_psx):
-                    dirs.append(rath)
-            else:
-                if can_exclude_file(rath, s, _relative_psx):
-                    continue
-                if can_include_file(rath, s, _relative_psx):
-                    yield rath
-        for dir_rath in dirs:
-            yield from _iter_matching_files(dir_rath, s)
-
-    yield from _iter_matching_files(top_rath, s)
+    initial_top_rath = initial_top_rath or top_rath
+    dirs = []
+    for rath in sorted(top_rath.iterdir()):
+        _relative_psx = derive_relative_psx(rath, initial_top_rath, with_leading_slash=True)
+        if S_ISDIR(rath.lstat().st_mode):
+            if can_exclude_dir(rath, s, _relative_psx):
+                continue
+            if can_include_dir(rath, s, _relative_psx):
+                dirs.append(rath)
+        else:
+            if can_exclude_file(rath, s, _relative_psx):
+                continue
+            if can_include_file(rath, s, _relative_psx):
+                yield rath
+    for dir_rath in dirs:
+        yield from iter_matching_files(dir_rath, s, initial_top_rath=initial_top_rath)
 
 
 def can_exclude_dir(path: Path, s: Settings, _relative_psx: str) -> bool:
