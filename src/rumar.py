@@ -1104,7 +1104,7 @@ class Rumar:
     def _create_tar(self, create_reason: CreateReason, rath: Rath, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: bytes | None):
         sign = create_reason.value
         reason = create_reason.name
-        logger.info(f"{sign} {relative_p}  {mtime_str}  {size} {reason} {archive_dir}")
+        logger.info(f"{sign} {relative_p}  {mtime_str}  {size} {reason} {archive_dir / '...'}")
         archive_dir.mkdir(parents=True, exist_ok=True)
         archive_format, compresslevel_kwargs = self.calc_archive_format_and_compresslevel_kwargs(rath)
         mode = self.ARCHIVE_FORMAT_TO_MODE[archive_format]
@@ -1132,7 +1132,7 @@ class Rumar:
     def _create_zipx(self, create_reason: CreateReason, rath: Rath, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: bytes | None):
         sign = create_reason.value
         reason = create_reason.name
-        logger.info(f"{sign} {relative_p}  {mtime_str}  {size} {reason} {archive_dir}")
+        logger.info(f"{sign} {relative_p}  {mtime_str}  {size} {reason} {archive_dir / '...'}")
         archive_dir.mkdir(parents=True, exist_ok=True)
         if rath.suffix.lower() in self.s.suffixes_without_compression:
             kwargs = {self.COMPRESSION: zipfile.ZIP_STORED}
