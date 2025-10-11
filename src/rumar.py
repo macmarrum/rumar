@@ -313,9 +313,9 @@ class Settings:
       used by: create, sweep
       ⚠️ caution: uses **PurePath.full_match(...)**, which is available on Python >= 3.13
       a list of glob patterns, also known as shell-style wildcards, i.e. `** * ? [seq] [!seq]`; `**` means multiple segments, `*` means a single segment or a part of a segment
-      if present, only files matching the patterns will be considered
+      if present, only files matching the patterns will be considered, together with _**included_files_as_regex**_, _**included_files_as_glob**_, _**included_top_dirs**_, _**included_dirs_as_regex**_
       on Windows, global-pattern matching is case-insensitive, and both `\` and `/` can be used
-      the paths/globs can be absolute or relative to _**source_dir**_, e.g. `My Documents\*.txt`, `my-file-in-source-dir.log`
+      the paths/globs can be absolute or relative to _**source_dir**_ (or _**backup_base_dir_for_profile**_ in case of sweep), e.g. `My Documents\*.txt`, `my-file-in-source-dir.log`
       see also https://docs.python.org/3.13/library/pathlib.html#pathlib-pattern-language
     excluded_files: list[str]
       used by: create, sweep
@@ -326,9 +326,9 @@ class Settings:
       ❌ deprecated: use _**included_files**_ instead, if on Python >= 3.13, e.g. `./top dir 1/**`
       a list of top-directory paths
       if present, only files from those dirs and their descendant subdirs will be considered
-      the paths can be relative to _**source_dir**_ or absolute, but always under _**source_dir**_
+      the paths can be relative to _**source_dir**_ or absolute, but always under _**source_dir**_ (or _**backup_base_dir_for_profile**_ in case of sweep)
       absolute paths start with a root (`/` or `{drive}:\`)
-      if missing, _**source_dir**_ and all its descendant subdirs will be considered
+      if missing, _**source_dir**_ and all its descendant subdirs will be considered (or _**backup_base_dir_for_profile**_ in case of sweep)
     excluded_top_dirs: list[str]
       used by: create, sweep
       ❌ deprecated: use _**excluded_files**_ instead, if on Python >= 3.13, e.g. `./top dir 3/**`
@@ -337,25 +337,23 @@ class Settings:
       e.g. included_top_dirs = ['Project1', 'Project3']; excluded_top_dirs = ['Project1/Vision/Pictures']
     included_dirs_as_regex: list[str]
       used by: create, sweep
-      ❌ deprecated: use _**included_files**_ instead, if on Python >= 3.13
       a list of regex patterns, applied after _**..._top_dirs**_
-      if present, only matching directories will be included
+      if present, only matching directories will be included, together with _**included_files**_, _**included_top_dirs**_
       `/` must be used as the path separator, also on MS Windows
-      the patterns are matched against a path relative to _**source_dir**_
+      the patterns are matched (using re.search) against a path relative to _**source_dir**_ (or _**backup_base_dir_for_profile**_ in case of sweep)
       the first segment in the relative path (to match against) also starts with a slash
       e.g. `['/B$',]` will match any basename equal to `B`, at any level
       regex-pattern matching is case-sensitive – use `(?i)` at each pattern's beginning for case-insensitive matching
       see also https://docs.python.org/3/library/re.html
     excluded_dirs_as_regex: list[str]
       used by: create, sweep
-      ❌ deprecated: use _**excluded_files**_ instead, if on Python >= 3.13
       like _**included_dirs_as_regex**_, but for exclusion
     included_files_as_glob: list[str]
       used by: create, sweep
       ❌ deprecated: use _**included_files**_ instead, if on Python >= 3.13
       a list of glob patterns, also known as shell-style wildcards, i.e. `* ? [seq] [!seq]`
-      if present, only matching files will be considered; applied after _**..._top_dirs**_ and _**..._dirs_as_regex**_
-      the paths/globs can be partial, relative to _**source_dir**_ or absolute, but always under _**source_dir**_
+      if present, only matching files will be considered, together with _**included_files**_, _**included_files_as_regex**_, _**included_top_dirs**_, _**included_dirs_as_regex**_
+      the paths/globs can be partial, relative to _**source_dir**_ or absolute, but always under _**source_dir**_ (or _**backup_base_dir_for_profile**_ in case of sweep)
       e.g. `['My Music\*.m3u']`
       on MS Windows, global-pattern matching is case-insensitive
       ⚠️ caution: a leading path separator in a path/glob indicates a root directory, e.g. `['\My Music\*']`
@@ -368,7 +366,6 @@ class Settings:
     included_files_as_regex: list[str]
       used by: create, sweep
       like _**included_dirs_as_regex**_, but for files
-      applied after _**..._top_dirs**_ and _**..._dirs_as_regex**_ and _**..._files_as_glob**_ and _**..._files**_
     excluded_files_as_regex: list[str]
       used by: create, sweep
       like _**included_files_as_regex**_, but for exclusion
@@ -412,19 +409,19 @@ class Settings:
     db_path: str = _**backup_base_dir**_/rumar.sqlite
     """
     profile: str
-    backup_base_dir: Union[str, Path]
-    source_dir: Union[str, Path]
+    backup_base_dir: Path | str
+    source_dir: Path | str
     backup_base_dir_for_profile: Path | str | None = None
-    included_files: Union[set[Path], list[str]] = field(default_factory=list)
-    excluded_files: Union[set[Path], list[str]] = field(default_factory=list)
-    included_top_dirs: Union[set[Path], list[str]] = field(default_factory=list)
-    excluded_top_dirs: Union[set[Path], list[str]] = field(default_factory=list)
-    included_dirs_as_regex: Union[list[Pattern], list[str]] = field(default_factory=list)
-    excluded_dirs_as_regex: Union[list[Pattern], list[str]] = field(default_factory=list)
-    included_files_as_glob: Union[set[str], list[str]] = field(default_factory=list)
-    excluded_files_as_glob: Union[set[str], list[str]] = field(default_factory=list)
-    included_files_as_regex: Union[list[Pattern], list[str]] = field(default_factory=list)
-    excluded_files_as_regex: Union[list[Pattern], list[str]] = field(default_factory=list)
+    included_files: dict[Path | str, None] = field(default_factory=dict)
+    excluded_files: dict[Path | str, None] = field(default_factory=dict)
+    included_top_dirs: dict[Path | str, None] = field(default_factory=dict)
+    excluded_top_dirs: dict[Path | str, None] = field(default_factory=dict)
+    included_dirs_as_regex: dict[Pattern | str, None] = field(default_factory=dict)
+    excluded_dirs_as_regex: dict[Pattern | str, None] = field(default_factory=dict)
+    included_files_as_glob: dict[str, None] = field(default_factory=dict)
+    excluded_files_as_glob: dict[str, None] = field(default_factory=dict)
+    included_files_as_regex: dict[Pattern | str, None] = field(default_factory=dict)
+    excluded_files_as_regex: dict[Pattern | str, None] = field(default_factory=dict)
     archive_format: Union[RumarFormat, str] = RumarFormat.TGZ
     # password for zipx, as it's AES-encrypted
     password: bytes | str | None = None
@@ -448,8 +445,8 @@ class Settings:
     db_path: Path | str | None = None
 
     @staticmethod
-    def is_each_elem_of_type(lst: list, typ: Union[Any, tuple]) -> bool:
-        return all(isinstance(elem, typ) for elem in lst)
+    def is_each_elem_of_type(seq: Sequence | dict, typ: Union[Any, tuple]) -> bool:
+        return all(isinstance(elem, typ) for elem in seq)
 
     def __post_init__(self):
         self._pathlify('source_dir')
@@ -458,15 +455,12 @@ class Settings:
             self._pathlify('backup_base_dir_for_profile')
         else:
             self.backup_base_dir_for_profile = self.backup_base_dir / self.profile
-        self._absolutopathosetify('included_files')
-        # guard against messing up iter_matching_files (skip file matching in top_dir when only top-level dirs are specified)
-        if any(Path(g.as_posix().removesuffix('/**')) == self.source_dir for g in self.included_files):
-            raise ValueError('included_files contains source_dir[/**]')
-        self._absolutopathosetify('excluded_files')
-        self._absolutopathosetify('included_top_dirs')
-        self._setify('included_files_as_glob')
-        self._absolutopathosetify('excluded_top_dirs')
-        self._setify('excluded_files_as_glob')
+        self._dictify('included_files')
+        self._dictify('excluded_files')
+        self._dictify('included_top_dirs')
+        self._dictify('included_files_as_glob')
+        self._dictify('excluded_top_dirs')
+        self._dictify('excluded_files_as_glob')
         self._patternify('included_dirs_as_regex')
         self._patternify('included_files_as_regex')
         self._patternify('excluded_dirs_as_regex')
@@ -486,26 +480,10 @@ class Settings:
         elif isinstance(self.db_path, str) and self.db_path not in [':memory:', '']:
             self.db_path = Path(self.db_path)
 
-    def _setify(self, attribute_name: str):
+    def _dictify(self, attribute_name: str):
         attr = getattr(self, attribute_name)
-        if attr is None:
-            setattr(self, attribute_name, set())
-        setattr(self, attribute_name, set(attr))
-
-    def _absolutopathosetify(self, attribute_name: str):
-        attr = getattr(self, attribute_name)
-        if attr is None:
-            setattr(self, attribute_name, set())
-        lst = []
-        for elem in attr:
-            p = Path(elem)
-            if not p.is_absolute():
-                lst.append(self.source_dir / p)
-            else:
-                if not p.is_relative_to(self.source_dir):
-                    raise ValueError(f"{attribute_name}: {p} is not under {self.source_dir}!")
-                lst.append(p)
-        setattr(self, attribute_name, set(lst))
+        if not isinstance(attr, dict):
+            setattr(self, attribute_name, {e: None for e in attr})
 
     def _pathlify(self, attribute_name: str):
         attr = getattr(self, attribute_name)
@@ -522,9 +500,10 @@ class Settings:
         attr = getattr(self, attribute_name)
         if not attr:
             return
-        if not isinstance(attr, list):
-            raise TypeError(f"expected a list of values, got {attr!r}")
-        setattr(self, attribute_name, [re.compile(elem) for elem in attr])
+        if not isinstance(attr, (Sequence, dict)):
+            raise TypeError(f"expected a Sequence of values, got {attr!r}")
+        if not self.is_each_elem_of_type(attr, Pattern):
+            setattr(self, attribute_name, {re.compile(elem): None for elem in attr})
 
     def __str__(self):
         return ("{"
@@ -664,33 +643,58 @@ def iter_all_files(top_rath: Rath) -> Generator[Rath, None, None]:
         yield from iter_all_files(dir_rath)
 
 
-def iter_matching_files(top_rath: Rath, s: Settings, *, initial_top_rath: Rath = None) -> Generator[Rath, None, None]:
+def iter_matching_files(top_rath: Rath, s: Settings, *, base_rath: Rath = None) -> Generator[Rath, None, None]:
     """
     Iters top_rath, yielding matching files from each matching directory, as per Settings\n
     Note: symlinks to directories are considered files
+    :param top_rath: Path to iterate - will change at each recursive level
+    :param s: Settings
+    :param base_rath: initial top_rath for recursion - `s.source_dir` for create, `s.backup_base_dir_for_profile` for sweep
     :raises OSError: if a directory cannot be accessed
     """
-    initial_top_rath = initial_top_rath or top_rath
+    if base_rath is None:
+        base_rath = top_rath
+        s.update(
+            included_files=absolutopathlify(s.included_files, base_rath),
+            excluded_files=absolutopathlify(s.excluded_files, base_rath),
+            included_top_dirs=absolutopathlify(s.included_top_dirs, base_rath),
+            excluded_top_dirs=absolutopathlify(s.excluded_top_dirs, base_rath),
+        )
     dirs = []
     for rath in sorted(top_rath.iterdir()):
-        _relative_psx = derive_relative_psx(rath, initial_top_rath, with_leading_slash=True)
+        _relative_psx = derive_relative_psx(rath, base_rath, with_leading_slash=True)
         if S_ISDIR(rath.lstat().st_mode):
-            if can_exclude_dir(rath, s, _relative_psx, initial_top_rath):
+            if can_exclude_dir(rath, s, _relative_psx, base_rath):
                 continue
-            if can_include_dir(rath, s, _relative_psx, initial_top_rath):
+            if can_include_dir(rath, s, _relative_psx, base_rath):
                 dirs.append(rath)
         else:
-            if can_exclude_file(rath, s, _relative_psx, initial_top_rath):
+            if can_exclude_file(rath, s, _relative_psx, base_rath):
                 continue
-            if can_include_file(rath, s, _relative_psx, initial_top_rath):
+            if can_include_file(rath, s, _relative_psx, base_rath):
                 yield rath
     for dir_rath in dirs:
-        yield from iter_matching_files(dir_rath, s, initial_top_rath=initial_top_rath)
+        yield from iter_matching_files(dir_rath, s, base_rath=base_rath)
 
 
-def can_exclude_dir(path: Path, s: Settings, _relative_psx: str, initial_top_path: Path) -> bool:
+def absolutopathlify(dct: dict[Path | str, None], base_path: Path) -> dict[Path, None]:
+    if not dct:
+        return dct
+    abs_dct = {}
+    for elem in dct:
+        p = Path(elem)
+        if not p.is_absolute():
+            abs_dct[base_path / p] = None
+        else:
+            if not p.is_relative_to(base_path):
+                raise ValueError(f"{p} is not under {base_path}!")
+            abs_dct[p] = None
+    return abs_dct
+
+
+def can_exclude_dir(path: Path, s: Settings, _relative_psx: str, base_path: Path) -> bool:
     if exc_full_glob_path := find_matching_full_glob_path(path, s.excluded_files):
-        logger.log(DEBUG_14, f"|D ...{_relative_psx}  -- skipping (matches full glob '{exc_full_glob_path.relative_to(initial_top_path)}')")
+        logger.log(DEBUG_14, f"|D ...{_relative_psx}  -- skipping (matches full glob '{exc_full_glob_path.relative_to(base_path)}')")
         return True
     if exc_top_dir := find_matching_top_path(path, s.excluded_top_dirs):
         logger.log(DEBUG_14, f"|D ...{_relative_psx}  -- skipping (matches top dir '{exc_top_dir}')")
@@ -701,7 +705,7 @@ def can_exclude_dir(path: Path, s: Settings, _relative_psx: str, initial_top_pat
     return False
 
 
-def can_include_dir(path: Path, s: Settings, _relative_psx: str, initial_top_path: Path) -> bool:
+def can_include_dir(path: Path, s: Settings, _relative_psx: str, base_path: Path) -> bool:
     if not s.included_files and not s.included_files_as_regex and not s.included_top_dirs:
         logger.log(DEBUG_13, f"=D ...{_relative_psx}  -- include all (no included_files, _as_regex, _top_dirs)")
         return True
@@ -713,12 +717,12 @@ def can_include_dir(path: Path, s: Settings, _relative_psx: str, initial_top_pat
             if (path.full_match(prefix_glob_posix + '/**')  # match dir_path itself and any descendants
                     or path.full_match(prefix_glob_posix)  # Python bug #139580 @ 3.13.7
                     or is_full_match_by_equivalent_segments(path, Path(prefix_glob_posix))):  # match any ancestors
-                logger.log(DEBUG_14, f"|D ...{_relative_psx}  -- matches full glob '{inc_full_glob_path.relative_to(initial_top_path)}'")
+                logger.log(DEBUG_14, f"|D ...{_relative_psx}  -- matches full glob '{inc_full_glob_path.relative_to(base_path)}'")
                 return True
         else:
             # No recursive pattern /** found - compare using the same number of initial segments
             if is_full_match_by_equivalent_segments(path, inc_full_glob_path):
-                logger.log(DEBUG_14, f"|D ...{_relative_psx}  -- matches full glob '{inc_full_glob_path.relative_to(initial_top_path)}'")
+                logger.log(DEBUG_14, f"|D ...{_relative_psx}  -- matches full glob '{inc_full_glob_path.relative_to(base_path)}'")
                 return True
     if find_matching_top_path(path, s.included_top_dirs):
         logger.log(DEBUG_13, f"=D ...{_relative_psx}  -- matches included_top_dirs")
@@ -743,9 +747,9 @@ def is_full_match_by_equivalent_segments(path: PurePath, absolute_glob_path: Pur
     return equivalent_path.full_match(equivalent_glob_path)
 
 
-def can_exclude_file(path: Path, s: Settings, _relative_psx: str, initial_top_path: Path) -> bool:
+def can_exclude_file(path: Path, s: Settings, _relative_psx: str, base_path: Path) -> bool:
     if exc_full_glob_path := find_matching_full_glob_path(path, s.excluded_files):
-        logger.log(DEBUG_14, f"|F ...{_relative_psx}  -- skipping (matches full glob '{exc_full_glob_path.relative_to(initial_top_path)}')")
+        logger.log(DEBUG_14, f"|F ...{_relative_psx}  -- skipping (matches full glob '{exc_full_glob_path.relative_to(base_path)}')")
         return True
     if exc_glob := find_matching_glob(path, s.excluded_files_as_glob):
         logger.log(DEBUG_14, f"|F ...{_relative_psx}  -- skipping (matches glob '{exc_glob}')")
@@ -756,18 +760,18 @@ def can_exclude_file(path: Path, s: Settings, _relative_psx: str, initial_top_pa
     return False
 
 
-def can_include_file(path: Path, s: Settings, _relative_psx: str, initial_top_path: Path) -> bool:
+def can_include_file(path: Path, s: Settings, _relative_psx: str, base_path: Path) -> bool:
     if not s.included_files and not s.included_files_as_regex and not s.included_files_as_glob:
         logger.log(DEBUG_13, f"=F ...{_relative_psx}  -- include all (no included_files, _as_regex, _as_glob)")
         return True
     if inc_full_glob_path := find_matching_full_glob_path(path, s.included_files):
-        logger.log(DEBUG_13, f"=F ...{_relative_psx}  -- matches full glob '{inc_full_glob_path.relative_to(initial_top_path)}'")
+        logger.log(DEBUG_13, f"=F ...{_relative_psx}  -- matches full glob '{inc_full_glob_path.relative_to(base_path)}'")
         return True
     if inc_patt := find_matching_pattern(_relative_psx, s.included_files_as_regex):
         logger.log(DEBUG_14, f"|f ...{_relative_psx}  -- matches regex '{inc_patt}'")
         return True
-    if path != initial_top_path:
-        relative_parent_psx = derive_relative_psx(path.parent, initial_top_path, with_leading_slash=True)
+    if path != base_path:
+        relative_parent_psx = derive_relative_psx(path.parent, base_path, with_leading_slash=True)
         if inc_patt := find_matching_pattern(relative_parent_psx, s.included_dirs_as_regex):
             logger.log(DEBUG_14, f"|f ...{_relative_psx}  -- matches regex dir '{inc_patt}'")
             return True
@@ -803,8 +807,8 @@ def find_sep(g: str) -> str:
     return sep
 
 
-def derive_relative_psx(path: Path, base_dir: Path, with_leading_slash=False) -> str:
-    return f"{'/' if with_leading_slash else ''}{path.relative_to(base_dir).as_posix()}"
+def derive_relative_psx(path: Path, base_path: Path, with_leading_slash=False) -> str:
+    return f"{'/' if with_leading_slash else ''}{path.relative_to(base_path).as_posix()}"
 
 
 def find_matching_pattern(_relative_psx: str, patterns: Sequence[Pattern]):

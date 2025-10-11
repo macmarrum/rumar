@@ -47,7 +47,7 @@ class TestSettings:
         assert settings.db_path == ':memory:'
         assert settings.backup_base_dir == BASE / 'backup-base-dir-2'
         assert settings.source_dir == BASE / 'source-dir'
-        assert settings.included_top_dirs == {BASE / 'source-dir' / 'AA'}
+        assert settings.included_top_dirs == {BASE / 'source-dir' / 'AA': None}
         with pytest.raises(AttributeError):
             settings.update(this_is_not_a_setting=True)
 
@@ -62,11 +62,12 @@ class TestSettings:
             source_dir=BASE / 'source-dir-2',
             included_top_dirs=['AA', 'B'],
         )
+        settings.update()
         assert settings.profile == profile
         assert settings.db_path == Path('/tmp/updated-rumar-db-path.sqlite')
         assert settings.backup_base_dir == BASE / 'backup-base-dir-3'
         assert settings.source_dir == BASE / 'source-dir-2'
-        assert settings.included_top_dirs == {BASE / 'source-dir-2' / 'AA', BASE / 'source-dir-2' / 'B'}
+        assert settings.included_top_dirs == {'AA': None, 'B': None}
         with pytest.raises(AttributeError):
             settings |= dict(this_is_not_a_setting=True)
 
@@ -80,10 +81,10 @@ class TestSettings:
             db_path=':memory:',
             backup_base_dir=(BASE / 'backup-base-dir-3').as_posix(),
             source_dir=BASE / 'source-dir-2',
-            included_top_dirs=['AA', 'B'],
+            included_top_dirs=[BASE / 'source-dir-2' / 'AA', BASE / 'source-dir-2' / 'B'],
         )
         assert settings.profile == 'new-profile-name'
         assert settings.db_path == ':memory:'
         assert settings.backup_base_dir == BASE / 'backup-base-dir-3'
         assert settings.source_dir == BASE / 'source-dir-2'
-        assert settings.included_top_dirs == {BASE / 'source-dir-2' / 'AA', BASE / 'source-dir-2' / 'B'}
+        assert settings.included_top_dirs == {BASE / 'source-dir-2' / 'AA': None, BASE / 'source-dir-2' / 'B': None}

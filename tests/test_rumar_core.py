@@ -9,20 +9,32 @@ from textwrap import dedent
 
 import pytest
 
-from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, iter_matching_files, derive_relative_psx, CreateReason, can_exclude_dir, can_include_dir, can_exclude_file, can_include_file
+from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, iter_matching_files, derive_relative_psx, CreateReason, can_exclude_dir, can_include_dir, can_exclude_file, can_include_file, absolutopathlify
 from utils import Rather, eq_list
 
 
 def _can_match_dir(path, s, relative_psx):
-    if can_exclude_dir(path, s, relative_psx, initial_top_path=s.source_dir):
+    s.update(
+        included_files=absolutopathlify(s.included_files, s.source_dir),
+        excluded_files=absolutopathlify(s.excluded_files, s.source_dir),
+        included_top_dirs=absolutopathlify(s.included_top_dirs, s.source_dir),
+        excluded_top_dirs=absolutopathlify(s.excluded_top_dirs, s.source_dir),
+    )
+    if can_exclude_dir(path, s, relative_psx, base_path=s.source_dir):
         return 0
-    return 1 if can_include_dir(path, s, relative_psx, initial_top_path=s.source_dir) else 0
+    return 1 if can_include_dir(path, s, relative_psx, base_path=s.source_dir) else 0
 
 
 def _can_match_file(path, s, relative_psx):
-    if can_exclude_file(path, s, relative_psx, initial_top_path=s.source_dir):
+    s.update(
+        included_files=absolutopathlify(s.included_files, s.source_dir),
+        excluded_files=absolutopathlify(s.excluded_files, s.source_dir),
+        included_top_dirs=absolutopathlify(s.included_top_dirs, s.source_dir),
+        excluded_top_dirs=absolutopathlify(s.excluded_top_dirs, s.source_dir),
+    )
+    if can_exclude_file(path, s, relative_psx, base_path=s.source_dir):
         return 0
-    return 1 if can_include_file(path, s, relative_psx, initial_top_path=s.source_dir) else 0
+    return 1 if can_include_file(path, s, relative_psx, base_path=s.source_dir) else 0
 
 
 @pytest.fixture(scope='module')
