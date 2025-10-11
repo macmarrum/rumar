@@ -169,7 +169,7 @@ store_true = 'store_true'
 PathAlike = Union[str, PathLike[str]]
 UTF8 = 'UTF-8'
 RUMAR_SQLITE = 'rumar.sqlite'
-RX_ARCHIVE_SUFFIX = re.compile(r'(\.(?:tar(?:\.(?:gz|bz2|xz))?|zipx))$')
+RX_ARCHIVE_SUFFIX = re.compile(r'(\.(?:tar(?:\.(?:gz|bz2|xz|zst))?|zipx))$')
 # Example: 2023-04-30_09,48,20.872144+02,00~123~ab12~LNK
 RX_ARCHIVE_NAME = re.compile(r'^\d\d\d\d-\d\d-\d\d_\d\d,\d\d,\d\d(?:\.\d\d\d\d\d\d)?\+\d\d,\d\d~\d+.*' + RX_ARCHIVE_SUFFIX.pattern)
 
@@ -268,6 +268,7 @@ class RumarFormat(Enum):
     TGZ = 'tar.gz'
     TBZ = 'tar.bz2'
     TXZ = 'tar.xz'
+    TZS = 'tar.zst'
     # zipx is experimental
     ZIPX = 'zipx'
 
@@ -290,12 +291,12 @@ class Settings:
     backup_base_dir_for_profile: str
       used by: create, extract, sweep
       path to the base dir used for the profile; usually left unset; see _**backup_base_dir**_
-    archive_format: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz'] = 'tar.gz'
+    archive_format: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz', 'tar.zst'] = 'tar.gz'
       used by: create, sweep
       format of archive files to be created
     compression_level: int = 3
       used by: create
-      for the formats 'tar.gz', 'tar.bz2', 'tar.xz': compression level from 0 to 9
+      for the formats 'tar.gz', 'tar.bz2', 'tar.xz', 'tar.zst': compression level from 0 to 9
     no_compression_suffixes_default: str = '7z,zip,zipx,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,cbz,png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,kdbx'
       used by: create
       comma-separated string of lower-case suffixes for which to use uncompressed tar
@@ -862,10 +863,11 @@ class Rumar:
     COMPRESSION = 'compression'
     COMPRESSLEVEL = 'compresslevel'
     PRESET = 'preset'
+    LEVEL = 'level'
     SYMLINK_FORMAT_COMPRESSLEVEL = RumarFormat.TGZ, {COMPRESSLEVEL: 3}
     NOCOMPRESSION_FORMAT_COMPRESSLEVEL = RumarFormat.TAR, {}
     LNK = 'LNK'
-    ARCHIVE_FORMAT_TO_MODE = {RumarFormat.TAR: 'x', RumarFormat.TGZ: 'x:gz', RumarFormat.TBZ: 'x:bz2', RumarFormat.TXZ: 'x:xz'}
+    ARCHIVE_FORMAT_TO_MODE = {RumarFormat.TAR: 'x', RumarFormat.TGZ: 'x:gz', RumarFormat.TBZ: 'x:bz2', RumarFormat.TXZ: 'x:xz', RumarFormat.TZS: 'x:zst'}
     CHECKSUM_SUFFIX = '.b2'
     CHECKSUM_SIZE_THRESHOLD = 10_000_000
     STEMS = 'stems'
@@ -1190,7 +1192,7 @@ class Rumar:
         elif rath.suffix.lower() in self.s.suffixes_without_compression or self.s.archive_format == RumarFormat.TAR:
             return self.NOCOMPRESSION_FORMAT_COMPRESSLEVEL
         else:
-            key = self.PRESET if self.s.archive_format == RumarFormat.TXZ else self.COMPRESSLEVEL
+            key = {RumarFormat.TXZ: self.PRESET, RumarFormat.TZS: self.LEVEL}.get(self.s.archive_format, self.COMPRESSLEVEL)
             return self.s.archive_format, {key: self.s.compression_level}
 
     @property
