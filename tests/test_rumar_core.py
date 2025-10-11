@@ -125,7 +125,7 @@ class TestRumarCore:
         ]
         assert actual == expected
 
-    def can_match_dir__inc_single(self, set_up_rumar):
+    def test_can_match_dir__inc_single(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
@@ -149,7 +149,7 @@ class TestRumarCore:
         ]
         assert actual == [*expected.values()]
 
-    def can_match_dir__exc_several(self, set_up_rumar):
+    def test_can_match_dir__exc_several(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
@@ -173,7 +173,7 @@ class TestRumarCore:
         }
         assert actual == expected
 
-    def can_match_dir__exc_mulit_level(self, set_up_rumar):
+    def test_can_match_dir__exc_mulit_level(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
@@ -203,7 +203,7 @@ class TestRumarCore:
         ]
         assert actual == expected
 
-    def can_match_dir__inc_and_exc_mulit_level(self, set_up_rumar):
+    def test_can_match_dir__inc_and_exc_mulit_level(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
@@ -234,7 +234,7 @@ class TestRumarCore:
         ]
         assert actual == expected
 
-    def can_match_dir__inc_all_and_exc_single_lower_level(self, set_up_rumar):
+    def test_can_match_dir__inc_all_and_exc_single_lower_level(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
