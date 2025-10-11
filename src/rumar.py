@@ -1115,19 +1115,9 @@ class Rumar:
             with tarfile.open(_archive_path, mode, format=self.s.tar_format, **compresslevel_kwargs) as tf:
                 tf.add(rath, arcname=rath.name)
 
-        attempt_limit = 3
-        attempt = 1
-        while True:
-            if not checksum:
-                lstat = rath.lstat_afresh()
-                archive_path = self.compose_archive_path(archive_dir, self.calc_mtime_str(lstat), lstat.st_size, lnk)
-                with rath.open('rb') as f:
-                    checksum = compute_blake2b_checksum(f)
-            if self._call_create_and_return_same_checksum_or_limit_reached(_create, archive_path, checksum, attempt, attempt_limit):
-                break
-            checksum = None  # signal to get a new checksum of the file being archived
-            attempt += 1
-        self._rdb.save(create_reason, relative_p, archive_path, checksum)
+        is_archive_created, archive_path, checksum = self._call_create_and_verify_checksum_before_and_after_unless_lnk(_create, archive_dir, archive_path, checksum, rath, lnk)
+        if is_archive_created:
+            self._rdb.save(create_reason, relative_p, archive_path, checksum)
 
     def _create_zipx(self, create_reason: CreateReason, rath: Rath, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: bytes | None):
         sign = create_reason.value
@@ -1146,26 +1136,38 @@ class Rumar:
                 zf.setpassword(self.s.password)
                 zf.write(rath, arcname=rath.name)
 
-        attempt_limit = 3
-        attempt = 1
-        while True:
-            if not checksum:
-                lstat = rath.lstat_afresh()
-                archive_path = self.compose_archive_path(archive_dir, self.calc_mtime_str(lstat), lstat.st_size, lnk)
-                with rath.open('rb') as f:
-                    checksum = compute_blake2b_checksum(f)
-            if self._call_create_and_return_same_checksum_or_limit_reached(_create, archive_path, checksum, attempt, attempt_limit):
-                break
-            checksum = None  # signal to get a new checksum of the file being archived
-            attempt += 1
-        self._rdb.save(create_reason, relative_p, archive_path, checksum)
+        is_archive_created, archive_path, checksum = self._call_create_and_verify_checksum_before_and_after_unless_lnk(_create, archive_dir, archive_path, checksum, rath, lnk)
+        if is_archive_created:
+            self._rdb.save(create_reason, relative_p, archive_path, checksum)
 
-    def _call_create_and_return_same_checksum_or_limit_reached(self, _create: Callable, archive_path: Path, checksum: bytes | None, attempt: int, attempt_limit: int):
+    def _call_create_and_verify_checksum_before_and_after_unless_lnk(self, _create, archive_dir, archive_path, checksum, rath, lnk):
+        is_archive_created_lst = [False]
+        if lnk == self.LNK:
+            _create(archive_path)
+            is_archive_created_lst[0] = True
+        else:
+            attempt_limit = 3
+            attempt = 1
+            while True:
+                if not checksum:
+                    lstat = rath.lstat_afresh()
+                    archive_path = self.compose_archive_path(archive_dir, self.calc_mtime_str(lstat), lstat.st_size, lnk)
+                    with rath.open('rb') as f:
+                        checksum = compute_blake2b_checksum(f)
+                if self._call_create_and_return_same_checksum_or_limit_reached(_create, archive_path, checksum, attempt, attempt_limit, is_archive_created_lst):
+                    break
+                checksum = None  # signal to get a new checksum of the file being archived
+                attempt += 1
+        return is_archive_created_lst[0], archive_path, checksum
+
+    def _call_create_and_return_same_checksum_or_limit_reached(self, _create: Callable, archive_path: Path, checksum: bytes | None, attempt: int, attempt_limit: int, is_archive_created_lst: list[bool]) -> bool:
         _create(archive_path)
         end_checksum = self.compute_checksum_of_file_in_archive(archive_path, self.s.password)
         if end_checksum == checksum:
+            is_archive_created_lst[0] = True
             return True
         else:
+            is_archive_created_lst[0] = False
             archive_path.unlink(missing_ok=True)
             if attempt == attempt_limit:
                 message = f"File changed during the archival process {archive_path} - tried {attempt_limit} times - skipping"
