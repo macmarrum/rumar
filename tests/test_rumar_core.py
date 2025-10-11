@@ -317,10 +317,10 @@ class TestMatching:
         expected = {
             '': 1,
             'A': 1,
-            'AA': 1,
-            'B': 0,
             'A/A-A': 0,
             'A/A-B': 1,
+            'AA': 1,
+            'B': 0,
         }
         actual = {
             psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
@@ -404,10 +404,10 @@ class TestMatching:
         expected = {
             '': 1,
             'A': 1,
-            'AA': 0,
-            'B': 0,
             'A/A-A': 0,
             'A/A-B': 1,
+            'AA': 0,
+            'B': 0,
         }
         actual = {
             psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
@@ -492,10 +492,10 @@ class TestMatching:
         expected = {
             '': 1,
             'A': 1,
-            'AA': 1,
-            'B': 1,
             'A/A-A': 0,
             'A/A-B': 1,
+            'AA': 1,
+            'B': 1,
         }
         actual = {
             psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
