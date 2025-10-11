@@ -134,6 +134,8 @@ class TestMatching:
         }
         assert actual == expected
 
+    #######################################################################
+
     def test_can_match_dir__inc_top_dir_single__no_exc(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
@@ -215,6 +217,8 @@ class TestMatching:
             for psx in expected.keys()
         }
         assert actual == expected
+
+    #######################################################################
 
     def test_can_match_dir__no_inc__exc_top_dir_several(self, set_up_rumar):
         d = set_up_rumar
@@ -298,6 +302,8 @@ class TestMatching:
         }
         assert actual == expected
 
+    #######################################################################
+
     def test_can_match_dir__no_inc__exc_top_dir_multi_level(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
@@ -315,6 +321,30 @@ class TestMatching:
             'B': 0,
             'A/A-A': 0,
             'A/A-B': 1,
+        }
+        actual = {
+            psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
+            for psx in expected.keys()
+        }
+        assert actual == expected
+
+    def test_can_match_dir__no_inc__exc_full_stars_multi_level(self, set_up_rumar):
+        d = set_up_rumar
+        profile = d['profile']
+        profile_to_settings = d['profile_to_settings']
+        settings = profile_to_settings[profile]
+        settings = replace(settings,  # NOTE: local settings dict, not in rumar
+                           included_files=['A/A-A/**', 'B/**'],
+                           )
+        rumar = d['rumar']
+        R = lambda p: Rather(f"{profile}/{p}", lstat_cache=rumar.lstat_cache)
+        expected = {
+            '': 1,
+            'A': 1,
+            'A/A-A': 1,
+            'A/A-B': 0,
+            'B': 1,
+            'AA': 0,
         }
         actual = {
             psx: _can_match_dir(r := R(psx), settings, derive_relative_psx(r, r.BASE_PATH, with_leading_slash=True))
@@ -357,6 +387,8 @@ class TestMatching:
             for psx in expected.keys()
         }
         assert actual == expected
+
+    #######################################################################
 
     def test_can_match_dir__inc_top_dir_single__exc_top_dir_subdir(self, set_up_rumar):
         d = set_up_rumar
@@ -420,6 +452,8 @@ class TestMatching:
         }
         assert actual == expected
 
+    #######################################################################
+
     def test_can_match_dir__no_inc__exc_top_dir_single_subdir(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
@@ -479,6 +513,8 @@ class TestMatching:
             for psx in expected.keys()
         }
         assert actual == expected
+
+    #######################################################################
 
     def test_can_match_file__no_inc__exc_full_star_single_midlevel_dir(self, set_up_rumar):
         d = set_up_rumar
