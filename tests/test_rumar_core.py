@@ -12,7 +12,7 @@ from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all
 from utils import Rather, eq_list
 
 
-def _is_dir_match(path, s, relative_psx):
+def _can_match_dir(path, s, relative_psx):
     if can_exclude_dir(path, s, relative_psx):
         return False
     return can_include_dir(path, s, relative_psx)
@@ -112,10 +112,10 @@ class TestRumarCore:
         rumar = d['rumar']
         R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
         actual = [
-            _is_dir_match(R(f"/{profile}"), settings, '/'),
-            _is_dir_match(R(f"/{profile}/A"), settings, '/A'),
-            _is_dir_match(R(f"/{profile}/AA"), settings, '/AA'),
-            _is_dir_match(R(f"/{profile}/B"), settings, '/B'),
+            _can_match_dir(R(f"/{profile}"), settings, '/'),
+            _can_match_dir(R(f"/{profile}/A"), settings, '/A'),
+            _can_match_dir(R(f"/{profile}/AA"), settings, '/AA'),
+            _can_match_dir(R(f"/{profile}/B"), settings, '/B'),
         ]
         expected = [
             True,
@@ -125,7 +125,7 @@ class TestRumarCore:
         ]
         assert actual == expected
 
-    def test_is_top_dir_match__inc_single(self, set_up_rumar):
+    def can_match_dir__inc_single(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
@@ -144,12 +144,12 @@ class TestRumarCore:
             f"/{profile}/B": False,
         }
         actual = [
-            _is_dir_match(r := R(psx), settings, r.as_posix())
+            _can_match_dir(r := R(psx), settings, r.as_posix())
             for psx in expected.keys()
         ]
         assert actual == [*expected.values()]
 
-    def test_is_top_dir_match__exc_several(self, set_up_rumar):
+    def can_match_dir__exc_several(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
@@ -168,12 +168,12 @@ class TestRumarCore:
             f"/{profile}/B": False,
         }
         actual = {
-            psx: _is_dir_match(r := R(psx), settings, r.as_posix())
+            psx: _can_match_dir(r := R(psx), settings, r.as_posix())
             for psx in expected.keys()
         }
         assert actual == expected
 
-    def test_is_top_dir_match__exc_mulit_level(self, set_up_rumar):
+    def can_match_dir__exc_mulit_level(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
@@ -186,12 +186,12 @@ class TestRumarCore:
         rumar = d['rumar']
         R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
         actual = [
-            _is_dir_match(R(f"/{profile}"), settings, '/'),
-            _is_dir_match(R(f"/{profile}/A"), settings, '/A'),
-            _is_dir_match(R(f"/{profile}/AA"), settings, '/AA'),
-            _is_dir_match(R(f"/{profile}/B"), settings, '/B'),
-            _is_dir_match(R(f"/{profile}/A/A-A"), settings, '/A/A-A'),
-            _is_dir_match(R(f"/{profile}/A/A-B"), settings, '/A/A-B'),
+            _can_match_dir(R(f"/{profile}"), settings, '/'),
+            _can_match_dir(R(f"/{profile}/A"), settings, '/A'),
+            _can_match_dir(R(f"/{profile}/AA"), settings, '/AA'),
+            _can_match_dir(R(f"/{profile}/B"), settings, '/B'),
+            _can_match_dir(R(f"/{profile}/A/A-A"), settings, '/A/A-A'),
+            _can_match_dir(R(f"/{profile}/A/A-B"), settings, '/A/A-B'),
         ]
         expected = [
             True,
@@ -203,7 +203,7 @@ class TestRumarCore:
         ]
         assert actual == expected
 
-    def test_is_top_dir_match__inc_and_exc_mulit_level(self, set_up_rumar):
+    def can_match_dir__inc_and_exc_mulit_level(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
@@ -217,12 +217,12 @@ class TestRumarCore:
         rumar = d['rumar']
         R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
         actual = [
-            _is_dir_match(R(f"/{profile}"), settings, '/'),
-            _is_dir_match(R(f"/{profile}/A"), settings, '/A'),
-            _is_dir_match(R(f"/{profile}/AA"), settings, '/AA'),
-            _is_dir_match(R(f"/{profile}/B"), settings, '/B'),
-            _is_dir_match(R(f"/{profile}/A/A-A"), settings, '/A/A-A'),
-            _is_dir_match(R(f"/{profile}/A/A-B"), settings, '/A/A-B'),
+            _can_match_dir(R(f"/{profile}"), settings, '/'),
+            _can_match_dir(R(f"/{profile}/A"), settings, '/A'),
+            _can_match_dir(R(f"/{profile}/AA"), settings, '/AA'),
+            _can_match_dir(R(f"/{profile}/B"), settings, '/B'),
+            _can_match_dir(R(f"/{profile}/A/A-A"), settings, '/A/A-A'),
+            _can_match_dir(R(f"/{profile}/A/A-B"), settings, '/A/A-B'),
         ]
         expected = [
             True,
@@ -234,7 +234,7 @@ class TestRumarCore:
         ]
         assert actual == expected
 
-    def test_is_top_dir_match__inc__all_and_exc_single_lower_level(self, set_up_rumar):
+    def can_match_dir__inc_all_and_exc_single_lower_level(self, set_up_rumar):
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
@@ -247,12 +247,12 @@ class TestRumarCore:
         rumar = d['rumar']
         R = lambda p: Rather(p, lstat_cache=rumar.lstat_cache)
         actual = [
-            _is_dir_match(R(f"/{profile}"), settings, '/'),
-            _is_dir_match(R(f"/{profile}/A"), settings, '/A'),
-            _is_dir_match(R(f"/{profile}/AA"), settings, '/AA'),
-            _is_dir_match(R(f"/{profile}/B"), settings, '/B'),
-            _is_dir_match(R(f"/{profile}/A/A-A"), settings, '/A/A-A'),
-            _is_dir_match(R(f"/{profile}/A/A-B"), settings, '/A/A-B'),
+            _can_match_dir(R(f"/{profile}"), settings, '/'),
+            _can_match_dir(R(f"/{profile}/A"), settings, '/A'),
+            _can_match_dir(R(f"/{profile}/AA"), settings, '/AA'),
+            _can_match_dir(R(f"/{profile}/B"), settings, '/B'),
+            _can_match_dir(R(f"/{profile}/A/A-A"), settings, '/A/A-A'),
+            _can_match_dir(R(f"/{profile}/A/A-B"), settings, '/A/A-B'),
         ]
         expected = [
             True,
