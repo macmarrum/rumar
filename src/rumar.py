@@ -287,11 +287,11 @@ class Settings:
     backup_base_dir: str
       used by: create, sweep
       path to the base directory used for backup; usually set in the global space, common for all profiles
-      ⓘ backup directory for each profile, i.e. _**backup_dir**_, is constructed as `{backup_base_dir}/{profile}`, unless _**backup_dir**_ is set, which takes precedence
+      ⓘ note: backup directory for each profile, i.e. _**backup_dir**_, is constructed as `{backup_base_dir}/{profile}`, unless _**backup_dir**_ is set, which takes precedence
     backup_dir: str = None
       used by: create, extract, sweep
       path to the backup directory used for the profile
-      ⚠️ usually left unset; if so, its value defaults to `{backup_base_dir}/{profile}`
+      ⚠️ caution: usually left unset; if so, its value defaults to `{backup_base_dir}/{profile}`
     archive_format: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz', 'tar.zst'] = 'tar.gz'
       used by: create, sweep
       format of archive files to be created
