@@ -23,16 +23,16 @@ Each backup is a separate **tar** file.
 3. Download [rumar.toml](https://raw.githubusercontent.com/macmarrum/rumar/main/examples/rumar.toml) to the same directory as `rumar.py`
 4. Edit `rumar.toml` and adapt it to your needs – see [settings details](#settings-details)
 5. Open a console/terminal (e.g. PowerShell) and change to the directory containing `rumar.py`
-6. If your installed Python version is below 3.11, run `python -m pip install tomli` to install the module [tomli](https://pypi.org/project/tomli/), if not yet done
+6. If your installed Python version is below 3.11, run `python -m pip install tomli` to install the module [tomli](https://pypi.org/project/tomli/)
 7. Run `python rumar.py list-profiles` → you should see your profile name(s) printed in the console
 8. Run `python rumar.py create --profile "My Documents"` to create a backup using the profile "My Documents"
-9. Optionally, add this command to Task Scheduler or cron, to be run at an interval or each day/night
+9. Optionally, add the create command to Task Scheduler or cron, to be run at an interval (e.g. each day/night)
 
 ### How to sweep old backups
 
 1. Run `python rumar.py sweep --profile "My Documents" --dry-run` and verify the files to be removed
 2. Run `python rumar.py sweep --profile "My Documents"` to remove old backups
-3. Optionally, add this command to Task Scheduler or cron, to be run at an interval or each day/night
+3. Optionally, add the sweep command to Task Scheduler or cron, to be run at an interval (e.g. each day/night)
 
 Note: when `--dry-run` is used, **rumar.py** counts the backup files and selects those to be removed based on settings, but no files are actually deleted.
 
@@ -91,7 +91,7 @@ source_dir = "this setting won't be loaded"
 ### Settings details
 
 Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is loaded.\
-**version** indicates schema version – currently `3`.
+**version** indicates the schema version – currently `3`.
 
 <!-- settings pydoc begin -->
 * **backup_base_dir**: str &nbsp; &nbsp; _used by: create, sweep_\
