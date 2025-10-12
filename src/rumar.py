@@ -291,7 +291,7 @@ class Settings:
     backup_dir: str = None
       used by: create, extract, sweep
       path to the backup directory used for the profile
-      ⚠ usually left unset; if so, its value defaults to `{backup_base_dir}/{profile}`
+      ⚠️ usually left unset; if so, its value defaults to `{backup_base_dir}/{profile}`
     archive_format: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz', 'tar.zst'] = 'tar.gz'
       used by: create, sweep
       format of archive files to be created
