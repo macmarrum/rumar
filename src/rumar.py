@@ -34,7 +34,7 @@ from pathlib import Path, PurePath
 from stat import S_ISDIR, S_ISSOCK, S_ISDOOR, S_ISLNK
 from textwrap import dedent
 from time import sleep
-from typing import Union, Literal, Pattern, Any, Iterable, cast, Generator, Callable, Sequence, ClassVar
+from typing import Literal, Pattern, Any, Iterable, cast, Generator, Callable, Sequence, ClassVar
 
 vi = sys.version_info
 PY_VER = (vi.major, vi.minor)
@@ -166,7 +166,7 @@ logging.config.dictConfig(dict_config)
 logger = logging.getLogger('rumar')
 
 store_true = 'store_true'
-PathAlike = Union[str, PathLike[str]]
+PathAlike = str | PathLike[str]
 UTF8 = 'UTF-8'
 RUMAR_SQLITE = 'rumar.sqlite'
 RX_ARCHIVE_SUFFIX = re.compile(r'(\.(?:tar(?:\.(?:gz|bz2|xz|zst))?|zipx))$')
@@ -408,7 +408,7 @@ class Settings:
       by default, filters are used only by _**create**_, i.e. _**sweep**_ considers all created backups (no filter is applied)
       a filter for _**sweep**_ could be used to e.g. never remove backups from the first day of a month:
       `excluded_files = ['**/[0-9][0-9][0-9][0-9]-[0-9][0-9]-01_*.tar*']` or
-      `excluded_files_as_regex = ['/\d\d\d\d-\d\d-01_\d\d,\d\d,\d\d(\.\d{6})?[+-]\d\d,\d\d~\d+(~.+)?\.tar(\.(gz|bz2|xz))?$']`
+      `excluded_files_as_regex = ['/\d\d\d\d-\d\d-01_\d\d,\d\d,\d\d(\.\d{6})?[+-]\d\d,\d\d~\d+(~.+)?\.tar(\.(gz|bz2|xz|zst))?$']`
       it's best when the setting is part of a separate profile, i.e. a copy made for _**sweep**_,
       otherwise _**create**_ will also seek such files to be excluded
     db_path: str = _**backup_base_dir**_/rumar.sqlite
@@ -427,7 +427,7 @@ class Settings:
     excluded_files_as_glob: dict[str, None] = field(default_factory=dict)
     included_files_as_regex: dict[Pattern | str, None] = field(default_factory=dict)
     excluded_files_as_regex: dict[Pattern | str, None] = field(default_factory=dict)
-    archive_format: Union[RumarFormat, str] = RumarFormat.TGZ
+    archive_format: RumarFormat | str = RumarFormat.TGZ
     # password for zipx, as it's AES-encrypted
     password: bytes | str | None = None
     zip_compression_method: int = zipfile.ZIP_DEFLATED
@@ -446,11 +446,11 @@ class Settings:
     number_of_backups_per_day_to_keep: int = 2
     number_of_backups_per_week_to_keep: int = 14
     number_of_backups_per_month_to_keep: int = 60
-    commands_using_filters: Union[list[str], tuple[Command, ...]] = (Command.CREATE,)
+    commands_using_filters: list[str] | tuple[Command, ...] = (Command.CREATE,)
     db_path: Path | str | None = None
 
     @staticmethod
-    def is_each_elem_of_type(seq: Sequence | dict, typ: Union[Any, tuple]) -> bool:
+    def is_each_elem_of_type(seq: Iterable, typ: Any | tuple) -> bool:
         return all(isinstance(elem, typ) for elem in seq)
 
     def __post_init__(self):
@@ -487,6 +487,10 @@ class Settings:
 
     def _dictify(self, attribute_name: str):
         attr = getattr(self, attribute_name)
+        if not isinstance(attr, Iterable):
+            raise ValueError(f"expected an Iterable, got {type(attr)}")
+        if not attr:
+            return
         if not isinstance(attr, dict):
             setattr(self, attribute_name, {e: None for e in attr})
 
@@ -505,8 +509,8 @@ class Settings:
         attr = getattr(self, attribute_name)
         if not attr:
             return
-        if not isinstance(attr, (Sequence, dict)):
-            raise TypeError(f"expected a Sequence of values, got {attr!r}")
+        if not isinstance(attr, Iterable):
+            raise TypeError(f"expected an Iterable, got {attr!r}")
         if not self.is_each_elem_of_type(attr, Pattern):
             setattr(self, attribute_name, {re.compile(elem): None for elem in attr})
 
