@@ -1,4 +1,4 @@
-# Copyright © 2023, 2024 macmarrum (at) outlook (dot) ie
+# Copyright (C) 2023-2025  macmarrum (at) outlook (dot) ie
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 from pathlib import Path

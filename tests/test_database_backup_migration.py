@@ -1,3 +1,5 @@
+# Copyright (C) 2023-2025  macmarrum (at) outlook (dot) ie
+# SPDX-License-Identifier: GPL-3.0-or-later
 from textwrap import dedent
 
 import pytest

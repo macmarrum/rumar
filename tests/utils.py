@@ -1,3 +1,5 @@
+# Copyright (C) 2023-2025  macmarrum (at) outlook (dot) ie
+# SPDX-License-Identifier: GPL-3.0-or-later
 import os
 from _stat import S_IFLNK, S_IFDIR, S_IFREG, S_ISDIR, S_ISLNK
 from io import BytesIO
