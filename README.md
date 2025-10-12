@@ -105,10 +105,10 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
 * **compression_level**: int = 3 &nbsp; &nbsp; _used by: create_\
   0 to 9 for 'tar.gz', 'tar.bz2', 'tar.xz'\
   0 to 22 for 'tar.zst'
-* **NO_COMPRESSION_SUFFIXES_DEFAULT**: str = '7z,zip,zipx,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,cbz,png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,opus,flac,kdbx' &nbsp; &nbsp; _used by: create_\
+* **no_compression_suffixes_default**: str = '7z,zip,zipx,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,cbz,png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,opus,flac,kdbx' &nbsp; &nbsp; _used by: create_\
   comma-separated string of the default lower-case suffixes for which to use no compression
 * **no_compression_suffixes**: str = '' &nbsp; &nbsp; _used by: create_\
-  extra lower-case suffixes in addition to _**NO_COMPRESSION_SUFFIXES_DEFAULT**_
+  extra lower-case suffixes in addition to _**no_compression_suffixes_default**_
 * **tar_format**: Literal[0, 1, 2] = 1 (tarfile.GNU_FORMAT) &nbsp; &nbsp; _used by: create_\
   see also https://docs.python.org/3/library/tarfile.html#supported-tar-formats and https://www.gnu.org/software/tar/manual/html_section/Formats.html
 * **source_dir**: str &nbsp; &nbsp; _used by: create, extract_\
