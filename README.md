@@ -95,9 +95,10 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
 <!-- settings pydoc begin -->
 * **backup_base_dir**: str &nbsp; &nbsp; _used by: create, sweep_\
   path to the base directory used for backup; usually set in the global space, common for all profiles\
-  backup dir for each profile is constructed as _**backup_base_dir**_ + _**profile**_, unless _**backup_dir**_ is set, which takes precedence
-* **backup_dir**: str &nbsp; &nbsp; _used by: create, extract, sweep_\
-  path to the base dir used for the profile; usually left unset; see _**backup_base_dir**_
+  ⓘ backup directory for each profile, i.e. _**backup_dir**_, is constructed as `{backup_base_dir}/{profile}`, unless _**backup_dir**_ is set, which takes precedence
+* **backup_dir**: str = None &nbsp; &nbsp; _used by: create, extract, sweep_\
+  path to the backup directory used for the profile\
+  ⚠ usually left unset; if so, its value defaults to `{backup_base_dir}/{profile}`
 * **archive_format**: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz', 'tar.zst'] = 'tar.gz' &nbsp; &nbsp; _used by: create, sweep_\
   format of archive files to be created\
   'tar.zst' requires Python 3.14 or higher
