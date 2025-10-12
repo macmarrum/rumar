@@ -206,8 +206,6 @@ They rely on `PurePath.full_match(...)`, which was added in Python 3.13.\
 The new settings remove the need for the following ones:
 * _**included_top_dirs**_
 * _**excluded_top_dirs**_
-* _**included_dirs_as_regex**_
-* _**excluded_dirs_as_regex**_
 * _**included_files_as_glob**_
 * _**excluded_files_as_glob**_
 
