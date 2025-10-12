@@ -18,7 +18,7 @@ Each backup is a separate **tar** file.
 
 ## How to use it
 
-1. Install [Python](https://www.python.org/downloads/) (at least 3.9), if not yet installed
+1. Install [Python](https://www.python.org/downloads/) (at least 3.10)
 2. Download [rumar.py](https://raw.githubusercontent.com/macmarrum/rumar/main/src/rumar.py)
 3. Download [rumar.toml](https://raw.githubusercontent.com/macmarrum/rumar/main/examples/rumar.toml) to the same directory as `rumar.py`
 4. Edit `rumar.toml` and adapt it to your needs – see [settings details](#settings-details)
@@ -100,10 +100,12 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
 * **backup_base_dir_for_profile**: str &nbsp; &nbsp; _used by: create, extract, sweep_\
   path to the base dir used for the profile; usually left unset; see _**backup_base_dir**_
 * **archive_format**: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz', 'tar.zst'] = 'tar.gz' &nbsp; &nbsp; _used by: create, sweep_\
-  format of archive files to be created
+  format of archive files to be created\
+  'tar.zst' requires Python 3.14 or higher
 * **compression_level**: int = 3 &nbsp; &nbsp; _used by: create_\
-  for the formats 'tar.gz', 'tar.bz2', 'tar.xz', 'tar.zst': compression level from 0 to 9
-* **NO_COMPRESSION_SUFFIXES_DEFAULT**: str = '7z,zip,zipx,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,cbz,png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,kdbx' &nbsp; &nbsp; _used by: create_\
+  0 to 9 for 'tar.gz', 'tar.bz2', 'tar.xz'\
+  0 to 22 for 'tar.zst'
+* **NO_COMPRESSION_SUFFIXES_DEFAULT**: str = '7z,zip,zipx,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,cbz,png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,opus,flac,kdbx' &nbsp; &nbsp; _used by: create_\
   comma-separated string of the default lower-case suffixes for which to use no compression
 * **no_compression_suffixes**: str = '' &nbsp; &nbsp; _used by: create_\
   extra lower-case suffixes in addition to _**NO_COMPRESSION_SUFFIXES_DEFAULT**_

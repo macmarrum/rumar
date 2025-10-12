@@ -294,10 +294,12 @@ class Settings:
     archive_format: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz', 'tar.zst'] = 'tar.gz'
       used by: create, sweep
       format of archive files to be created
+      'tar.zst' requires Python 3.14 or higher
     compression_level: int = 3
       used by: create
-      for the formats 'tar.gz', 'tar.bz2', 'tar.xz', 'tar.zst': compression level from 0 to 9
-    NO_COMPRESSION_SUFFIXES_DEFAULT: str = '7z,zip,zipx,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,cbz,png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,kdbx'
+      0 to 9 for 'tar.gz', 'tar.bz2', 'tar.xz'
+      0 to 22 for 'tar.zst'
+    NO_COMPRESSION_SUFFIXES_DEFAULT: str = '7z,zip,zipx,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,cbz,png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,opus,flac,kdbx'
       used by: create
       comma-separated string of the default lower-case suffixes for which to use no compression
     no_compression_suffixes: str = ''
@@ -434,7 +436,7 @@ class Settings:
     NO_COMPRESSION_SUFFIXES_DEFAULT: ClassVar[str] = (
         '7z,zip,zipx,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,'
         'xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,cbz,'
-        'png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,opus,kdbx'
+        'png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,opus,flac,kdbx'
     )
     no_compression_suffixes: str = ''
     tar_format: Literal[0, 1, 2] = tarfile.GNU_FORMAT
