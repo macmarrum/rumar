@@ -218,11 +218,12 @@ In version 2 it's _**checksum_comparison_if_same_size**_.
 
 Logging is controlled by settings located in `rumar/rumar.logging.toml` inside `$XDG_CONFIG_HOME` (`$HOME/.config` if not set) on POSIX,
 or inside `%APPDATA%` on NT (Windows).
+You can copy the below settings to your own file and modify them as needed.
 
-By default, `rumar.log` is created in the current directory (where `rumar.py` is executed).\
+By default, `rumar.log` is created in the current directory (where `rumar.py` is executed).
+This can be changed by setting `filename=/path/to/rumar.log`.\
 To disable the creation of `rumar.log`,
-copy the below to `rumar.logging.toml` in the appropriate location
-and put a hash `#` in front of `"to_file",` in `[loggers.rumar]`.
+put a hash `#` in front of `"to_file",` in `[loggers.rumar]`.
 
 <!-- logging settings begin -->
 ```toml
