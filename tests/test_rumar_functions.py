@@ -4,7 +4,7 @@ from textwrap import dedent
 
 import pytest
 
-from rumar import find_matching_full_glob_path, Settings, RX_ARCHIVE_NAME, find_on_disk_last_file_in_directory, absolutopathlify
+from rumar import find_matching_abs_fglob_path, Settings, RX_ARCHIVE_NAME, find_on_disk_last_file_in_directory, absolutopathlify
 from utils import make_absolute_path
 
 
@@ -61,36 +61,36 @@ def test_make_absolute__nt_dot_slash_pattern_should_expand():
     assert actual == expected
 
 
-def test_find_matching_full_glob_path__posix_absolute_exact_should_match(settings):
+def test_find_matching_abs_fglob_path__posix_absolute_exact_should_match(settings):
     included_files = ['/source/dir/a/b/c.txt']
     d = asdict(settings) | dict(included_files=included_files)
     settings = Settings(**d)
     file_path = PurePosixPath('/source/dir/a/b/c.txt')
-    assert find_matching_full_glob_path(file_path, absolutopathlify(settings.included_files, settings.source_dir))
+    assert find_matching_abs_fglob_path(file_path, absolutopathlify(settings.included_files, settings.source_dir))
 
 
-def test_find_matching_full_glob_path__posix_relative_exact_should_match(settings):
+def test_find_matching_abs_fglob_path__posix_relative_exact_should_match(settings):
     included_files = ['a/b/c.txt']
     d = asdict(settings) | dict(included_files=included_files)
     settings = Settings(**d)
     file_path = PurePosixPath('/source/dir/a/b/c.txt')
-    assert find_matching_full_glob_path(file_path, absolutopathlify(settings.included_files, settings.source_dir))
+    assert find_matching_abs_fglob_path(file_path, absolutopathlify(settings.included_files, settings.source_dir))
 
 
-def test_find_matching_full_glob_path__posix_absolute_starstar_should_match(settings):
+def test_find_matching_abs_fglob_path__posix_absolute_starstar_should_match(settings):
     included_files = ['/source/dir/**/c.txt']
     d = asdict(settings) | dict(included_files=included_files)
     settings = Settings(**d)
     file_path = PurePosixPath('/source/dir/a/b/c.txt')
-    assert find_matching_full_glob_path(file_path, absolutopathlify(settings.included_files, settings.source_dir))
+    assert find_matching_abs_fglob_path(file_path, absolutopathlify(settings.included_files, settings.source_dir))
 
 
-def test_find_matching_full_glob_path__posix_relative_starstar_should_match(settings):
+def test_find_matching_abs_fglob_path__posix_relative_starstar_should_match(settings):
     included_files = ['a/**/c.txt']
     d = asdict(settings) | dict(included_files=included_files)
     settings = Settings(**d)
     file_path = PurePosixPath('/source/dir/a/b/c.txt')
-    assert find_matching_full_glob_path(file_path, absolutopathlify(settings.included_files, settings.source_dir))
+    assert find_matching_abs_fglob_path(file_path, absolutopathlify(settings.included_files, settings.source_dir))
 
 
 def test_find_on_disk_last_file_in_directory__without_nonzero_check():

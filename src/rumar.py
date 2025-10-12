@@ -696,14 +696,14 @@ def absolutopathlify(dct: dict[Path | str, None], base_path: Path) -> dict[Path,
 
 
 def can_exclude_dir(path: Path, s: Settings, _relative_psx: str, base_path: Path) -> bool:
-    if exc_full_glob_path := find_matching_full_glob_path(path, s.excluded_files):
-        logger.log(DEBUG_14, f"|D ...{_relative_psx}  -- skipping (matches full glob '{exc_full_glob_path.relative_to(base_path)}')")
+    if abs_fglob_path := find_matching_abs_fglob_path(path, s.excluded_files):
+        logger.log(DEBUG_14, f"|D ...{_relative_psx}  -- skipping (matches full glob '{abs_fglob_path.relative_to(base_path)}')")
         return True
-    if exc_top_dir := find_matching_top_path(path, s.excluded_top_dirs):
-        logger.log(DEBUG_14, f"|D ...{_relative_psx}  -- skipping (matches top dir '{exc_top_dir.relative_to(base_path)}')")
+    if abs_top_dir := find_matching_abs_top_path(path, s.excluded_top_dirs):
+        logger.log(DEBUG_14, f"|D ...{_relative_psx}  -- skipping (matches top dir '{abs_top_dir.relative_to(base_path)}')")
         return True
-    if exc_patt := find_matching_pattern(_relative_psx, s.excluded_dirs_as_regex):
-        logger.log(DEBUG_14, f"|d ...{_relative_psx}  -- skipping (matches regex '{exc_patt}')")
+    if rx_str := find_matching_pattern(_relative_psx, s.excluded_dirs_as_regex):
+        logger.log(DEBUG_14, f"|d ...{_relative_psx}  -- skipping (matches regex '{rx_str}')")
         return True
     return False
 
@@ -712,29 +712,29 @@ def can_include_dir(path: Path, s: Settings, _relative_psx: str, base_path: Path
     if not s.included_files and not s.included_files_as_regex and not s.included_top_dirs:
         logger.log(DEBUG_13, f"=D ...{_relative_psx}  -- include all (no included_files, _as_regex, _top_dirs)")
         return True
-    for inc_full_glob_path in s.included_files:
-        if '/**' in (inc_glob_posix := inc_full_glob_path.as_posix()):
-            # Recursive pattern /** found - use the segments before /** for matching;
-            # any other pattern after /** will be handled by can_include_file()
-            prefix_glob_posix = inc_glob_posix.split('/**', 1)[0]
-            if (path.full_match(prefix_glob_posix + '/**')  # match dir_path itself and any descendants
-                    or path.full_match(prefix_glob_posix)  # Python bug #139580 @ 3.13.7
-                    or is_full_match_by_equivalent_segments(path, Path(prefix_glob_posix))):  # match any ancestors
-                logger.log(DEBUG_14, f"|D ...{_relative_psx}  -- matches full glob '{inc_full_glob_path.relative_to(base_path)}'")
-                return True
-        else:
-            # No recursive pattern /** found - compare using the same number of initial segments
-            if is_full_match_by_equivalent_segments(path, inc_full_glob_path):
-                logger.log(DEBUG_14, f"|D ...{_relative_psx}  -- matches full glob '{inc_full_glob_path.relative_to(base_path)}'")
-                return True
-    if inc_top_dir := find_matching_top_path(path, s.included_top_dirs):
-        logger.log(DEBUG_13, f"=D ...{_relative_psx}  -- matches top dir '{inc_top_dir.relative_to(base_path)}'")
+    for abs_fglob_path in s.included_files:
+        match abs_fglob_path.as_posix().split('/**', 1):
+            case [prefix_fglob_psx, _]:
+                # Recursive pattern /** found - use the segments before /** for matching;
+                # any other pattern after /** will be handled by can_include_file()
+                if (path.full_match(prefix_fglob_psx + '/**')  # match dir_path itself and any descendants
+                        or path.full_match(prefix_fglob_psx)  # Python bug #139580 @ 3.13.7
+                        or is_full_match_by_equivalent_segments(path, Path(prefix_fglob_psx))):  # match any ancestors
+                    logger.log(DEBUG_14, f"|D ...{_relative_psx}  -- matches full glob '{abs_fglob_path.relative_to(base_path)}'")
+                    return True
+            case _:
+                # No recursive pattern /** found - compare using the same number of initial segments
+                if is_full_match_by_equivalent_segments(path, abs_fglob_path):
+                    logger.log(DEBUG_14, f"|D ...{_relative_psx}  -- matches full glob '{abs_fglob_path.relative_to(base_path)}'")
+                    return True
+    if abs_top_dir := find_matching_abs_top_path(path, s.included_top_dirs):
+        logger.log(DEBUG_13, f"=D ...{_relative_psx}  -- matches top dir '{abs_top_dir.relative_to(base_path)}'")
         return True
-    if any(inc_top_dir.is_relative_to(path) for inc_top_dir in s.included_top_dirs):
+    if any(abs_top_dir.is_relative_to(path) for abs_top_dir in s.included_top_dirs):
         logger.log(DEBUG_13, f"=D ...{_relative_psx}  -- matches: ancestor of any included_top_dirs")
         return True
-    if inc_patt := find_matching_pattern(_relative_psx, s.included_dirs_as_regex):
-        logger.log(DEBUG_13, f"=d ...{_relative_psx}  -- matches regex '{inc_patt}'")
+    if rx_str := find_matching_pattern(_relative_psx, s.included_dirs_as_regex):
+        logger.log(DEBUG_13, f"=d ...{_relative_psx}  -- matches regex '{rx_str}'")
         return True
     logger.log(DEBUG_14, f"|D ...{_relative_psx}  -- skipping (no match in included_files, _dirs_as_regex, _top_dirs)")
     return False
@@ -751,14 +751,14 @@ def is_full_match_by_equivalent_segments(path: PurePath, abs_fglob_path: PurePat
 
 
 def can_exclude_file(path: Path, s: Settings, _relative_psx: str, base_path: Path) -> bool:
-    if exc_full_glob_path := find_matching_full_glob_path(path, s.excluded_files):
-        logger.log(DEBUG_14, f"|F ...{_relative_psx}  -- skipping (matches full glob '{exc_full_glob_path.relative_to(base_path)}')")
+    if abs_fglob_path := find_matching_abs_fglob_path(path, s.excluded_files):
+        logger.log(DEBUG_14, f"|F ...{_relative_psx}  -- skipping (matches full glob '{abs_fglob_path.relative_to(base_path)}')")
         return True
-    if exc_glob := find_matching_glob(path, s.excluded_files_as_glob):
-        logger.log(DEBUG_14, f"|F ...{_relative_psx}  -- skipping (matches glob '{exc_glob}')")
+    if glob_str := find_matching_glob(path, s.excluded_files_as_glob):
+        logger.log(DEBUG_14, f"|F ...{_relative_psx}  -- skipping (matches glob '{glob_str}')")
         return True
-    if exc_patt := find_matching_pattern(_relative_psx, s.excluded_files_as_regex):
-        logger.log(DEBUG_14, f"|f ...{_relative_psx}  -- skipping (matches regex '{exc_patt}')")
+    if rx_str := find_matching_pattern(_relative_psx, s.excluded_files_as_regex):
+        logger.log(DEBUG_14, f"|f ...{_relative_psx}  -- skipping (matches regex '{rx_str}')")
         return True
     return False
 
@@ -767,22 +767,22 @@ def can_include_file(path: Path, s: Settings, _relative_psx: str, base_path: Pat
     if not s.included_files and not s.included_files_as_regex and not s.included_files_as_glob:
         logger.log(DEBUG_13, f"=F ...{_relative_psx}  -- include all (no included_files, _as_regex, _as_glob)")
         return True
-    if inc_full_glob_path := find_matching_full_glob_path(path, s.included_files):
-        logger.log(DEBUG_13, f"=F ...{_relative_psx}  -- matches full glob '{inc_full_glob_path.relative_to(base_path)}'")
+    if abs_fglob_path := find_matching_abs_fglob_path(path, s.included_files):
+        logger.log(DEBUG_13, f"=F ...{_relative_psx}  -- matches full glob '{abs_fglob_path.relative_to(base_path)}'")
         return True
-    if inc_patt := find_matching_pattern(_relative_psx, s.included_files_as_regex):
-        logger.log(DEBUG_14, f"=f ...{_relative_psx}  -- matches regex '{inc_patt}'")
+    if rx_str := find_matching_pattern(_relative_psx, s.included_files_as_regex):
+        logger.log(DEBUG_14, f"=f ...{_relative_psx}  -- matches regex '{rx_str}'")
         return True
     if path != base_path:
-        relative_parent_psx = derive_relative_psx(path.parent, base_path, with_leading_slash=True)
-        if inc_patt := find_matching_pattern(relative_parent_psx, s.included_dirs_as_regex):
-            logger.log(DEBUG_14, f"=f ...{_relative_psx}  -- matches regex dir '{inc_patt}'")
+        _relative_parent_psx = derive_relative_psx(path.parent, base_path, with_leading_slash=True)
+        if rx_str := find_matching_pattern(_relative_parent_psx, s.included_dirs_as_regex):
+            logger.log(DEBUG_14, f"=f ...{_relative_psx}  -- matches regex dir '{rx_str}'")
             return True
-    if inc_glob := find_matching_glob(path, s.included_files_as_glob):
-        logger.log(DEBUG_13, f"=F ...{_relative_psx}  -- matches glob '{inc_glob}'")
+    if glob_str := find_matching_glob(path, s.included_files_as_glob):
+        logger.log(DEBUG_13, f"=F ...{_relative_psx}  -- matches glob '{glob_str}'")
         return True
-    if inc_top_dir := find_matching_top_path(path, s.included_top_dirs):
-        logger.log(DEBUG_13, f"=F ...{_relative_psx}  -- matches top dir '{inc_top_dir.relative_to(base_path)}'")
+    if abs_top_dir := find_matching_abs_top_path(path, s.included_top_dirs):
+        logger.log(DEBUG_13, f"=F ...{_relative_psx}  -- matches top dir '{abs_top_dir.relative_to(base_path)}'")
         return True
     logger.log(DEBUG_14, f"|F ...{_relative_psx}  -- skipping (no match in included_files, _as_regex, _as_glob, _top_dirs)")
     return False
@@ -822,26 +822,26 @@ def find_matching_pattern(_relative_psx: str, patterns: Iterable[Pattern]):
 
 
 def find_matching_glob(path: PurePath, globs: Iterable[str]):
-    for g in globs:
-        if path.match(g):
-            return g
+    for glob_str in globs:
+        if path.match(glob_str):
+            return glob_str
     return None
 
 
-def find_matching_top_path(path: Path, top_paths: Iterable[Path]):
-    for top_path in top_paths:
-        if path.is_relative_to(top_path):
-            return top_path
+def find_matching_abs_top_path(path: Path, abs_top_paths: Iterable[Path]):
+    for abs_top_path in abs_top_paths:
+        if path.is_relative_to(abs_top_path):
+            return abs_top_path
     return None
 
 
-def find_matching_full_glob_path(path: PurePath, full_glob_paths: Iterable[Path]):
-    for full_glob_path in full_glob_paths:
-        if path.full_match(full_glob_path):
-            return full_glob_path
+def find_matching_abs_fglob_path(path: PurePath, abs_fglob_paths: Iterable[Path]):
+    for abs_fglob_path in abs_fglob_paths:
+        if path.full_match(abs_fglob_path):
+            return abs_fglob_path
         # Python bug #139580 @ 3.13.7
-        if full_glob_path.as_posix().endswith('/**') and path.full_match(full_glob_path.parent):
-            return full_glob_path
+        if abs_fglob_path.as_posix().endswith('/**') and path.full_match(abs_fglob_path.parent):
+            return abs_fglob_path
     return None
 
 
