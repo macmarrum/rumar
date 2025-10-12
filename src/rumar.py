@@ -297,12 +297,12 @@ class Settings:
     compression_level: int = 3
       used by: create
       for the formats 'tar.gz', 'tar.bz2', 'tar.xz', 'tar.zst': compression level from 0 to 9
-    no_compression_suffixes_default: str = '7z,zip,zipx,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,cbz,png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,kdbx'
+    NO_COMPRESSION_SUFFIXES_DEFAULT: str = '7z,zip,zipx,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,cbz,png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,kdbx'
       used by: create
-      comma-separated string of lower-case suffixes for which to use uncompressed tar
+      comma-separated string of the default lower-case suffixes for which to use no compression
     no_compression_suffixes: str = ''
       used by: create
-      extra lower-case suffixes in addition to _**no_compression_suffixes_default**_
+      extra lower-case suffixes in addition to _**NO_COMPRESSION_SUFFIXES_DEFAULT**_
     tar_format: Literal[0, 1, 2] = 1 (tarfile.GNU_FORMAT)
       used by: create
       see also https://docs.python.org/3/library/tarfile.html#supported-tar-formats and https://www.gnu.org/software/tar/manual/html_section/Formats.html
@@ -311,69 +311,72 @@ class Settings:
       path to the directory which is to be archived
     included_files: list[str]
       used by: create, sweep
-      ⚠️ caution: uses **PurePath.full_match(...)**, which is available on Python >= 3.13
-      a list of glob patterns, also known as shell-style wildcards, i.e. `** * ? [seq] [!seq]`; `**` means multiple segments, `*` means a single segment or a part of a segment
-      if present, only files matching the patterns will be considered, together with _**included_files_as_regex**_, _**included_files_as_glob**_, _**included_top_dirs**_, _**included_dirs_as_regex**_
+      ⚠️ caution: uses **PurePath.full_match(...)**, which is available on Python 3.13 or higher
+      a list of glob patterns, also known as shell-style wildcards, i.e. `** * ? [seq] [!seq]`; `**` means zero or more segments, `*` means a single segment or a part of a segment (as in `*.txt`)
+      if present, only the matching files will be considered, together with _**included_files_as_regex**_, _**included_files_as_glob**_, _**included_top_dirs**_, _**included_dirs_as_regex**_
+      the paths/globs can be absolute or relative to _**source_dir**_ (or _**backup_base_dir_for_profile**_ in case of _**sweep**_), e.g. `C:\My Documents\*.txt`, `my-file-in-source-dir.log`
+      absolute paths start with a root (`/` or `{drive}:\`)
       on Windows, global-pattern matching is case-insensitive, and both `\` and `/` can be used
-      the paths/globs can be absolute or relative to _**source_dir**_ (or _**backup_base_dir_for_profile**_ in case of sweep), e.g. `My Documents\*.txt`, `my-file-in-source-dir.log`
       see also https://docs.python.org/3.13/library/pathlib.html#pathlib-pattern-language
     excluded_files: list[str]
       used by: create, sweep
-      ⚠️ caution: uses **PurePath.full_match(...)**, which is available on Python >= 3.13
-      like _**included_files**_, but for exclusion
+      ⚠️ caution: uses **PurePath.full_match(...)**, which is available on Python 3.13 or higher
+      the matching files will be ignored, together with _**excluded_files_as_regex**_, _**excluded_files_as_glob**_, _**excluded_top_dirs**_, _**excluded_dirs_as_regex**_
+      see also _**included_files**_
     included_top_dirs: list[str]
       used by: create, sweep
-      ❌ deprecated: use _**included_files**_ instead, if on Python >= 3.13, e.g. `./top dir 1/**`
+      ❌ deprecated: use _**included_files**_ instead, if on Python 3.13 or higher, e.g. `['top dir 1/**',]`
       a list of top-directory paths
-      if present, only files from those dirs and their descendant subdirs will be considered
-      the paths can be relative to _**source_dir**_ or absolute, but always under _**source_dir**_ (or _**backup_base_dir_for_profile**_ in case of sweep)
+      if present, only the files from the directories and their descendant subdirs will be considered, together with _**included_dirs_as_regex**_, _**included_files**_, _**included_files_as_regex**_, _**included_files_as_glob**_,
+      the paths can be relative to _**source_dir**_ or absolute, but always under _**source_dir**_ (or _**backup_base_dir_for_profile**_ in case of _**sweep**_)
       absolute paths start with a root (`/` or `{drive}:\`)
-      if missing, _**source_dir**_ and all its descendant subdirs will be considered (or _**backup_base_dir_for_profile**_ in case of sweep)
     excluded_top_dirs: list[str]
       used by: create, sweep
-      ❌ deprecated: use _**excluded_files**_ instead, if on Python >= 3.13, e.g. `./top dir 3/**`
-      like _**included_top_dirs**_, but for exclusion
-      a list of paths under _**source_dir**_ or, if specified, any of _**included_top_dirs**_, that are to be excluded
-      e.g. included_top_dirs = ['Project1', 'Project3']; excluded_top_dirs = ['Project1/Vision/Pictures']
+      ❌ deprecated: use _**excluded_files**_ instead, if on Python 3.13 or higher, e.g. `['top dir 3/**',]`
+      the files from the directories and their subdirs will be ignored, together with _**excluded_dirs_as_regex**_, _**excluded_files**_, _**excluded_files_as_regex**_, _**excluded_files_as_glob**_
+      see also _**included_top_dirs**_
     included_dirs_as_regex: list[str]
       used by: create, sweep
-      a list of regex patterns, applied after _**..._top_dirs**_
-      if present, only matching directories will be included, together with _**included_files**_, _**included_top_dirs**_
-      `/` must be used as the path separator, also on MS Windows
-      the patterns are matched (using re.search) against a path relative to _**source_dir**_ (or _**backup_base_dir_for_profile**_ in case of sweep)
-      the first segment in the relative path (to match against) also starts with a slash
-      e.g. `['/B$',]` will match any basename equal to `B`, at any level
-      regex-pattern matching is case-sensitive – use `(?i)` at each pattern's beginning for case-insensitive matching
+      a list of regex patterns (each to be passed to re.compile)
+      if present, only the file from the matching directories will be considered, together with _**included_top_dirs**_, _**included_files**_, _**included_files_as_regex**_, _**included_files_as_glob**_
+      `/` must be used as the path separator, also on Windows
+      the patterns are matched (using re.search) against a path relative to _**source_dir**_ (or _**backup_base_dir_for_profile**_ in case of _**sweep**_)
+      the first segment in the relative path to match against also starts with a slash
+      e.g. `['/B$',]` will match each directory named `B`, at any level; `['^/B$',]` will match only `{source_dir}/B` (or `{backup_base_dir_for_profile}/B` in case of _**sweep**_)
+      regex-pattern matching is case-sensitive – use `(?i)` at each pattern's beginning for case-insensitive matching, e.g. `['(?i)/b$',]`
       see also https://docs.python.org/3/library/re.html
     excluded_dirs_as_regex: list[str]
       used by: create, sweep
-      like _**included_dirs_as_regex**_, but for exclusion
+      the files from the matching directories will be ignored, together with _**excluded_top_dirs**_, _**excluded_files**_, _**excluded_files_as_regex**_, _**excluded_files_as_glob**_
+      see also _**included_dirs_as_regex**_
     included_files_as_glob: list[str]
       used by: create, sweep
-      ❌ deprecated: use _**included_files**_ instead, if on Python >= 3.13
+      ❌ deprecated: use _**included_files**_ instead, if on Python 3.13 or higher
       a list of glob patterns, also known as shell-style wildcards, i.e. `* ? [seq] [!seq]`
-      if present, only matching files will be considered, together with _**included_files**_, _**included_files_as_regex**_, _**included_top_dirs**_, _**included_dirs_as_regex**_
-      the paths/globs can be partial, relative to _**source_dir**_ or absolute, but always under _**source_dir**_ (or _**backup_base_dir_for_profile**_ in case of sweep)
-      e.g. `['My Music\*.m3u']`
-      on MS Windows, global-pattern matching is case-insensitive
-      ⚠️ caution: a leading path separator in a path/glob indicates a root directory, e.g. `['\My Music\*']`
-      means `C:\My Music\*` or `D:\My Music\*`; use `['*\My Music\*']` to match `C:\Users\Mac\Documents\My Music\*`
+      if present, only the matching files will be considered, together with _**included_files**_, _**included_files_as_regex**_, _**included_top_dirs**_, _**included_dirs_as_regex**_
+      the paths/globs can be partial, relative to _**source_dir**_ or absolute, but always under _**source_dir**_ (or _**backup_base_dir_for_profile**_ in case of _**sweep**_)
+      unlike with glob patterns used in _**included_files**_, here matching is done from the right if the pattern is relative, e.g. `['B\b1.txt',]` will match `C:\A\B\b1.txt` and `C:\B\b1.txt`
+      ⚠️ caution: a leading path separator indicates an absolute path, but on Windows you also need a drive letter, e.g. `['\A\a1.txt']` will never match; use `['C:\A\a1.txt']` instead
+      on Windows, global-pattern matching is case-insensitive, and both `\` and `/` can be used
       see also https://docs.python.org/3/library/fnmatch.html and https://en.wikipedia.org/wiki/Glob_(programming)
     excluded_files_as_glob: list[str]
       used by: create, sweep
-      ❌ deprecated: use _**excluded_files**_ instead, if on Python >= 3.13
-      like _**included_files_as_glob**_, but for exclusion
+      ❌ deprecated: use _**excluded_files**_ instead, if on Python 3.13 or higher
+      the matching files will be ignored, together with _**excluded_files**_, _**excluded_files_as_regex**_, _**excluded_top_dirs**_, _**excluded_dirs_as_regex**_
+      see also _**included_files_as_glob**_
     included_files_as_regex: list[str]
       used by: create, sweep
-      like _**included_dirs_as_regex**_, but for files
+      if present, only the matching files will be considered, together with _**included_files**_, _**included_files_as_glob**_, _**included_top_dirs**_, _**included_dirs_as_regex**_
+      see also _**included_dirs_as_regex**_
     excluded_files_as_regex: list[str]
       used by: create, sweep
-      like _**included_files_as_regex**_, but for exclusion
+      the matching files will be ignored, together with _**excluded_files**_, _**excluded_files_as_glob**_, _**excluded_top_dirs**_, _**excluded_dirs_as_regex**_
+      see also _**included_dirs_as_regex**_
     checksum_comparison_if_same_size: bool = False
       used by: create
       when False, a file is considered changed if its mtime is later than the latest backup's mtime and its size changed
       when True, BLAKE2b checksum is calculated to determine if the file changed despite having the same size
-      _mtime := time of last modification_
+      _mtime := last modification time_
       see also https://en.wikipedia.org/wiki/File_verification
     file_deduplication: bool = False
       used by: create
@@ -431,7 +434,7 @@ class Settings:
     NO_COMPRESSION_SUFFIXES_DEFAULT: ClassVar[str] = (
         '7z,zip,zipx,jar,rar,tgz,gz,tbz,bz2,xz,zst,zstd,'
         'xlsx,docx,pptx,ods,odt,odp,odg,odb,epub,mobi,cbz,'
-        'png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,kdbx'
+        'png,jpg,gif,mp4,mov,avi,mp3,m4a,aac,ogg,ogv,opus,kdbx'
     )
     no_compression_suffixes: str = ''
     tar_format: Literal[0, 1, 2] = tarfile.GNU_FORMAT
