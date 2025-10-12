@@ -157,10 +157,10 @@ level = "DEBUG_14"
 
 rumar_logging_toml_path = get_default_path(suffix='.logging.toml')
 if rumar_logging_toml_path.exists():
-    # print(f":: loading logging config from {rumar_logging_toml_path}")
+    # print(f":: load logging config from {rumar_logging_toml_path}")
     dict_config = tomllib.load(rumar_logging_toml_path.open('rb'))
 else:
-    # print(':: loading default logging config')
+    # print(':: load default logging config')
     dict_config = tomllib.loads(LOGGING_TOML_DEFAULT)
 logging.config.dictConfig(dict_config)
 logger = logging.getLogger('rumar')
@@ -703,13 +703,13 @@ def absolutopathlify(dct: dict[Path | str, None], base_path: Path) -> dict[Path,
 
 def can_exclude_dir(path: Path, s: Settings, _relative_psx: str, base_path: Path) -> bool:
     if abs_fglob_path := find_matching_abs_fglob_path(path, s.excluded_files):
-        logger.log(DEBUG_14, f"|D ...{_relative_psx}  -- skipping (matches full glob '{abs_fglob_path.relative_to(base_path)}')")
+        logger.log(DEBUG_14, f"|D ...{_relative_psx}  -- skip (matches full glob '{abs_fglob_path.relative_to(base_path)}')")
         return True
     if abs_top_dir := find_matching_abs_top_path(path, s.excluded_top_dirs):
-        logger.log(DEBUG_14, f"|D ...{_relative_psx}  -- skipping (matches top dir '{abs_top_dir.relative_to(base_path)}')")
+        logger.log(DEBUG_14, f"|D ...{_relative_psx}  -- skip (matches top dir '{abs_top_dir.relative_to(base_path)}')")
         return True
     if rx_str := find_matching_pattern(_relative_psx, s.excluded_dirs_as_regex):
-        logger.log(DEBUG_14, f"|d ...{_relative_psx}  -- skipping (matches regex '{rx_str}')")
+        logger.log(DEBUG_14, f"|d ...{_relative_psx}  -- skip (matches regex '{rx_str}')")
         return True
     return False
 
@@ -742,7 +742,7 @@ def can_include_dir(path: Path, s: Settings, _relative_psx: str, base_path: Path
     if rx_str := find_matching_pattern(_relative_psx, s.included_dirs_as_regex):
         logger.log(DEBUG_13, f"=d ...{_relative_psx}  -- matches regex '{rx_str}'")
         return True
-    logger.log(DEBUG_14, f"|D ...{_relative_psx}  -- skipping (no match in included_files, _dirs_as_regex, _top_dirs)")
+    logger.log(DEBUG_14, f"|D ...{_relative_psx}  -- skip (no match in included_files, _dirs_as_regex, _top_dirs)")
     return False
 
 
@@ -758,13 +758,13 @@ def is_full_match_by_equivalent_segments(path: PurePath, abs_fglob_path: PurePat
 
 def can_exclude_file(path: Path, s: Settings, _relative_psx: str, base_path: Path) -> bool:
     if abs_fglob_path := find_matching_abs_fglob_path(path, s.excluded_files):
-        logger.log(DEBUG_14, f"|F ...{_relative_psx}  -- skipping (matches full glob '{abs_fglob_path.relative_to(base_path)}')")
+        logger.log(DEBUG_14, f"|F ...{_relative_psx}  -- skip (matches full glob '{abs_fglob_path.relative_to(base_path)}')")
         return True
     if glob_str := find_matching_glob(path, s.excluded_files_as_glob):
-        logger.log(DEBUG_14, f"|F ...{_relative_psx}  -- skipping (matches glob '{glob_str}')")
+        logger.log(DEBUG_14, f"|F ...{_relative_psx}  -- skip (matches glob '{glob_str}')")
         return True
     if rx_str := find_matching_pattern(_relative_psx, s.excluded_files_as_regex):
-        logger.log(DEBUG_14, f"|f ...{_relative_psx}  -- skipping (matches regex '{rx_str}')")
+        logger.log(DEBUG_14, f"|f ...{_relative_psx}  -- skip (matches regex '{rx_str}')")
         return True
     return False
 
@@ -790,7 +790,7 @@ def can_include_file(path: Path, s: Settings, _relative_psx: str, base_path: Pat
     if abs_top_dir := find_matching_abs_top_path(path, s.included_top_dirs):
         logger.log(DEBUG_13, f"=F ...{_relative_psx}  -- matches top dir '{abs_top_dir.relative_to(base_path)}'")
         return True
-    logger.log(DEBUG_14, f"|F ...{_relative_psx}  -- skipping (no match in included_files, _as_regex, _as_glob, _top_dirs)")
+    logger.log(DEBUG_14, f"|F ...{_relative_psx}  -- skip (no match in included_files, _as_regex, _as_glob, _top_dirs)")
     return False
 
 
@@ -1183,7 +1183,7 @@ class Rumar:
             is_archive_created_lst[0] = False
             archive_path.unlink(missing_ok=True)
             if attempt == attempt_limit:
-                message = f"File changed during the archival process {archive_path} - tried {attempt_limit} times - skipping"
+                message = f"File changed during the archival process {archive_path} - tried {attempt_limit} times - skip"
                 self._errors.append(message)
                 logging.error(message)
                 return True
@@ -1227,10 +1227,10 @@ class Rumar:
             logger.debug(f"{s.commands_using_filters=} => iter_all_files")
         for file_rath in iterator:
             if self.should_ignore_for_archive(file_rath.lstat()):
-                logger.info(f"-| {file_rath}  -- ignoring file for archiving: socket/door")
+                logger.info(f"-| {file_rath}  -- skip: socket/door")
                 continue
             if s.file_deduplication and (duplicate := self.find_duplicate(file_rath)):
-                logger.info(f"{derive_relative_psx(file_rath, source_dir)!r} -- skipping: duplicate of {derive_relative_psx(duplicate, source_dir)!r}")
+                logger.info(f"{derive_relative_psx(file_rath, source_dir)!r} -- skip: duplicate of {derive_relative_psx(duplicate, source_dir)!r}")
                 continue
             matching_files.append(file_rath)
         return sorted_files_by_stem_then_suffix_ignoring_case(matching_files)
@@ -1385,7 +1385,7 @@ class Rumar:
         for archive_path in self._rdb.iter_non_deleted_archive_paths():
             if top_archive_dir is None or archive_path.is_relative_to(top_archive_dir):
                 if not archive_path.exists():
-                    logger.info(f"{archive_path} no longer exist - marking as deleted")
+                    logger.info(f"{archive_path} no longer exist - mark as deleted")
                     self._rdb.mark_backup_as_deleted(archive_path)
 
     def extract_latest_file_on_disk(self, backup_base_dir_for_profile, archive_dir: Path, directory: Path, overwrite: bool, meta_diff: bool,
@@ -1410,12 +1410,12 @@ class Rumar:
         if target_file_exists:
             if meta_diff and self.derive_mtime_size(archive_file) == (self.calc_mtime_str(st_stat), st_stat.st_size):
                 should_extract = False
-                logger.info(f"skipping {derive_relative_psx(archive_file.parent, self.s.backup_base_dir_for_profile)} - mtime and size are the same as in the target file")
+                logger.info(f"skip {derive_relative_psx(archive_file.parent, self.s.backup_base_dir_for_profile)} - mtime and size are the same as in the target file")
             elif overwrite or self._ask_to_overwrite(target_file):
                 should_extract = True
             else:
                 should_extract = False
-                warning = f"skipping {target_file} - file exists"
+                warning = f"skip {target_file} - file exists"
                 self._warnings.append(warning)
                 logger.warning(warning)
         else:
@@ -1433,7 +1433,7 @@ class Rumar:
         try:
             f = archive_file.open('rb')
         except OSError as ex:
-            message = f"Cannot open {archive_file} - {ex} - marking as deleted"
+            message = f"Cannot open {archive_file} - {ex} - mark as deleted"
             self._errors.append(message)
             logger.error(message)
             self._rdb.mark_backup_as_deleted(archive_file)
@@ -1527,7 +1527,7 @@ class Rumar:
 
     def delete_marked_archive_files(self, is_dry_run):
         logger.log(METHOD_17, f"{is_dry_run=}")
-        rm_action_info = 'would be removed' if is_dry_run else '-- removing'
+        rm_action_info = 'would be removed' if is_dry_run else '-- remove'
         for dirname, basename, d, w, m, d_rm, w_rm, m_rm in self._bdb.iter_marked_for_removal():
             path = Path(dirname, basename)
             path_psx = path.as_posix()
