@@ -115,7 +115,7 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
   path to the directory which is to be archived
 * **included_files**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
   ⚠️ caution: uses **PurePath.full_match(...)**, which is available on Python 3.13 or higher\
-  a list of glob patterns, also known as shell-style wildcards, i.e. `** * ? [seq] [!seq]`; `**` means zero or more segments, `*` means a single segment or a part of a segment (as in `*.txt`)\
+  a list of glob patterns, also known as shell-style wildcards, i.e. `** * ? [seq] [!seq]`; `**` means zero or more segments, `*` means a single segment or a part of a segment (as in `My*`)\
   if present, only the matching files will be considered, together with _**included_files_as_regex**_, _**included_files_as_glob**_, _**included_top_dirs**_, _**included_dirs_as_regex**_\
   the paths/globs can be absolute or relative to _**source_dir**_ (or _**backup_base_dir_for_profile**_ in case of _**sweep**_), e.g. `C:\My Documents\*.txt`, `my-file-in-source-dir.log`\
   absolute paths start with a root (`/` or `{drive}:\`)\
