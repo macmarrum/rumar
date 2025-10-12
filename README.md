@@ -4,17 +4,16 @@
 
 Creates a directory named as the original file, containing a **tar**red copy of the file, optionally compressed.
 
-Files are added to the **tar** archive only if they were changed,\
+Files are added to the **tar** archive only if they were changed,
 _i.e. modification time is greater as compared to the last archive and size (or checksum) is different._
 
 The directory containing **tar** files is placed in a mirrored directory tree.
-
-![](images/original-and-backup-directories.png)
-
-\
 Each backup is a separate **tar** file.
 
-![](images/original-file-and-tar-containing-directory.png)
+![](images/explorer.png)
+
+
+![](images/terminal.png)
 
 ## How to use it
 
