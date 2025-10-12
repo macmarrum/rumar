@@ -27,13 +27,16 @@ def set_up_rumardb():
     yield d
     db.executescript('''
         DELETE FROM backup;
-        DELETE FROM backup_base_dir_for_profile;
         DELETE FROM source_lc;
         DELETE FROM source;
         DELETE FROM source_dir;
         DELETE FROM run;
         DELETE FROM profile;
     ''')
+    for _ in db.execute("SELECT 1 FROM pragma_table_info('backup_base_dir_for_profile')"):
+        db.execute('DELETE FROM backup_base_dir_for_profile')
+    for _ in db.execute("SELECT 1 FROM pragma_table_info('backup_dir')"):
+        db.execute('DELETE FROM backup_dir')
     db.commit()
     rumardb.close_db()
     rumardb._profile_to_id.clear()
@@ -233,3 +236,17 @@ def test_init_source_lc_if_empty(set_up_rumardb):
     #     print(f"{table}:")
     #     for row in cur.execute(f"SELECT * FROM {table}"):
     #         print(row)
+
+def test_rename_backup_base_dir_for_profile_if_required(set_up_rumardb):
+    rumardb = set_up_rumardb['rumardb']
+    db = set_up_rumardb['db']
+    cur = db.cursor()
+    ## restore the old backup_base_dir_for_profile
+    cur.execute('ALTER TABLE backup_dir RENAME TO backup_base_dir_for_profile')
+    db.commit()
+    assert cur.execute('SELECT 1 FROM pragma_table_info("backup_base_dir_for_profile")').fetchone() == (1,)
+    ## run the method under test
+    rumardb._rename_backup_base_dir_for_profile_if_required(db)
+    assert cur.execute('SELECT 1 FROM pragma_table_info("backup_base_dir_for_profile")').fetchone() is None
+    assert cur.execute('SELECT 1 FROM pragma_table_info("backup_dir")').fetchone() == (1,)
+    cur.execute('SELECT * FROM v_backup')  # make sure the view references the renamed table without errors

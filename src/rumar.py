@@ -192,11 +192,11 @@ def main(argv: Sequence[str] = None):
     add_profile_args_to_parser(parser_create, required=True)
     # extract
     parser_extract = subparsers.add_parser(Command.EXTRACT.value, aliases=['x'],
-                                           help='extract [to source_dir | --target-dir] the latest backup of each file [in backup_base_dir_for_profile | --archive-dir]')
+                                           help='extract [to source_dir | --target-dir] the latest backup of each file [in backup_dir | --archive-dir]')
     parser_extract.set_defaults(func=extract)
     add_profile_args_to_parser(parser_extract, required=True)
     parser_extract.add_argument('--top-archive-dir', type=Path,
-                                help='path to a top directory from which to extract the latest backups, recursively; all other backups in backup_base_dir_for_profile are ignored')
+                                help='path to a top directory from which to extract the latest backups, recursively; all other backups in backup_dir are ignored')
     parser_extract.add_argument('--directory', '-C', type=mk_abs_path,
                                 help="path to the base directory used for extraction; profile's source_dir by default")
     parser_extract.add_argument('--overwrite', action=store_true,
@@ -287,10 +287,10 @@ class Settings:
     backup_base_dir: str
       used by: create, sweep
       path to the base directory used for backup; usually set in the global space, common for all profiles
-      backup dir for each profile is constructed as _**backup_base_dir**_ + _**profile**_, unless _**backup_base_dir_for_profile**_ is set, which takes precedence
-    backup_base_dir_for_profile: str
+      backup dir for each profile is constructed as _**backup_base_dir**_ + _**profile**_, unless _**backup_dir**_ is set, which takes precedence
+    backup_dir: str
       used by: create, extract, sweep
-      path to the base dir used for the profile; usually left unset; see _**backup_base_dir**_
+      path to the backup dir used for the profile; usually left unset; see _**backup_base_dir**_
     archive_format: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz', 'tar.zst'] = 'tar.gz'
       used by: create, sweep
       format of archive files to be created
@@ -316,7 +316,7 @@ class Settings:
       ⚠️ caution: uses **PurePath.full_match(...)**, which is available on Python 3.13 or higher
       a list of glob patterns, also known as shell-style wildcards, i.e. `** * ? [seq] [!seq]`; `**` means zero or more segments, `*` means a single segment or a part of a segment (as in `My*`)
       if present, only the matching files will be considered, together with _**included_files_as_regex**_, _**included_files_as_glob**_, _**included_top_dirs**_, _**included_dirs_as_regex**_
-      the paths/globs can be absolute or relative to _**source_dir**_ (or _**backup_base_dir_for_profile**_ in case of _**sweep**_), e.g. `C:\My Documents\*.txt`, `my-file-in-source-dir.log`
+      the paths/globs can be absolute or relative to _**source_dir**_ (or _**backup_dir**_ in case of _**sweep**_), e.g. `C:\My Documents\*.txt`, `my-file-in-source-dir.log`
       absolute paths start with a root (`/` or `{drive}:\`)
       on Windows, global-pattern matching is case-insensitive, and both `\` and `/` can be used
       see also https://docs.python.org/3.13/library/pathlib.html#pathlib-pattern-language
@@ -330,7 +330,7 @@ class Settings:
       ❌ deprecated: use _**included_files**_ instead, if on Python 3.13 or higher, e.g. `['top dir 1/**',]`
       a list of top-directory paths
       if present, only the files from the directories and their descendant subdirs will be considered, together with _**included_dirs_as_regex**_, _**included_files**_, _**included_files_as_regex**_, _**included_files_as_glob**_,
-      the paths can be relative to _**source_dir**_ or absolute, but always under _**source_dir**_ (or _**backup_base_dir_for_profile**_ in case of _**sweep**_)
+      the paths can be relative to _**source_dir**_ or absolute, but always under _**source_dir**_ (or _**backup_dir**_ in case of _**sweep**_)
       absolute paths start with a root (`/` or `{drive}:\`)
     excluded_top_dirs: list[str]
       used by: create, sweep
@@ -342,9 +342,9 @@ class Settings:
       a list of regex patterns (each to be passed to re.compile)
       if present, only the file from the matching directories will be considered, together with _**included_top_dirs**_, _**included_files**_, _**included_files_as_regex**_, _**included_files_as_glob**_
       `/` must be used as the path separator, also on Windows
-      the patterns are matched (using re.search) against a path relative to _**source_dir**_ (or _**backup_base_dir_for_profile**_ in case of _**sweep**_)
+      the patterns are matched (using re.search) against a path relative to _**source_dir**_ (or _**backup_dir**_ in case of _**sweep**_)
       the first segment in the relative path to match against also starts with a slash
-      e.g. `['/B$',]` will match each directory named `B`, at any level; `['^/B$',]` will match only `{source_dir}/B` (or `{backup_base_dir_for_profile}/B` in case of _**sweep**_)
+      e.g. `['/B$',]` will match each directory named `B`, at any level; `['^/B$',]` will match only `{source_dir}/B` (or `{backup_dir}/B` in case of _**sweep**_)
       regex-pattern matching is case-sensitive – use `(?i)` at each pattern's beginning for case-insensitive matching, e.g. `['(?i)/b$',]`
       see also https://docs.python.org/3/library/re.html
     excluded_dirs_as_regex: list[str]
@@ -356,7 +356,7 @@ class Settings:
       ❌ deprecated: use _**included_files**_ instead, if on Python 3.13 or higher
       a list of glob patterns, also known as shell-style wildcards, i.e. `* ? [seq] [!seq]`
       if present, only the matching files will be considered, together with _**included_files**_, _**included_files_as_regex**_, _**included_top_dirs**_, _**included_dirs_as_regex**_
-      the paths/globs can be partial, relative to _**source_dir**_ or absolute, but always under _**source_dir**_ (or _**backup_base_dir_for_profile**_ in case of _**sweep**_)
+      the paths/globs can be partial, relative to _**source_dir**_ or absolute, but always under _**source_dir**_ (or _**backup_dir**_ in case of _**sweep**_)
       unlike with glob patterns used in _**included_files**_, here matching is done from the right if the pattern is relative, e.g. `['B\b1.txt',]` will match `C:\A\B\b1.txt` and `C:\B\b1.txt`
       ⚠️ caution: a leading path separator indicates an absolute path, but on Windows you also need a drive letter, e.g. `['\A\a1.txt']` will never match; use `['C:\A\a1.txt']` instead
       on Windows, global-pattern matching is case-insensitive, and both `\` and `/` can be used
@@ -416,7 +416,7 @@ class Settings:
     profile: str
     backup_base_dir: Path | str
     source_dir: Path | str
-    backup_base_dir_for_profile: Path | str | None = None
+    backup_dir: Path | str | None = None
     included_files: dict[Path | str, None] = field(default_factory=dict)
     excluded_files: dict[Path | str, None] = field(default_factory=dict)
     included_top_dirs: dict[Path | str, None] = field(default_factory=dict)
@@ -456,10 +456,10 @@ class Settings:
     def __post_init__(self):
         self._pathlify('source_dir')
         self._pathlify('backup_base_dir')
-        if self.backup_base_dir_for_profile:
-            self._pathlify('backup_base_dir_for_profile')
+        if self.backup_dir:
+            self._pathlify('backup_dir')
         else:
-            self.backup_base_dir_for_profile = self.backup_base_dir / self.profile
+            self.backup_dir = self.backup_base_dir / self.profile
         self._dictify('included_files')
         self._dictify('excluded_files')
         self._dictify('included_top_dirs')
@@ -517,7 +517,7 @@ class Settings:
     def __str__(self):
         return ("{"
                 f"profile: {self.profile!r}, "
-                f"backup_base_dir_for_profile: {self.backup_base_dir_for_profile.__str__()!r}, "
+                f"backup_dir: {self.backup_dir.__str__()!r}, "
                 f"source_dir: {self.source_dir.__str__()!r}"
                 "}")
 
@@ -640,7 +640,7 @@ class Rath(Path):
 def iter_all_files(top_rath: Rath) -> Generator[Rath, None, None]:
     """
     Note: symlinks to directories are considered files
-    :param top_rath: usually `s.source_dir` or `s.backup_base_dir_for_profile`
+    :param top_rath: usually `s.source_dir` or `s.backup_dir`
     """
     dir_raths = []
     for rath in sorted(top_rath.iterdir()):
@@ -658,7 +658,7 @@ def iter_matching_files(top_rath: Rath, s: Settings, *, base_rath: Rath = None) 
     Note: symlinks to directories are considered files
     :param top_rath: Path to iterate - will change at each recursive level
     :param s: Settings
-    :param base_rath: initial top_rath for recursion - `s.source_dir` for create, `s.backup_base_dir_for_profile` for sweep
+    :param base_rath: initial top_rath for recursion - `s.source_dir` for create, `s.backup_dir` for sweep
     :raises OSError: if a directory cannot be accessed
     """
     if base_rath is None:
@@ -1196,7 +1196,7 @@ class Rumar:
             raise AttributeError('** either relative_p or path must be provided')
         if not relative_p:
             relative_p = derive_relative_psx(path, self.s.source_dir)
-        return self.s.backup_base_dir_for_profile / relative_p
+        return self.s.backup_dir / relative_p
 
     def calc_archive_format_and_compresslevel_kwargs(self, rath: Rath) -> tuple[RumarFormat, dict]:
         if (
@@ -1290,10 +1290,10 @@ class Rumar:
             return
         # iter files in top_dir for the run and extract each one
         for bak_path, src_path in self._rdb.iter_bak_src_paths(run_datetime_iso, relative_top_dir):
-            backup_path = self.s.backup_base_dir_for_profile / bak_path
+            backup_path = self.s.backup_dir / bak_path
             original_source_path = self.s.source_dir / src_path
             if directory:  # different target dir requested
-                relative_target_file = derive_relative_psx(original_source_path, self.s.backup_base_dir_for_profile)  # includes validation
+                relative_target_file = derive_relative_psx(original_source_path, self.s.backup_dir)  # includes validation
                 target_path = directory / relative_target_file
             else:
                 target_path = original_source_path
@@ -1311,34 +1311,34 @@ class Rumar:
             msgs.append(f"SKIP {profile!r} - cannot access target directory - {ex}")
         if top_archive_dir:
             if not top_archive_dir.is_absolute():
-                top_archive_dir = self.s.backup_base_dir_for_profile / top_archive_dir
+                top_archive_dir = self.s.backup_dir / top_archive_dir
             if ex := try_to_iterate_dir(top_archive_dir):
                 msgs.append(f"SKIP {profile!r} - archive-dir doesn't exist - {ex}")
-            elif not top_archive_dir.as_posix().startswith(self.s.backup_base_dir_for_profile.as_posix()):
-                msgs.append(f"SKIP {profile!r} - archive-dir is not under backup_base_dir_for_profile: "
-                            f"top_archive_dir={str(top_archive_dir)!r} backup_base_dir_for_profile={str(self.s.backup_base_dir_for_profile)!r}")
+            elif not top_archive_dir.as_posix().startswith(self.s.backup_dir.as_posix()):
+                msgs.append(f"SKIP {profile!r} - archive-dir is not under backup_dir: "
+                            f"top_archive_dir={str(top_archive_dir)!r} backup_dir={str(self.s.backup_dir)!r}")
         logger.info(f"{profile=} top_archive_dir={str(top_archive_dir) if top_archive_dir else None!r} directory={str(directory)!r} {overwrite=} {meta_diff=}")
         if msgs:
             logger.warning('; '.join(msgs))
             return
-        if not self._confirm_extraction_into_directory(directory, top_archive_dir, self.s.backup_base_dir_for_profile):
+        if not self._confirm_extraction_into_directory(directory, top_archive_dir, self.s.backup_dir):
             return
         if top_archive_dir:
             should_attempt_recursive = False
             for dirpath, dirnames, filenames in os.walk(top_archive_dir):
                 if archive_file := find_on_disk_last_file_in_directory(top_archive_dir, filenames, RX_ARCHIVE_SUFFIX, nonzero=True):
-                    self.extract_latest_file_on_disk(self.s.backup_base_dir_for_profile, top_archive_dir, directory, overwrite, meta_diff, filenames, archive_file)
+                    self.extract_latest_file_on_disk(self.s.backup_dir, top_archive_dir, directory, overwrite, meta_diff, filenames, archive_file)
                 else:
                     should_attempt_recursive = True
                 break
             if should_attempt_recursive:
                 for dirpath, dirnames, filenames in os.walk(top_archive_dir):
-                    self.extract_latest_file_on_disk(self.s.backup_base_dir_for_profile, Path(dirpath), directory, overwrite, meta_diff, filenames)
+                    self.extract_latest_file_on_disk(self.s.backup_dir, Path(dirpath), directory, overwrite, meta_diff, filenames)
         else:
-            for basedir, dirnames, filenames in os.walk(self.s.backup_base_dir_for_profile):
+            for basedir, dirnames, filenames in os.walk(self.s.backup_dir):
                 if filenames:
                     top_archive_dir = Path(basedir)  # the original file, in the mirrored directory tree
-                    self.extract_latest_file_on_disk(self.s.backup_base_dir_for_profile, top_archive_dir, directory, overwrite, meta_diff, filenames)
+                    self.extract_latest_file_on_disk(self.s.backup_dir, top_archive_dir, directory, overwrite, meta_diff, filenames)
         self._finalize_profile_changes()
 
     def extract_for_profile(self, profile: str, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
@@ -1351,17 +1351,17 @@ class Rumar:
             msgs.append(f"SKIP {profile!r} - cannot access target directory - {ex}")
         if top_archive_dir:
             if not top_archive_dir.is_absolute():
-                top_archive_dir = self.s.backup_base_dir_for_profile / top_archive_dir
+                top_archive_dir = self.s.backup_dir / top_archive_dir
             if ex := try_to_iterate_dir(top_archive_dir):
                 msgs.append(f"SKIP {profile!r} - archive-dir doesn't exist - {ex}")
-            elif not top_archive_dir.relative_to(self.s.backup_base_dir_for_profile):
-                msgs.append(f"SKIP {profile!r} - archive-dir is not under backup_base_dir_for_profile: "
-                            f"top_archive_dir={str(top_archive_dir)!r} backup_base_dir_for_profile={str(self.s.backup_base_dir_for_profile)!r}")
+            elif not top_archive_dir.relative_to(self.s.backup_dir):
+                msgs.append(f"SKIP {profile!r} - archive-dir is not under backup_dir: "
+                            f"top_archive_dir={str(top_archive_dir)!r} backup_dir={str(self.s.backup_dir)!r}")
         logger.info(f"{profile=} top_archive_dir={str(top_archive_dir) if top_archive_dir else None!r} directory={str(_directory)!r} {overwrite=} {meta_diff=}")
         if msgs:
             logger.warning('; '.join(msgs))
             return
-        if not self._confirm_extraction_into_directory(_directory, top_archive_dir, self.s.backup_base_dir_for_profile):
+        if not self._confirm_extraction_into_directory(_directory, top_archive_dir, self.s.backup_dir):
             return
         self.reconcile_backup_files_with_disk(top_archive_dir)
         for archive_file, target_file in self._rdb.iter_latest_archives_and_targets(top_archive_dir, directory):
@@ -1369,9 +1369,9 @@ class Rumar:
         self._finalize_profile_changes()
 
     @staticmethod
-    def _confirm_extraction_into_directory(directory: Path, top_archive_dir: Path, backup_base_dir_for_profile: Path):
+    def _confirm_extraction_into_directory(directory: Path, top_archive_dir: Path, backup_dir: Path):
         if top_archive_dir:
-            relative_top_archive_dir = derive_relative_psx(top_archive_dir, backup_base_dir_for_profile)
+            relative_top_archive_dir = derive_relative_psx(top_archive_dir, backup_dir)
             target_dir = directory / relative_top_archive_dir
             target = str(target_dir)
         else:
@@ -1388,12 +1388,12 @@ class Rumar:
                     logger.info(f"{archive_path} no longer exist - mark as deleted")
                     self._rdb.mark_backup_as_deleted(archive_path)
 
-    def extract_latest_file_on_disk(self, backup_base_dir_for_profile, archive_dir: Path, directory: Path, overwrite: bool, meta_diff: bool,
+    def extract_latest_file_on_disk(self, backup_dir, archive_dir: Path, directory: Path, overwrite: bool, meta_diff: bool,
                                     filenames: list[str] | None = None, archive_file: Path | None = None):
         if archive_file is None:
             archive_file = find_on_disk_last_file_in_directory(archive_dir, filenames, RX_ARCHIVE_SUFFIX)
         if archive_file:
-            relative_file_parent = derive_relative_psx(archive_dir.parent, backup_base_dir_for_profile)
+            relative_file_parent = derive_relative_psx(archive_dir.parent, backup_dir)
             target_file = directory / relative_file_parent / archive_dir.name
             self.extract_archive(archive_file, target_file, overwrite, meta_diff)
         else:
@@ -1410,7 +1410,7 @@ class Rumar:
         if target_file_exists:
             if meta_diff and self.derive_mtime_size(archive_file) == (self.calc_mtime_str(st_stat), st_stat.st_size):
                 should_extract = False
-                logger.info(f"skip {derive_relative_psx(archive_file.parent, self.s.backup_base_dir_for_profile)} - mtime and size are the same as in the target file")
+                logger.info(f"skip {derive_relative_psx(archive_file.parent, self.s.backup_dir)} - mtime and size are the same as in the target file")
             elif overwrite or self._ask_to_overwrite(target_file):
                 should_extract = True
             else:
@@ -1495,7 +1495,7 @@ class Rumar:
         logger.info(profile)
         self._init_for_profile(profile)
         s = self._profile_to_settings[profile]
-        if ex := try_to_iterate_dir(s.backup_base_dir_for_profile):
+        if ex := try_to_iterate_dir(s.backup_dir):
             logger.warning(f"SKIP {profile} - {ex}")
             return
         self.scan_disk_and_mark_archive_files_for_deletion(s)
@@ -1507,10 +1507,10 @@ class Rumar:
         date_older_than_x_days = date.today() - timedelta(days=s.min_age_in_days_of_backups_to_sweep)
         # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
         if Command.SWEEP in s.commands_using_filters:
-            iterator = iter_matching_files(Rath(s.backup_base_dir_for_profile, lstat_cache=self.lstat_cache), s)
+            iterator = iter_matching_files(Rath(s.backup_dir, lstat_cache=self.lstat_cache), s)
             logger.debug(f"{s.commands_using_filters=} => iter_matching_files")
         else:
-            iterator = iter_all_files(Rath(s.backup_base_dir_for_profile, lstat_cache=self.lstat_cache))
+            iterator = iter_all_files(Rath(s.backup_dir, lstat_cache=self.lstat_cache))
             logger.debug(f"{s.commands_using_filters=} => iter_all_files")
         old_enough_file_to_mdate = {}
         for rath in iterator:
@@ -1631,8 +1631,8 @@ class RumarDB:
                 run_datetime_iso TEXT UNIQUE NOT NULL,
                 profile_id INTEGER NOT NULL REFERENCES profile (id)
             ) STRICT;'''),
-            'backup_base_dir_for_profile': dedent('''\
-            CREATE TABLE IF NOT EXISTS backup_base_dir_for_profile (
+            'backup_dir': dedent('''\
+            CREATE TABLE IF NOT EXISTS backup_dir (
                 id INTEGER PRIMARY KEY,
                 bak_dir TEXT UNIQUE NOT NULL
             ) STRICT;'''),
@@ -1641,7 +1641,7 @@ class RumarDB:
                 id INTEGER PRIMARY KEY,
                 run_id INTEGER NOT NULL REFERENCES run (id),
                 reason TEXT NOT NULL,
-                bak_dir_id INTEGER NOT NULL REFERENCES backup_base_dir_for_profile (id),
+                bak_dir_id INTEGER NOT NULL REFERENCES backup_dir (id),
                 src_id INTEGER NOT NULL REFERENCES source (id),
                 bak_name TEXT,
                 blake2b BLOB,
@@ -1662,7 +1662,7 @@ class RumarDB:
             CREATE VIEW IF NOT EXISTS v_backup AS
             SELECT b.id, run_id, run_datetime_iso, profile, reason, bak_dir, src_path, bak_name, nullif(lower(hex(blake2b)), '') blake2b, del_run_id
             FROM backup b
-            JOIN backup_base_dir_for_profile bd ON bak_dir_id = bd.id
+            JOIN backup_dir bd ON bak_dir_id = bd.id
             JOIN "source" ON src_id = "source".id
             JOIN run ON run_id = run.id
             JOIN profile ON run.profile_id = profile.id;'''),
@@ -1690,6 +1690,7 @@ class RumarDB:
         self._migrate_backup_to_bak_name_if_required(db)
         self._migrate_to_blob_blake2b_if_required(db)
         self._alter_backup_add_del_run_id_if_required(db)
+        self._rename_backup_base_dir_for_profile_if_required(db)
         self._create_tables_and_indexes_if_not_exist(db)
         self._recreate_views(db)
         if not self._profile_to_id:
@@ -1812,6 +1813,13 @@ class RumarDB:
                 db.commit()
         cur.close()
 
+    @classmethod
+    def _rename_backup_base_dir_for_profile_if_required(cls, db):
+        cur = db.cursor()
+        for _ in cur.execute("SELECT 1 FROM pragma_table_list('backup_base_dir_for_profile')"):
+            db.execute('ALTER TABLE backup_base_dir_for_profile RENAME TO backup_dir')
+            db.commit()
+
     def _init_source_lc_if_empty(self):
         cur = self._cur
         if cur.execute('SELECT (SELECT count(*) FROM source_lc) = 0 AND (SELECT count(*) FROM source) > 0').fetchone()[0] == 1:
@@ -1827,7 +1835,7 @@ class RumarDB:
             self._src_dir_to_id[src_dir] = id_
         for src_dir_id, src_path, id_ in execute(self._cur, 'SELECT src_dir_id, src_path, id FROM source'):
             self._source_to_id[(src_dir_id, src_path)] = id_
-        for bak_dir, id_ in execute(self._cur, 'SELECT bak_dir, id FROM backup_base_dir_for_profile'):
+        for bak_dir, id_ in execute(self._cur, 'SELECT bak_dir, id FROM backup_dir'):
             self._bak_dir_to_id[bak_dir] = id_
         for bak_dir_id, src_id, bak_name, blake2b_checksum in execute(self._cur, 'SELECT bak_dir_id, src_id, bak_name, blake2b FROM backup'):
             self._backup_to_checksum[(bak_dir_id, src_id, bak_name)] = blake2b_checksum
@@ -1878,10 +1886,10 @@ class RumarDB:
     @property
     def bak_dir_id(self):
         if self._bak_dir_id is None:
-            bak_dir = self.s.backup_base_dir_for_profile.as_posix()
+            bak_dir = self.s.backup_dir.as_posix()
             if not (bak_dir_id := self._bak_dir_to_id.get(bak_dir)):
-                execute(self._cur, 'INSERT INTO backup_base_dir_for_profile (bak_dir) VALUES (?)', (bak_dir,))
-                bak_dir_id = execute(self._cur, 'SELECT max(id) FROM backup_base_dir_for_profile').fetchone()[0]
+                execute(self._cur, 'INSERT INTO backup_dir (bak_dir) VALUES (?)', (bak_dir,))
+                bak_dir_id = execute(self._cur, 'SELECT max(id) FROM backup_dir').fetchone()[0]
                 self._bak_dir_to_id[bak_dir] = bak_dir_id
             self._bak_dir_id = bak_dir_id
         return self._bak_dir_id
@@ -1898,10 +1906,10 @@ class RumarDB:
         return src_id
 
     def _save_initial_state(self):
-        """Walks `backup_base_dir_for_profile` and saves latest archive of each source, whether the source file currently exists or not"""
-        for basedir, dirnames, filenames in os.walk(self.s.backup_base_dir_for_profile):
+        """Walks `backup_dir` and saves latest archive of each source, whether the source file currently exists or not"""
+        for basedir, dirnames, filenames in os.walk(self.s.backup_dir):
             if latest_archive := find_on_disk_last_file_in_directory(basedir, filenames, RX_ARCHIVE_NAME):
-                relative_archive_dir = derive_relative_psx(latest_archive.parent, self.s.backup_base_dir_for_profile)
+                relative_archive_dir = derive_relative_psx(latest_archive.parent, self.s.backup_dir)
                 file_path = self.s.source_dir / relative_archive_dir
                 relative_p = derive_relative_psx(file_path, self.s.source_dir)
                 checksum_file = Rumar.compose_checksum_file_path(latest_archive)
@@ -1987,7 +1995,7 @@ class RumarDB:
             SELECT bak_dir, bak_name
             FROM backup b 
             JOIN run r ON r.id = b.run_id AND r.profile_id = ? 
-            JOIN backup_base_dir_for_profile bd ON b.bak_dir_id = bd.id 
+            JOIN backup_dir bd ON b.bak_dir_id = bd.id 
             JOIN "source" s ON b.src_id = s.id AND s.src_path = ?
             JOIN source_dir sd ON s.src_dir_id = sd.id AND sd.src_dir = ?
             ORDER BY b.id DESC
@@ -2004,17 +2012,17 @@ class RumarDB:
 
     def get_blake2b_checksum(self, archive_path: Path) -> bytes | None:
         if bak_dir_id := self.bak_dir_id:
-            src_path = derive_relative_psx(archive_path.parent, self.s.backup_base_dir_for_profile)
+            src_path = derive_relative_psx(archive_path.parent, self.s.backup_dir)
             src_id = self._source_to_id[(self.src_dir_id, src_path)]
             bak_name = archive_path.name
             return self._backup_to_checksum.get((bak_dir_id, src_id, bak_name))
         return None
 
     def set_blake2b_checksum(self, archive_path: Path, blake2b_checksum: bytes):
-        bak_dir = self.s.backup_base_dir_for_profile.as_posix()
+        bak_dir = self.s.backup_dir.as_posix()
         bak_dir_id = self.bak_dir_id
         src_dir_id = self.src_dir_id
-        src_path = derive_relative_psx(archive_path.parent, self.s.backup_base_dir_for_profile)
+        src_path = derive_relative_psx(archive_path.parent, self.s.backup_dir)
         src_id = self._source_to_id[(src_dir_id, src_path)]
         bak_name = archive_path.name
         key = (bak_dir_id, src_id, bak_name)
@@ -2068,7 +2076,7 @@ class RumarDB:
         query = dedent('''\
         SELECT bd.bak_dir, s.src_path, b.bak_name, sd.src_dir
         FROM backup b
-        JOIN backup_base_dir_for_profile bd ON b.bak_dir_id = bd.id 
+        JOIN backup_dir bd ON b.bak_dir_id = bd.id 
         JOIN "source" s ON b.src_id = s.id
         JOIN source_dir sd ON s.src_dir_id = sd.id
         JOIN ( -- latest backup files for the profile, excluding deleted ones
@@ -2096,7 +2104,7 @@ class RumarDB:
 
     def mark_backup_as_deleted(self, archive_path: Path):
         archive_dir = archive_path.parent
-        relative_p = derive_relative_psx(archive_dir, self.s.backup_base_dir_for_profile)
+        relative_p = derive_relative_psx(archive_dir, self.s.backup_dir)
         src_id = self._source_to_id[(self.src_dir_id, relative_p)]
         params = (self.run_id, self.bak_dir_id, src_id, archive_path.name)
         found = False
@@ -2116,7 +2124,7 @@ class RumarDB:
         query = dedent('''\
         SELECT bd.bak_dir, s.src_path, b.bak_name
         FROM backup b
-        JOIN backup_base_dir_for_profile bd ON b.bak_dir_id = bd.id
+        JOIN backup_dir bd ON b.bak_dir_id = bd.id
         JOIN "source" s ON b.src_id = s.id
         JOIN run r ON b.run_id = r.id AND r.profile_id = ?
         WHERE del_run_id IS NULL;''')

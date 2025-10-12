@@ -96,8 +96,8 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
 <!-- settings pydoc begin -->
 * **backup_base_dir**: str &nbsp; &nbsp; _used by: create, sweep_\
   path to the base directory used for backup; usually set in the global space, common for all profiles\
-  backup dir for each profile is constructed as _**backup_base_dir**_ + _**profile**_, unless _**backup_base_dir_for_profile**_ is set, which takes precedence
-* **backup_base_dir_for_profile**: str &nbsp; &nbsp; _used by: create, extract, sweep_\
+  backup dir for each profile is constructed as _**backup_base_dir**_ + _**profile**_, unless _**backup_dir**_ is set, which takes precedence
+* **backup_dir**: str &nbsp; &nbsp; _used by: create, extract, sweep_\
   path to the base dir used for the profile; usually left unset; see _**backup_base_dir**_
 * **archive_format**: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz', 'tar.zst'] = 'tar.gz' &nbsp; &nbsp; _used by: create, sweep_\
   format of archive files to be created\
@@ -117,7 +117,7 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
   ⚠️ caution: uses **PurePath.full_match(...)**, which is available on Python 3.13 or higher\
   a list of glob patterns, also known as shell-style wildcards, i.e. `** * ? [seq] [!seq]`; `**` means zero or more segments, `*` means a single segment or a part of a segment (as in `My*`)\
   if present, only the matching files will be considered, together with _**included_files_as_regex**_, _**included_files_as_glob**_, _**included_top_dirs**_, _**included_dirs_as_regex**_\
-  the paths/globs can be absolute or relative to _**source_dir**_ (or _**backup_base_dir_for_profile**_ in case of _**sweep**_), e.g. `C:\My Documents\*.txt`, `my-file-in-source-dir.log`\
+  the paths/globs can be absolute or relative to _**source_dir**_ (or _**backup_dir**_ in case of _**sweep**_), e.g. `C:\My Documents\*.txt`, `my-file-in-source-dir.log`\
   absolute paths start with a root (`/` or `{drive}:\`)\
   on Windows, global-pattern matching is case-insensitive, and both `\` and `/` can be used\
   see also https://docs.python.org/3.13/library/pathlib.html#pathlib-pattern-language
@@ -129,7 +129,7 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
   ❌ deprecated: use _**included_files**_ instead, if on Python 3.13 or higher, e.g. `['top dir 1/**',]`\
   a list of top-directory paths\
   if present, only the files from the directories and their descendant subdirs will be considered, together with _**included_dirs_as_regex**_, _**included_files**_, _**included_files_as_regex**_, _**included_files_as_glob**_,\
-  the paths can be relative to _**source_dir**_ or absolute, but always under _**source_dir**_ (or _**backup_base_dir_for_profile**_ in case of _**sweep**_)\
+  the paths can be relative to _**source_dir**_ or absolute, but always under _**source_dir**_ (or _**backup_dir**_ in case of _**sweep**_)\
   absolute paths start with a root (`/` or `{drive}:\`)
 * **excluded_top_dirs**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
   ❌ deprecated: use _**excluded_files**_ instead, if on Python 3.13 or higher, e.g. `['top dir 3/**',]`\
@@ -139,9 +139,9 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
   a list of regex patterns (each to be passed to re.compile)\
   if present, only the file from the matching directories will be considered, together with _**included_top_dirs**_, _**included_files**_, _**included_files_as_regex**_, _**included_files_as_glob**_\
   `/` must be used as the path separator, also on Windows\
-  the patterns are matched (using re.search) against a path relative to _**source_dir**_ (or _**backup_base_dir_for_profile**_ in case of _**sweep**_)\
+  the patterns are matched (using re.search) against a path relative to _**source_dir**_ (or _**backup_dir**_ in case of _**sweep**_)\
   the first segment in the relative path to match against also starts with a slash\
-  e.g. `['/B$',]` will match each directory named `B`, at any level; `['^/B$',]` will match only `{source_dir}/B` (or `{backup_base_dir_for_profile}/B` in case of _**sweep**_)\
+  e.g. `['/B$',]` will match each directory named `B`, at any level; `['^/B$',]` will match only `{source_dir}/B` (or `{backup_dir}/B` in case of _**sweep**_)\
   regex-pattern matching is case-sensitive – use `(?i)` at each pattern's beginning for case-insensitive matching, e.g. `['(?i)/b$',]`\
   see also https://docs.python.org/3/library/re.html
 * **excluded_dirs_as_regex**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
@@ -151,7 +151,7 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
   ❌ deprecated: use _**included_files**_ instead, if on Python 3.13 or higher\
   a list of glob patterns, also known as shell-style wildcards, i.e. `* ? [seq] [!seq]`\
   if present, only the matching files will be considered, together with _**included_files**_, _**included_files_as_regex**_, _**included_top_dirs**_, _**included_dirs_as_regex**_\
-  the paths/globs can be partial, relative to _**source_dir**_ or absolute, but always under _**source_dir**_ (or _**backup_base_dir_for_profile**_ in case of _**sweep**_)\
+  the paths/globs can be partial, relative to _**source_dir**_ or absolute, but always under _**source_dir**_ (or _**backup_dir**_ in case of _**sweep**_)\
   unlike with glob patterns used in _**included_files**_, here matching is done from the right if the pattern is relative, e.g. `['B\b1.txt',]` will match `C:\A\B\b1.txt` and `C:\B\b1.txt`\
   ⚠️ caution: a leading path separator indicates an absolute path, but on Windows you also need a drive letter, e.g. `['\A\a1.txt']` will never match; use `['C:\A\a1.txt']` instead\
   on Windows, global-pattern matching is case-insensitive, and both `\` and `/` can be used\
@@ -208,6 +208,8 @@ The new settings remove the need for the following ones:
 * _**excluded_top_dirs**_
 * _**included_files_as_glob**_
 * _**excluded_files_as_glob**_
+
+Also _**backup_base_dir_for_profile**_ is renamed to _**backup_dir**_.
 
 ### Settings schema version 2 vs 1
 
