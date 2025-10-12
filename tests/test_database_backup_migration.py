@@ -27,16 +27,13 @@ def set_up_rumardb():
     yield d
     db.executescript('''
         DELETE FROM backup;
+        DELETE FROM backup_dir;
         DELETE FROM source_lc;
         DELETE FROM source;
         DELETE FROM source_dir;
         DELETE FROM run;
         DELETE FROM profile;
     ''')
-    for _ in db.execute("SELECT 1 FROM pragma_table_info('backup_base_dir_for_profile')"):
-        db.execute('DELETE FROM backup_base_dir_for_profile')
-    for _ in db.execute("SELECT 1 FROM pragma_table_info('backup_dir')"):
-        db.execute('DELETE FROM backup_dir')
     db.commit()
     rumardb.close_db()
     rumardb._profile_to_id.clear()
@@ -60,7 +57,7 @@ def test_migrate_to_bak_name_and_blob_blake2b(set_up_rumardb):
             id INTEGER PRIMARY KEY, 
             run_id INTEGER NOT NULL REFERENCES run (id),
             reason TEXT NOT NULL,
-            bak_dir_id INTEGER NOT NULL REFERENCES backup_base_dir_for_profile (id),
+            bak_dir_id INTEGER NOT NULL REFERENCES backup_dir (id),
             bak_path TEXT NOT NULL,
             mtime_iso TEXT NOT NULL,
             size INTEGER NOT NULL,
@@ -76,7 +73,7 @@ def test_migrate_to_bak_name_and_blob_blake2b(set_up_rumardb):
     cur.executescript('''
         INSERT INTO profile (id, profile) VALUES (1, 'profile');
         INSERT INTO run (id, run_datetime_iso, profile_id) VALUES (1, '2024-01-01T00:00:00Z', 1);
-        INSERT INTO backup_base_dir_for_profile (id, bak_dir) VALUES (1, '/path/to/backup/profile');
+        INSERT INTO backup_dir (id, bak_dir) VALUES (1, '/path/to/backup/profile');
         INSERT INTO source_dir (id, src_dir) VALUES (1, '/path/to/source');
         INSERT INTO source (id, src_dir_id, src_path) VALUES (1, 1, 'subdir/file.txt');
         INSERT INTO backup (id, run_id, reason, bak_dir_id, src_id, bak_path, mtime_iso, size, blake2b)
@@ -115,7 +112,7 @@ def test_migrate_to_blob_blake2b(set_up_rumardb):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             run_id INTEGER NOT NULL REFERENCES run (id),
             reason TEXT NOT NULL,
-            bak_dir_id INTEGER NOT NULL REFERENCES backup_base_dir_for_profile (id),
+            bak_dir_id INTEGER NOT NULL REFERENCES backup_dir (id),
             src_id INTEGER NOT NULL REFERENCES source (id),
             bak_name TEXT,
             blake2b TEXT,
@@ -128,7 +125,7 @@ def test_migrate_to_blob_blake2b(set_up_rumardb):
     cur.executescript('''
         INSERT INTO profile (id, profile) VALUES (1, 'profile');
         INSERT INTO run (id, run_datetime_iso, profile_id) VALUES (1, '2024-01-01T00:00:00Z', 1);
-        INSERT INTO backup_base_dir_for_profile (id, bak_dir) VALUES (1, '/path/to/backup/profile');
+        INSERT INTO backup_dir (id, bak_dir) VALUES (1, '/path/to/backup/profile');
         INSERT INTO source_dir (id, src_dir) VALUES (1, '/path/to/source');
         INSERT INTO source (id, src_dir_id, src_path) VALUES (1, 1, 'subdir/file.txt');
         INSERT INTO backup (id, run_id, reason, bak_dir_id, src_id, bak_name, blake2b)
@@ -165,7 +162,7 @@ def test_alter_backup_add_del_run_id_if_required(set_up_rumardb):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             run_id INTEGER NOT NULL REFERENCES run (id),
             reason TEXT NOT NULL,
-            bak_dir_id INTEGER NOT NULL REFERENCES backup_base_dir_for_profile (id),
+            bak_dir_id INTEGER NOT NULL REFERENCES backup_dir (id),
             src_id INTEGER NOT NULL REFERENCES source (id),
             bak_name TEXT,
             blake2b TEXT,
@@ -177,7 +174,7 @@ def test_alter_backup_add_del_run_id_if_required(set_up_rumardb):
     cur.executescript('''
         INSERT INTO profile (id, profile) VALUES (1, 'profile');
         INSERT INTO run (id, run_datetime_iso, profile_id) VALUES (1, '2024-01-01T00:00:00Z', 1);
-        INSERT INTO backup_base_dir_for_profile (id, bak_dir) VALUES (1, '/path/to/backup/profile');
+        INSERT INTO backup_dir (id, bak_dir) VALUES (1, '/path/to/backup/profile');
         INSERT INTO source_dir (id, src_dir) VALUES (1, '/path/to/source');
         INSERT INTO source (id, src_dir_id, src_path) VALUES (1, 1, 'subdir/file.txt');
         INSERT INTO backup (id, run_id, reason, bak_dir_id, src_id, bak_name, blake2b)
@@ -210,7 +207,7 @@ def test_init_source_lc_if_empty(set_up_rumardb):
     cur.executescript('''
         INSERT INTO profile (id, profile) VALUES (1, 'profile');
         INSERT INTO run (id, run_datetime_iso, profile_id) VALUES (1, '2025-07-23 00:00:01+02:00', 1);
-        INSERT INTO backup_base_dir_for_profile (id, bak_dir) VALUES (1, '/path/to/backup/profile');
+        INSERT INTO backup_dir (id, bak_dir) VALUES (1, '/path/to/backup/profile');
         INSERT INTO source_dir (id, src_dir) VALUES (1, '/path/to/source');
         INSERT INTO source (id, src_dir_id, src_path) VALUES
         (1, 1, 'subdir/file1.txt'),
@@ -232,7 +229,7 @@ def test_init_source_lc_if_empty(set_up_rumardb):
     ]
     assert actual == expected
     # print()
-    # for table in ['profile', 'run', 'backup_base_dir_for_profile', 'backup', 'source_dir', 'source', 'source_lc']:
+    # for table in ['profile', 'run', 'backup_dir', 'backup', 'source_dir', 'source', 'source_lc']:
     #     print(f"{table}:")
     #     for row in cur.execute(f"SELECT * FROM {table}"):
     #         print(row)

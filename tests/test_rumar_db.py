@@ -27,12 +27,12 @@ def _set_up_rumar():
     if BASE_PATH.exists():
         shutil.rmtree(BASE_PATH)
     s = profile_to_settings[profile]
-    assert s.backup_base_dir_for_profile == BASE_PATH / 'backup' / profile
+    assert s.backup_dir == BASE_PATH / 'backup' / profile
     if 'memory' not in str(s.db_path):
         s.db_path.parent.mkdir(parents=True, exist_ok=True)
     rumar = Rumar(profile_to_settings)
     rumar._init_for_profile(profile)
-    assert rumar.s.backup_base_dir_for_profile == BASE_PATH / 'backup' / profile
+    assert rumar.s.backup_dir == BASE_PATH / 'backup' / profile
     rumardb = rumar._rdb
     fs_paths = [
         f"/{profile}/file01.txt",
@@ -82,7 +82,7 @@ def _set_up_rumar():
     #     ('run', '_run_to_id'),
     #     ('source_dir', '_src_dir_to_id'),
     #     ('source', '_source_to_id'),
-    #     ('backup_base_dir_for_profile', '_bak_dir_to_id'),
+    #     ('backup_dir', '_bak_dir_to_id'),
     #     ('backup', '_backup_to_checksum'),
     # ]:
     #     print(f"\n{table}:")
@@ -110,7 +110,7 @@ def _tear_down_rumar(d):
     rumar.lstat_cache.clear()
     db = rumardb._db
     for table in ['backup',
-                  'backup_base_dir_for_profile',
+                  'backup_dir',
                   'source_lc',
                   'source',
                   'source_dir',
@@ -142,7 +142,7 @@ class TestRumarDB:
         rumar = d['rumar']
         data = d['data']
         db = rumar._rdb._db
-        bak_dir = rumar.s.backup_base_dir_for_profile.as_posix()
+        bak_dir = rumar.s.backup_dir.as_posix()
         for i, actual in enumerate(db.execute('SELECT profile, reason, bak_dir, src_path, bak_name, blake2b FROM v_backup')):
             reason: CreateReason = data['reasons'][i]
             relative_p = data['relative_ps'][i]
@@ -220,7 +220,7 @@ class TestRumarDB:
         raths = d['raths']
         data = d['data']
         archive_rathers = data['archive_rathers']
-        top_archive_dir = Path(rumar.s.backup_base_dir_for_profile, 'A')
+        top_archive_dir = Path(rumar.s.backup_dir, 'A')
         expected = [(a, t) for (a, t) in zip(archive_rathers, raths) if a.as_posix().startswith(top_archive_dir.as_posix())]
         actual = list(rumardb.iter_latest_archives_and_targets(top_archive_dir=top_archive_dir))
         assert actual == expected
@@ -385,7 +385,7 @@ class TestRumarDB:
         query = dedent('''\
         SELECT bak_dir, src_path, bak_name, del_run_id
         FROM backup b
-        JOIN backup_base_dir_for_profile p ON b.bak_dir_id = p.id
+        JOIN backup_dir p ON b.bak_dir_id = p.id
         JOIN source s ON b.src_id = s.id
         JOIN run r ON b.run_id = r.id AND r.profile_id = ?
         ''')
