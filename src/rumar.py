@@ -23,6 +23,7 @@ import sqlite3
 import sys
 import tarfile
 import zipfile
+import zlib
 from contextlib import suppress
 from dataclasses import dataclass, field, fields
 from datetime import datetime, timedelta, date
@@ -35,6 +36,8 @@ from stat import S_ISDIR, S_ISSOCK, S_ISDOOR, S_ISLNK
 from textwrap import dedent
 from time import sleep
 from typing import Literal, Pattern, Any, Iterable, cast, Generator, Callable, Sequence, ClassVar
+
+from stream_zip import stream_zip, ZIP_32
 
 vi = sys.version_info
 PY_VER = (vi.major, vi.minor)
@@ -1122,16 +1125,25 @@ class Rumar:
         archive_dir.mkdir(parents=True, exist_ok=True)
         archive_format, compresslevel_kwargs = self.calc_archive_format_and_compresslevel_kwargs(rath)
         mode = self.ARCHIVE_FORMAT_TO_MODE[archive_format]
-        lnk = self.LNK if S_ISLNK(rath.lstat().st_mode) else self.BLANK
+        lstat = rath.lstat_afresh()
+        mtime_str = self.calc_mtime_str(lstat)
+        size = lstat.st_size
+        lnk = self.LNK if S_ISLNK(lstat.st_mode) else self.BLANK
         archive_path = self.compose_archive_path(archive_dir, mtime_str, size, lnk)
 
         def _create(_archive_path: Path):
             """Creates a tar archive and computes blake2b checksum at the same time"""
             checksum = None
-            with tarfile.open(_archive_path, mode, format=self.s.tar_format, **compresslevel_kwargs) as tf, FileBlake2b(rath) as file_blake2b:
+            with tarfile.open(_archive_path, mode, format=self.s.tar_format, **compresslevel_kwargs) as tf:
+                # NB gettarinfo calls os.stat => fresh stat_result
                 tarinfo = tf.gettarinfo(name=rath, arcname=rath.name)
-                tf.addfile(tarinfo, fileobj=file_blake2b)
-                checksum = file_blake2b.digest()
+                if S_ISLNK(lstat.st_mode):
+                    # no content and checksum for symlinks
+                    tf.addfile(tarinfo, fileobj=None)
+                else:
+                    with FileBlake2b(rath) as file_blake2b:
+                        tf.addfile(tarinfo, fileobj=file_blake2b)
+                        checksum = file_blake2b.digest()
             return checksum
 
         is_archive_created, archive_path, checksum = self._call_create_and_verify_checksum_before_and_after_unless_lnk(_create, archive_dir, archive_path, checksum, rath, lnk)
@@ -1144,19 +1156,31 @@ class Rumar:
         reason = create_reason.name
         logger.info(f"{sign} {relative_p}  {mtime_str}  {size} {reason} {archive_dir / '...'}")
         archive_dir.mkdir(parents=True, exist_ok=True)
-        if rath.suffix.lower() in self.s.suffixes_without_compression:
-            kwargs = {self.COMPRESSION: zipfile.ZIP_STORED}
-        else:
-            kwargs = {self.COMPRESSION: self.s.zip_compression_method, self.COMPRESSLEVEL: self.s.compression_level}
-        lnk = self.LNK if S_ISLNK(rath.lstat().st_mode) else self.BLANK
+        lstat = rath.lstat_afresh()
+        mtime_str = self.calc_mtime_str(lstat)
+        size = lstat.st_size
+        lnk = self.LNK if S_ISLNK(lstat.st_mode) else self.BLANK
         archive_path = self.compose_archive_path(archive_dir, mtime_str, size, lnk)
 
         def _create(_archive_path: Path):
-            """Creates a tar archive but doesn't compute blake2b checksum at the same time - a limitation of zipfile (pyzipper)"""
-            with pyzipper.AESZipFile(_archive_path, 'w', encryption=pyzipper.WZ_AES, **kwargs) as zf:
-                zf.setpassword(self.s.password)
-                zf.write(rath, arcname=rath.name)
-            return None
+            """Creates a zipx archive and computes blake2b checksum at the same time"""
+            if S_ISLNK(rath.lstat().st_mode):
+                # symbolic link's binary content must be its target
+                content = (os.readlink(rath).encode(UTF8),)
+                file_blake2b = None
+            else:
+                file_blake2b = FileBlake2b(rath)
+                file_blake2b.open()
+                content = iter(lambda: file_blake2b.read(8192), b'')
+            # NB using ZIP_32 also for no comporession, because NO_COMPRESSION_32 buffers the entire binary contents of the file in memory before output
+            member = (rath.name, datetime.fromtimestamp(lstat.st_mtime), lstat.st_mode, ZIP_32, content)
+            level = 0 if rath.suffix.lower() in self.s.suffixes_without_compression else self.s.compression_level
+            with _archive_path.open('wb') as fo:
+                for zipped_chunk in stream_zip([member], password=self.s.password, get_compressobj=lambda: zlib.compressobj(wbits=-zlib.MAX_WBITS, level=level)):
+                    fo.write(zipped_chunk)
+            checksum = file_blake2b.digest() if file_blake2b else None
+            file_blake2b.close()
+            return checksum
 
         is_archive_created, archive_path, checksum = self._call_create_and_verify_checksum_before_and_after_unless_lnk(_create, archive_dir, archive_path, checksum, rath, lnk)
         if is_archive_created:
@@ -1553,17 +1577,25 @@ class Rumar:
 class FileBlake2b:
     """Computes blake2b checksum while reading the file"""
 
-    def __init__(self, file_path: Path):
-        self._file_path = file_path
+    def __init__(self, file_rath: Rath):
+        self._file_rath = file_rath
         self._fileobj = None
         self._blake2b = blake2b()
 
     def __enter__(self):
-        self._fileobj = self._file_path.open('rb')
+        self.open()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self._fileobj.close()
+        self.close()
+
+    def open(self):
+        if not S_ISLNK(self._file_rath.lstat().st_mode):
+            self._fileobj = self._file_rath.open('rb')
+
+    def close(self):
+        if not self._fileobj.closed:
+            self._fileobj.close()
 
     def read(self, size: int):
         chunk = self._fileobj.read(size)

@@ -60,6 +60,10 @@ class Rather(Rath):
             self.lstat_cache[self] = lstat
             return lstat
 
+    def lstat_afresh(self):
+        """Nothing to refresh"""
+        return self.lstat()
+
     def open(self, mode='rb', *args, **kwargs):
         if 'r' in mode:
             if 'b' in mode:
