@@ -4,10 +4,12 @@ import shutil
 import sys
 import tarfile
 from dataclasses import replace
+from datetime import datetime, timedelta
 from pathlib import Path
 from textwrap import dedent
 
 import pytest
+import pyzipper
 
 from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, iter_matching_files, derive_relative_psx, CreateReason, can_exclude_dir, can_include_dir, can_exclude_file, can_include_file, absolutopathlify
 from utils import Rather, eq_list
@@ -78,8 +80,9 @@ def set_up_rumar():
         f"/{profile}/AA/file11.txt",
         f"/{profile}/AA/file12.csv",
     ]
+    mtime = lambda i: datetime(2023, 1, 1, 0, i, 0).timestamp()
     rathers = [
-        Rather(fs_path, lstat_cache=rumar.lstat_cache, mtime=i * 60).make()
+        Rather(fs_path, lstat_cache=rumar.lstat_cache, mtime=mtime(i)).make()
         for i, fs_path in enumerate(fs_paths, start=1)
     ]
     raths = [r.as_rath() for r in rathers]
@@ -771,3 +774,39 @@ class TestCreateTar:
         assert member.mtime == lstat.st_mtime
         assert member.size == size
         rumar.s.update(archive_format='tar')
+
+
+class TestCreateZipx:
+
+    def test_create_zipx(self, set_up_rumar):
+        d = set_up_rumar
+        profile = d['profile']
+        profile_to_settings = d['profile_to_settings']
+        settings = profile_to_settings[profile]
+        settings = replace(settings, archive_format='zipx', password='test')
+        rumar = Rumar({profile: settings})  # new Rumar, with local settings
+        rumar._init_for_profile(profile)
+        reason = CreateReason.CREATE
+        rathers = d['rathers']
+        rather = rathers[14]
+        relative_p = derive_relative_psx(rather, settings.source_dir)
+        archive_dir = rumar.compose_archive_container_dir(relative_p=relative_p)
+        lstat = rather.lstat()
+        mtime_str = rumar.calc_mtime_str(lstat)
+        size = lstat.st_size
+        checksum = rather.checksum
+        actual_checksum = rumar._create_zipx(reason, rather, relative_p, archive_dir, mtime_str, size, checksum)
+        archive_path = rumar.compose_archive_path(archive_dir, mtime_str, size, '')
+        actual_checksum = rumar.compute_checksum_of_file_in_archive(archive_path, settings.password)
+        assert actual_checksum == checksum
+        print('\n##', f"archive_path: {archive_path}")
+        content = None
+        zipinfo = None
+        with pyzipper.AESZipFile(archive_path, 'r') as zf:
+            zf.setpassword(settings.password)
+            zipinfo = next(iter(zf.infolist()))
+            content = zf.read(zipinfo)
+        assert zipinfo.filename == rather.name
+        assert datetime(*zipinfo.date_time) == datetime.fromtimestamp(lstat.st_mtime).replace(microsecond=0)
+        assert zipinfo.file_size == size
+        assert content == rather._content_as_fileobj().read()
