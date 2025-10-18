@@ -735,11 +735,10 @@ class TestCreateTar:
         mtime_str = rumar.calc_mtime_str(lstat)
         size = lstat.st_size
         checksum = rather.checksum
-        rumar._create_tar(reason, rather, relative_p, archive_dir, mtime_str, size, checksum)
+        actual_checksum = rumar._create_tar(reason, rather, relative_p, archive_dir, mtime_str, size, checksum)
+        assert actual_checksum == checksum
         archive_path = rumar.compose_archive_path(archive_dir, mtime_str, size, '')
         print('\n##', f"archive_path: {archive_path}")
-        actual_checksum = rumar.compute_checksum_of_file_in_archive(archive_path, settings.password)
-        assert actual_checksum == checksum
         member = None
         with tarfile.open(archive_path, 'r') as tf:
             member = tf.next()
@@ -761,11 +760,10 @@ class TestCreateTar:
         mtime_str = rumar.calc_mtime_str(lstat)
         size = lstat.st_size
         checksum = rather.checksum
-        rumar._create_tar(reason, rather, relative_p, archive_dir, mtime_str, size, checksum)
+        actual_checksum = rumar._create_tar(reason, rather, relative_p, archive_dir, mtime_str, size, checksum)
+        assert actual_checksum == checksum
         archive_path = rumar.compose_archive_path(archive_dir, mtime_str, size, '')
         print('\n##', f"archive_path: {archive_path}")
-        actual_checksum = rumar.compute_checksum_of_file_in_archive(archive_path, rumar.s.password)
-        assert actual_checksum == checksum
         member = None
         with tarfile.open(archive_path, 'r') as tf:
             member = tf.next()

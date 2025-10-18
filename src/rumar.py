@@ -1126,12 +1126,18 @@ class Rumar:
         archive_path = self.compose_archive_path(archive_dir, mtime_str, size, lnk)
 
         def _create(_archive_path: Path):
-            with tarfile.open(_archive_path, mode, format=self.s.tar_format, **compresslevel_kwargs) as tf:
-                tf.add(rath, arcname=rath.name)
+            """Creates a tar archive and computes blake2b checksum at the same time"""
+            checksum = None
+            with tarfile.open(_archive_path, mode, format=self.s.tar_format, **compresslevel_kwargs) as tf, FileBlake2b(rath) as file_blake2b:
+                tarinfo = tf.gettarinfo(name=rath, arcname=rath.name)
+                tf.addfile(tarinfo, fileobj=file_blake2b)
+                checksum = file_blake2b.digest()
+            return checksum
 
         is_archive_created, archive_path, checksum = self._call_create_and_verify_checksum_before_and_after_unless_lnk(_create, archive_dir, archive_path, checksum, rath, lnk)
         if is_archive_created:
             self._rdb.save(create_reason, relative_p, archive_path, checksum)
+        return checksum
 
     def _create_zipx(self, create_reason: CreateReason, rath: Rath, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: bytes | None):
         sign = create_reason.value
@@ -1146,13 +1152,16 @@ class Rumar:
         archive_path = self.compose_archive_path(archive_dir, mtime_str, size, lnk)
 
         def _create(_archive_path: Path):
+            """Creates a tar archive but doesn't compute blake2b checksum at the same time - a limitation of zipfile (pyzipper)"""
             with pyzipper.AESZipFile(_archive_path, 'w', encryption=pyzipper.WZ_AES, **kwargs) as zf:
                 zf.setpassword(self.s.password)
                 zf.write(rath, arcname=rath.name)
+            return None
 
         is_archive_created, archive_path, checksum = self._call_create_and_verify_checksum_before_and_after_unless_lnk(_create, archive_dir, archive_path, checksum, rath, lnk)
         if is_archive_created:
             self._rdb.save(create_reason, relative_p, archive_path, checksum)
+        return checksum
 
     def _call_create_and_verify_checksum_before_and_after_unless_lnk(self, _create, archive_dir, archive_path, checksum, rath, lnk):
         is_archive_created_lst = [False]
@@ -1175,8 +1184,7 @@ class Rumar:
         return is_archive_created_lst[0], archive_path, checksum
 
     def _call_create_and_return_same_checksum_or_limit_reached(self, _create: Callable, archive_path: Path, checksum: bytes | None, attempt: int, attempt_limit: int, is_archive_created_lst: list[bool]) -> bool:
-        _create(archive_path)
-        end_checksum = self.compute_checksum_of_file_in_archive(archive_path, self.s.password)
+        end_checksum = _create(archive_path) or self.compute_checksum_of_file_in_archive(archive_path, self.s.password)
         if end_checksum == checksum:
             is_archive_created_lst[0] = True
             return True
@@ -1540,6 +1548,30 @@ class Rumar:
                     logger.error(f"** {path_psx}  ** {ex}")
                 else:
                     self._rdb.mark_backup_as_deleted(path)
+
+
+class FileBlake2b:
+    """Computes blake2b checksum while reading the file"""
+
+    def __init__(self, file_path: Path):
+        self._file_path = file_path
+        self._fileobj = None
+        self._blake2b = blake2b()
+
+    def __enter__(self):
+        self._fileobj = self._file_path.open('rb')
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._fileobj.close()
+
+    def read(self, size: int):
+        chunk = self._fileobj.read(size)
+        self._blake2b.update(chunk)
+        return chunk
+
+    def digest(self):
+        return self._blake2b.digest()
 
 
 def try_to_iterate_dir(path: Path):

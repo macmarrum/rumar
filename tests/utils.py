@@ -28,8 +28,7 @@ class Rather(Rath):
         super().__init__(*args, lstat_cache=lstat_cache if lstat_cache is not None else _path_to_lstat_)
         self._mtime = mtime
         self._content = f"{self}\n" if content == '' else content  # can be None, to produce None checksum for NULL blake2b
-        self._content_io = BytesIO(self._content.encode('utf-8')) if self._content else BytesIO()
-        self._st_size = len(self._content_io.getvalue())
+        self._st_size = len(self._content) if self._content else 0
         if islnk:
             filetype = S_IFLNK
         elif isdir:
@@ -38,6 +37,9 @@ class Rather(Rath):
             filetype = S_IFREG
         self._mode = chmod | filetype
         self._checksum = None
+
+    def _content_as_fileobj(self):
+        return BytesIO(self._content.encode('utf-8')) if self._content else BytesIO()
 
     def lstat(self):
         if lstat := self.lstat_cache.get(self):
@@ -61,9 +63,9 @@ class Rather(Rath):
     def open(self, mode='rb', *args, **kwargs):
         if 'r' in mode:
             if 'b' in mode:
-                return self._content_io
+                return self._content_as_fileobj()
             else:
-                return self._content_io.getvalue().decode('utf-8')
+                return self._content
         else:
             raise ValueError(f"Unsupported mode: {mode}")
 
@@ -74,8 +76,7 @@ class Rather(Rath):
     @content.setter
     def content(self, value):
         self._content = value
-        self._content_io = BytesIO(value.encode('utf-8')) if value is not None else BytesIO()
-        self._st_size = len(self._content_io.getvalue()) if value is not None else 0
+        self._st_size = len(value) if value is not None else 0
         self._checksum = None  # checksum will be computed anew
         self.lstat_cache.pop(self, None)
 
@@ -84,7 +85,7 @@ class Rather(Rath):
         dir_rath = self if S_ISDIR(lstat.st_mode) else self.parent
         dir_rath.mkdir(parents=True, exist_ok=True)
         with open(self, 'wb') as f:
-            f.write(self._content_io.getvalue())
+            f.write(self._content.encode('utf-8') if self._content else b'')
         self.chmod(self._mode)
         os.utime(self, (lstat.st_atime, lstat.st_mtime))
         return self
@@ -100,7 +101,7 @@ class Rather(Rath):
         if self._checksum is Rather.NONE:
             return None
         if self._checksum is None and self._content is not None:
-            self._checksum = compute_blake2b_checksum(self._content_io)
+            self._checksum = compute_blake2b_checksum(self._content_as_fileobj())
         return self._checksum
 
     @checksum.setter
