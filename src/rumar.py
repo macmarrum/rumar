@@ -900,6 +900,29 @@ class Rumar:
         self._rdb: RumarDB = None  # initiated per profile in _init_for_profile to support db_path per profile
         self._rdb_cache = {}
         self._bdb: BroomDB = None  # initiated per profile in _init_for_profile to support db_path per profile
+        self._rath: Rath = None
+        self._relative_psx: str = None
+        self._mtime: float = None
+        self._mtime_dt: datetime = None
+        self._mtime_str: str = None
+        self._size: int = None
+        self._mode: int = None
+        self._islnk: bool = None
+        self._archive_dir: Path = None
+        self._archive_path: Path = None
+        self._pre_checksum: bytes = None
+
+    def _update_for_rath(self, rath: Rath):
+        self._rath = rath
+        self._relative_psx = derive_relative_psx(rath, self.s.source_dir)
+        lstat = rath.lstat()  # don't follow symlinks - pathlib calls stat for each is_*()
+        self._mtime = lstat.st_mtime
+        self._mtime_dt = datetime.fromtimestamp(self._mtime).astimezone()
+        self._mtime_str = self.calc_mtime_str(self._mtime_dt)
+        self._size = lstat.st_size
+        self._mode = self._rath.lstat().st_mode
+        self._islnk = S_ISLNK(self._mode)
+        self._archive_dir = self.compose_archive_container_dir(relative_psx=self._relative_psx)
 
     @staticmethod
     def should_ignore_for_archive(lstat: os.stat_result) -> bool:
@@ -980,6 +1003,16 @@ class Rumar:
         size = int(split_result[1])
         return mtime_str, size
 
+    def archive_path(self, afresh=False):
+        if afresh:
+            self._rath.lstat_afresh()
+            self._update_for_rath(self._rath)
+            self._archive_path = None
+        if not self._archive_path:
+            lnk = self.LNK if self._islnk else self.BLANK
+            self._archive_path = compose_archive_path(self._archive_dir, self.s.archive_format, self._mtime_str, self._size, comment=lnk)
+        return self._archive_path
+
     def compose_archive_path(self, archive_dir: Path, mtime_str: str, size: int, comment: str | None = None) -> Path:
         return compose_archive_path(archive_dir, self.s.archive_format, mtime_str, size, comment)
 
@@ -1004,43 +1037,36 @@ class Rumar:
             logger.warning(f"SKIP {profile} - {'; '.join(errors)}")
             return
         for rath in self.source_files:
-            relative_p = derive_relative_psx(rath, self.s.source_dir)
-            lstat = rath.lstat()  # don't follow symlinks - pathlib calls stat for each is_*()
-            mtime = lstat.st_mtime
-            mtime_dt = datetime.fromtimestamp(mtime).astimezone()
-            mtime_str = self.calc_mtime_str(mtime_dt)
-            size = lstat.st_size
-            archive_dir = self.compose_archive_container_dir(relative_p=relative_p)
             # TODO handle LNK target changes, don't blake2b LNKs
             # latest_archive = find_last_file_in_dir(archive_dir, RX_ARCHIVE_SUFFIX)
-            latest_archive = self._rdb.get_latest_archive_for_source(relative_p)
+            latest_archive = self._rdb.get_latest_archive_for_source(self.relative_psx)
             if latest_archive is None:
                 # no previous backup found
-                self._create(CreateReason.CREATE, rath, relative_p, archive_dir, mtime_str, size, checksum=None)
+                self._create(CreateReason.CREATE)
             else:
                 latest_mtime_str, latest_size = self.derive_mtime_size(latest_archive)
                 latest_mtime_dt = self.calc_mtime_dt(latest_mtime_str)
                 is_changed = False
-                if mtime_dt > latest_mtime_dt:
-                    if size != latest_size:
+                if self._mtime_dt > latest_mtime_dt:
+                    if self._size != latest_size:
                         is_changed = True
-                        checksum = None
+                        self._pre_checksum = None
                     else:
                         is_changed = False
                         if self.s.checksum_comparison_if_same_size:
                             with rath.open('rb') as f:
-                                checksum = compute_blake2b_checksum(f)
+                                self._pre_checksum = compute_blake2b_checksum(f)
                             latest_checksum = self._get_archive_checksum(latest_archive)
-                            logger.info(f':- {relative_p}  {latest_mtime_str}  {latest_checksum.hex() if latest_checksum else None}')
-                            is_changed = checksum != latest_checksum
+                            logger.info(f':- {self._relative_psx}  {latest_mtime_str}  {latest_checksum.hex() if latest_checksum else None}')
+                            is_changed = self._pre_checksum != latest_checksum
                         # else:  # newer mtime, same size, not instructed to do checksum comparison => no backup
                 if is_changed:
                     # file has changed as compared to the last backup
-                    logger.info(f":= {relative_p}  {latest_mtime_str}  {latest_size} =: last backup")
-                    self._create(CreateReason.UPDATE, rath, relative_p, archive_dir, mtime_str, size, checksum)
+                    logger.info(f":= {self._relative_psx}  {latest_mtime_str}  {latest_size} =: last backup")
+                    self._create(CreateReason.UPDATE)
                 else:
-                    logger.debug(f":== {relative_p}  {latest_mtime_str}  {latest_size} ==: unchanged")
-                    self._rdb.save_unchanged(relative_p)
+                    logger.debug(f":== {self._relative_psx}  {latest_mtime_str}  {latest_size} ==: unchanged")
+                    self._rdb.save_unchanged(self._relative_psx)
         self._finalize_profile_changes()
 
     def _init_for_profile(self, profile: str):
@@ -1085,7 +1111,7 @@ class Rumar:
                         logger.debug(f':- remove {str(checksum_file)}')
         return latest_checksum
 
-    def _save_checksum_if_big(self, size: int, checksum: bytes, relative_p: str, archive_dir: Path, mtime_str: str):
+    def _save_checksum_if_big(self, size: int, checksum: bytes, relative_psx: str, archive_dir: Path, mtime_str: str):
         """Save checksum if file is big, to save computation time in the future.
         The checksum might not be needed, therefore the cost/benefit ration needs to be considered, i.e.
         whether it's better to save an already computed checksum to disk (time to save it and delete it in the future),
@@ -1108,112 +1134,102 @@ class Rumar:
         """
         if size > self.CHECKSUM_SIZE_THRESHOLD:
             checksum_file = archive_dir / f"{mtime_str}{self.ARCHIVE_SEP}{size}{self.CHECKSUM_SUFFIX}"
-            logger.info(f':  {relative_p}  {checksum.hex()}')
+            logger.info(f':  {relative_psx}  {checksum.hex()}')
             archive_dir.mkdir(parents=True, exist_ok=True)
             checksum_file.write_text(checksum)
 
-    def _create(self, create_reason: CreateReason, rath: Rath, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: bytes | None):
+    def _create(self, create_reason: CreateReason):
         if self.s.archive_format == RumarFormat.ZIPX:
-            self._create_zipx(create_reason, rath, relative_p, archive_dir, mtime_str, size, checksum)
+            self._create_zipx(create_reason)
         else:
-            self._create_tar(create_reason, rath, relative_p, archive_dir, mtime_str, size, checksum)
+            self._create_tar(create_reason)
 
-    def _create_tar(self, create_reason: CreateReason, rath: Rath, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: bytes | None):
+    def _create_tar(self, create_reason: CreateReason):
         sign = create_reason.value
         reason = create_reason.name
-        logger.info(f"{sign} {relative_p}  {mtime_str}  {size} {reason} {archive_dir / '...'}")
-        archive_dir.mkdir(parents=True, exist_ok=True)
-        archive_format, compresslevel_kwargs = self.calc_archive_format_and_compresslevel_kwargs(rath)
-        mode = self.ARCHIVE_FORMAT_TO_MODE[archive_format]
-        lstat = rath.lstat_afresh()
-        mtime_str = self.calc_mtime_str(lstat)
-        size = lstat.st_size
-        lnk = self.LNK if S_ISLNK(lstat.st_mode) else self.BLANK
-        archive_path = self.compose_archive_path(archive_dir, mtime_str, size, lnk)
+        logger.info(f"{sign} {self._relative_psx}  {self._mtime_str}  {self._size} {reason} {self._archive_dir / '...'}")
+        self._archive_dir.mkdir(parents=True, exist_ok=True)
+        archive_format, compresslevel_kwargs = self.calc_archive_format_and_compresslevel_kwargs()
+        tar_mode = self.ARCHIVE_FORMAT_TO_MODE[archive_format]
 
-        def _create(_archive_path: Path):
+        def _create():
             """Creates a tar archive and computes blake2b checksum at the same time"""
             checksum = None
-            with tarfile.open(_archive_path, mode, format=self.s.tar_format, **compresslevel_kwargs) as tf:
+            with tarfile.open(self.archive_path(), tar_mode, format=self.s.tar_format, **compresslevel_kwargs) as tf:
                 # NB gettarinfo calls os.stat => fresh stat_result
-                tarinfo = tf.gettarinfo(name=rath, arcname=rath.name)
-                if S_ISLNK(lstat.st_mode):
+                tarinfo = tf.gettarinfo(name=self._rath, arcname=self._rath.name)
+                if self._islnk:
                     # no content and checksum for symlinks
                     tf.addfile(tarinfo, fileobj=None)
                 else:
-                    with FileBlake2b(rath) as file_blake2b:
+                    with FileBlake2b(self._rath) as file_blake2b:
                         tf.addfile(tarinfo, fileobj=file_blake2b)
                         checksum = file_blake2b.digest()
             return checksum
 
-        is_archive_created, archive_path, checksum = self._call_create_and_verify_checksum_before_and_after_unless_lnk(_create, archive_dir, archive_path, checksum, rath, lnk)
+        is_archive_created = self._call_create_and_verify_checksum_before_and_after_unless_lnk(_create)
         if is_archive_created:
-            self._rdb.save(create_reason, relative_p, archive_path, checksum)
-        return checksum
+            self._rdb.save(create_reason, self._relative_psx, self.archive_path(), self._pre_checksum)
+        return self._pre_checksum
 
-    def _create_zipx(self, create_reason: CreateReason, rath: Rath, relative_p: str, archive_dir: Path, mtime_str: str, size: int, checksum: bytes | None):
+    def _create_zipx(self, create_reason: CreateReason):
         sign = create_reason.value
         reason = create_reason.name
-        logger.info(f"{sign} {relative_p}  {mtime_str}  {size} {reason} {archive_dir / '...'}")
-        archive_dir.mkdir(parents=True, exist_ok=True)
-        lstat = rath.lstat_afresh()
-        mtime_str = self.calc_mtime_str(lstat)
-        size = lstat.st_size
-        lnk = self.LNK if S_ISLNK(lstat.st_mode) else self.BLANK
-        archive_path = self.compose_archive_path(archive_dir, mtime_str, size, lnk)
+        logger.info(f"{sign} {self._relative_psx}  {self._mtime_str}  {self._size} {reason} {self._archive_dir / '...'}")
+        self._archive_dir.mkdir(parents=True, exist_ok=True)
+        lnk = self.LNK if S_ISLNK(self._rath.lstat().st_mode) else self.BLANK
 
-        def _create(_archive_path: Path):
+        def _create():
             """Creates a zipx archive and computes blake2b checksum at the same time"""
-            if S_ISLNK(rath.lstat().st_mode):
+            if self._islnk:
                 # symbolic link's binary content must be its target
-                content = (os.readlink(rath).encode(UTF8),)
+                content = (os.readlink(self._rath).encode(UTF8),)
                 file_blake2b = None
             else:
-                file_blake2b = FileBlake2b(rath)
+                file_blake2b = FileBlake2b(self._rath)
                 file_blake2b.open()
                 content = iter(lambda: file_blake2b.read(8192), b'')
             # NB using ZIP_32 also for no comporession, because NO_COMPRESSION_32 buffers the entire binary contents of the file in memory before output
-            member = (rath.name, datetime.fromtimestamp(lstat.st_mtime), lstat.st_mode, ZIP_32, content)
-            level = 0 if rath.suffix.lower() in self.s.suffixes_without_compression else self.s.compression_level
-            with _archive_path.open('wb') as fo:
+            member = (self._rath.name, self._mtime_dt, self._size, ZIP_32, content)
+            level = 0 if self._rath.suffix.lower() in self.s.suffixes_without_compression else self.s.compression_level
+            with self.archive_path().open('wb') as fo:
                 for zipped_chunk in stream_zip([member], password=self.s.password, get_compressobj=lambda: zlib.compressobj(wbits=-zlib.MAX_WBITS, level=level)):
                     fo.write(zipped_chunk)
             checksum = file_blake2b.digest() if file_blake2b else None
             file_blake2b.close()
             return checksum
 
-        is_archive_created, archive_path, checksum = self._call_create_and_verify_checksum_before_and_after_unless_lnk(_create, archive_dir, archive_path, checksum, rath, lnk)
+        is_archive_created = self._call_create_and_verify_checksum_before_and_after_unless_lnk(_create)
         if is_archive_created:
-            self._rdb.save(create_reason, relative_p, archive_path, checksum)
-        return checksum
+            self._rdb.save(create_reason, self._relative_psx, self.archive_path(), self._pre_checksum)
+        return self._pre_checksum
 
-    def _call_create_and_verify_checksum_before_and_after_unless_lnk(self, _create, archive_dir, archive_path, checksum, rath, lnk):
+    def _call_create_and_verify_checksum_before_and_after_unless_lnk(self, _create):
         is_archive_created_lst = [False]
-        if lnk == self.LNK:
-            _create(archive_path)
+        if self._islnk:
+            _create()
             is_archive_created_lst[0] = True
         else:
             attempt_limit = 3
             attempt = 1
             while True:
-                if not checksum:
-                    lstat = rath.lstat_afresh()
-                    archive_path = self.compose_archive_path(archive_dir, self.calc_mtime_str(lstat), lstat.st_size, lnk)
-                    with rath.open('rb') as f:
-                        checksum = compute_blake2b_checksum(f)
-                if self._call_create_and_return_same_checksum_or_limit_reached(_create, archive_path, checksum, attempt, attempt_limit, is_archive_created_lst):
+                if not self._pre_checksum:
+                    with self._rath.open('rb') as f:
+                        self._pre_checksum = compute_blake2b_checksum(f)
+                if self._call_create_and_return_same_checksum_or_limit_reached(_create, attempt, attempt_limit, is_archive_created_lst):
                     break
-                checksum = None  # signal to get a new checksum of the file being archived
+                self._pre_checksum = None  # signal to get a new checksum of the file being archived
                 attempt += 1
-        return is_archive_created_lst[0], archive_path, checksum
+        return is_archive_created_lst[0]
 
-    def _call_create_and_return_same_checksum_or_limit_reached(self, _create: Callable, archive_path: Path, checksum: bytes | None, attempt: int, attempt_limit: int, is_archive_created_lst: list[bool]) -> bool:
-        end_checksum = _create(archive_path) or self.compute_checksum_of_file_in_archive(archive_path, self.s.password)
-        if end_checksum == checksum:
+    def _call_create_and_return_same_checksum_or_limit_reached(self, _create: Callable, attempt: int, attempt_limit: int, is_archive_created_lst: list[bool]) -> bool:
+        post_checksum = _create()
+        if post_checksum == self._pre_checksum:
             is_archive_created_lst[0] = True
             return True
         else:
             is_archive_created_lst[0] = False
+            archive_path = self.archive_path(afresh=attempt > 1)
             archive_path.unlink(missing_ok=True)
             if attempt == attempt_limit:
                 message = f"File changed during the archival process {archive_path} - tried {attempt_limit} times - skip"
@@ -1224,20 +1240,20 @@ class Rumar:
             logger.warning(message)
             return False
 
-    def compose_archive_container_dir(self, *, relative_p: str | None = None, path: Path | None = None) -> Path:
-        if not relative_p or path:
-            raise AttributeError('** either relative_p or path must be provided')
-        if not relative_p:
-            relative_p = derive_relative_psx(path, self.s.source_dir)
-        return self.s.backup_dir / relative_p
+    def compose_archive_container_dir(self, *, relative_psx: str | None = None, path: Path | None = None) -> Path:
+        if not relative_psx or path:
+            raise AttributeError('** either relative_psx or path must be provided')
+        if not relative_psx:
+            relative_psx = derive_relative_psx(path, self.s.source_dir)
+        return self.s.backup_dir / relative_psx
 
-    def calc_archive_format_and_compresslevel_kwargs(self, rath: Rath) -> tuple[RumarFormat, dict]:
+    def calc_archive_format_and_compresslevel_kwargs(self) -> tuple[RumarFormat, dict]:
         if (
-                rath.is_absolute() and  # for gardner.repack, which has only arc_name
-                S_ISLNK(rath.lstat().st_mode)
+                self._rath.is_absolute() and  # for gardner.repack, which has only arc_name
+                self._islnk
         ):
             return self.SYMLINK_FORMAT_COMPRESSLEVEL
-        elif rath.suffix.lower() in self.s.suffixes_without_compression or self.s.archive_format == RumarFormat.TAR:
+        elif self._rath.suffix.lower() in self.s.suffixes_without_compression or self.s.archive_format == RumarFormat.TAR:
             return self.NOCOMPRESSION_FORMAT_COMPRESSLEVEL
         else:
             key = {RumarFormat.TXZ: self.PRESET, RumarFormat.TZS: self.LEVEL}.get(self.s.archive_format, self.COMPRESSLEVEL)
@@ -1959,8 +1975,8 @@ class RumarDB:
             self._bak_dir_id = bak_dir_id
         return self._bak_dir_id
 
-    def get_src_id(self, relative_p: str, /, *, create_if_missing=False) -> int | None:
-        src_path = relative_p
+    def get_src_id(self, relative_psx: str, /, *, create_if_missing=False) -> int | None:
+        src_path = relative_psx
         src_dir_id = self.src_dir_id
         if not (src_id := self._source_to_id.get((src_dir_id, src_path))) and create_if_missing:
             execute(self._cur, 'INSERT INTO source (src_dir_id, src_path) VALUES (?, ?)', (src_dir_id, src_path))
@@ -1976,7 +1992,7 @@ class RumarDB:
             if latest_archive := find_on_disk_last_file_in_directory(basedir, filenames, RX_ARCHIVE_NAME):
                 relative_archive_dir = derive_relative_psx(latest_archive.parent, self.s.backup_dir)
                 file_path = self.s.source_dir / relative_archive_dir
-                relative_p = derive_relative_psx(file_path, self.s.source_dir)
+                relative_psx = derive_relative_psx(file_path, self.s.source_dir)
                 checksum_file = Rumar.compose_checksum_file_path(latest_archive)
                 try:
                     blake2b_checksum = checksum_file.read_text(UTF8)
@@ -1986,13 +2002,13 @@ class RumarDB:
                 create_reason = CreateReason.INIT
                 sign = create_reason.value
                 reason = create_reason.name
-                logger.info(f"{sign} {relative_p}  {latest_archive.name}  {reason} {latest_archive.parent}")
-                self.save(create_reason, relative_p, latest_archive, blake2b_checksum)
+                logger.info(f"{sign} {relative_psx}  {latest_archive.name}  {reason} {latest_archive.parent}")
+                self.save(create_reason, relative_psx, latest_archive, blake2b_checksum)
 
-    def save(self, create_reason: CreateReason, relative_p: str, archive_path: Path | None, blake2b_checksum: bytes | None):
-        # logger.debug(f"{create_reason}, {relative_p}, {archive_path.name if archive_path else None}, {blake2b_checksum})")
+    def save(self, create_reason: CreateReason, relative_psx: str, archive_path: Path | None, blake2b_checksum: bytes | None):
+        # logger.debug(f"{create_reason}, {relative_psx}, {archive_path.name if archive_path else None}, {blake2b_checksum.hex() if blake2b_checksum else None})")
         # source
-        src_path = relative_p
+        src_path = relative_psx
         src_id = self.get_src_id(src_path, create_if_missing=True)
         # backup
         run_id = self.run_id
@@ -2005,8 +2021,8 @@ class RumarDB:
         self._backup_to_checksum[(bak_dir_id, src_id, bak_name)] = blake2b_checksum
         self._db.commit()
 
-    def save_unchanged(self, relative_p: str):
-        src_path = relative_p
+    def save_unchanged(self, relative_psx: str):
+        src_path = relative_psx
         stmt = 'INSERT INTO unchanged (src_id) SELECT id FROM source WHERE src_dir_id = ? AND src_path = ?'
         params = (self.src_dir_id, src_path)
         execute(self._cur, stmt, params)
@@ -2055,7 +2071,7 @@ class RumarDB:
         self._cur.close()
         self._db.close()
 
-    def get_latest_archive_for_source(self, relative_p: str) -> Path | None:
+    def get_latest_archive_for_source(self, relative_psx: str) -> Path | None:
         stmt = dedent('''\
             SELECT bak_dir, bak_name
             FROM backup b 
@@ -2066,12 +2082,12 @@ class RumarDB:
             ORDER BY b.id DESC
             LIMIT 1
         ''')
-        params = (self.profile_id, relative_p, self.s.source_dir.as_posix())
+        params = (self.profile_id, relative_psx, self.s.source_dir.as_posix())
         result = None
         for row in execute(self._cur, stmt, params):
             bak_dir, bak_name = row
             if bak_name:
-                result = Path(bak_dir, relative_p, bak_name)
+                result = Path(bak_dir, relative_psx, bak_name)
         logger.debug(f"=> {result}")
         return result
 
@@ -2169,8 +2185,8 @@ class RumarDB:
 
     def mark_backup_as_deleted(self, archive_path: Path):
         archive_dir = archive_path.parent
-        relative_p = derive_relative_psx(archive_dir, self.s.backup_dir)
-        src_id = self._source_to_id[(self.src_dir_id, relative_p)]
+        relative_psx = derive_relative_psx(archive_dir, self.s.backup_dir)
+        src_id = self._source_to_id[(self.src_dir_id, relative_psx)]
         params = (self.run_id, self.bak_dir_id, src_id, archive_path.name)
         found = False
         if src_id:

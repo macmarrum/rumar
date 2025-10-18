@@ -65,7 +65,7 @@ def _set_up_rumar():
     Rather.BASE_PATH = None
     for rather in rathers:
         relative_p = derive_relative_psx(rather, rumar.s.source_dir)
-        archive_dir = rumar.compose_archive_container_dir(relative_p=relative_p)
+        archive_dir = rumar.compose_archive_container_dir(relative_psx=relative_p)
         lstat = rather.lstat()
         archive_path = rumar.compose_archive_path(archive_dir, rumar.calc_mtime_str(lstat), lstat.st_size)
         archive_rather = Rather(archive_path, lstat_cache=rumar.lstat_cache, mtime=lstat.st_mtime, content='x' * lstat.st_size)

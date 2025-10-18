@@ -728,52 +728,43 @@ class TestCreateTar:
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
         settings = profile_to_settings[profile]
-        rumar = d['rumar']
-        reason = CreateReason.CREATE
         rathers = d['rathers']
         rather = rathers[14]
-        relative_p = derive_relative_psx(rather, settings.source_dir)
-        archive_dir = rumar.compose_archive_container_dir(relative_p=relative_p)
-        lstat = rather.lstat()
-        mtime_str = rumar.calc_mtime_str(lstat)
-        size = lstat.st_size
-        checksum = rather.checksum
-        actual_checksum = rumar._create_tar(reason, rather, relative_p, archive_dir, mtime_str, size, checksum)
-        assert actual_checksum == checksum
-        archive_path = rumar.compose_archive_path(archive_dir, mtime_str, size, '')
+        rumar = d['rumar']
+        rumar._update_for_rath(rather)
+        reason = CreateReason.CREATE
+        actual_checksum = rumar._create_tar(reason)
+        assert actual_checksum == rather.checksum
+        archive_path = rumar.archive_path()
         print('\n##', f"archive_path: {archive_path}")
         member = None
         with tarfile.open(archive_path, 'r') as tf:
             member = tf.next()
         assert member.name == rather.name
-        assert member.mtime == lstat.st_mtime
-        assert member.size == size
+        assert member.mtime == rumar._mtime
+        assert member.size == rumar._size
 
     @pytest.mark.skipif(sys.version_info < (3, 14), reason="zstd requires Python 3.14 or higher")
     def test_create_tar_zst(self, set_up_rumar):
         d = set_up_rumar
-        rumar = d['rumar']
-        rumar.s.update(archive_format='tar.zst')
-        reason = CreateReason.CREATE
+        profile = d['profile']
+        profile_to_settings = d['profile_to_settings']
+        settings = replace(profile_to_settings[d['profile']], archive_format='tar.zst')
+        rumar = Rumar({profile: settings})
+        rumar._init_for_profile(profile)
         rathers = d['rathers']
         rather = rathers[14]
-        relative_p = derive_relative_psx(rather, rumar.s.source_dir)
-        archive_dir = rumar.compose_archive_container_dir(relative_p=relative_p)
-        lstat = rather.lstat()
-        mtime_str = rumar.calc_mtime_str(lstat)
-        size = lstat.st_size
-        checksum = rather.checksum
-        actual_checksum = rumar._create_tar(reason, rather, relative_p, archive_dir, mtime_str, size, checksum)
-        assert actual_checksum == checksum
-        archive_path = rumar.compose_archive_path(archive_dir, mtime_str, size, '')
+        rumar._update_for_rath(rather)
+        actual_checksum = rumar._create_tar(CreateReason.CREATE)
+        assert actual_checksum == rather.checksum
+        archive_path = rumar.archive_path()
         print('\n##', f"archive_path: {archive_path}")
         member = None
         with tarfile.open(archive_path, 'r') as tf:
             member = tf.next()
         assert member.name == rather.name
-        assert member.mtime == lstat.st_mtime
-        assert member.size == size
-        rumar.s.update(archive_format='tar')
+        assert member.mtime == rumar._mtime
+        assert member.size == rumar._size
 
 
 class TestCreateZipx:
@@ -786,19 +777,13 @@ class TestCreateZipx:
         settings = replace(settings, archive_format='zipx', password='test')
         rumar = Rumar({profile: settings})  # new Rumar, with local settings
         rumar._init_for_profile(profile)
-        reason = CreateReason.CREATE
         rathers = d['rathers']
         rather = rathers[14]
-        relative_p = derive_relative_psx(rather, settings.source_dir)
-        archive_dir = rumar.compose_archive_container_dir(relative_p=relative_p)
-        lstat = rather.lstat()
-        mtime_str = rumar.calc_mtime_str(lstat)
-        size = lstat.st_size
-        checksum = rather.checksum
-        actual_checksum = rumar._create_zipx(reason, rather, relative_p, archive_dir, mtime_str, size, checksum)
-        archive_path = rumar.compose_archive_path(archive_dir, mtime_str, size, '')
-        actual_checksum = rumar.compute_checksum_of_file_in_archive(archive_path, settings.password)
-        assert actual_checksum == checksum
+        rumar._update_for_rath(rather)
+        actual_checksum = rumar._create_zipx(CreateReason.CREATE)
+        archive_path = rumar.archive_path()
+        # actual_checksum = rumar.compute_checksum_of_file_in_archive(archive_path, settings.password)
+        assert actual_checksum == rather.checksum
         print('\n##', f"archive_path: {archive_path}")
         content = None
         zipinfo = None
@@ -807,6 +792,6 @@ class TestCreateZipx:
             zipinfo = next(iter(zf.infolist()))
             content = zf.read(zipinfo)
         assert zipinfo.filename == rather.name
-        assert datetime(*zipinfo.date_time) == datetime.fromtimestamp(lstat.st_mtime).replace(microsecond=0)
-        assert zipinfo.file_size == size
+        assert datetime(*zipinfo.date_time).astimezone() == rumar._mtime_dt.replace(microsecond=0)
+        assert zipinfo.file_size == rumar._size
         assert content == rather._content_as_fileobj().read()
