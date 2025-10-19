@@ -477,9 +477,7 @@ class Settings:
         self._patternify('excluded_files_as_regex')
         self.suffixes_without_compression = {f".{s}" for s in self.SUFFIXES_SEP.join([self.no_compression_suffixes_default, self.no_compression_suffixes]).split(self.SUFFIXES_SEP) if s}
         # https://stackoverflow.com/questions/71846054/-cast-a-string-to-an-enum-during-instantiation-of-a-dataclass-
-        if self.archive_format is None:
-            self.archive_format = RumarFormat.TGZ
-        self.archive_format = RumarFormat(self.archive_format)
+        self.archive_format = RumarFormat(self.archive_format or RumarFormat.TGZ)
         self.commands_using_filters = tuple(Command(cmd) for cmd in self.commands_using_filters)
         try:  # make sure password is bytes
             self.password = self.password.encode(UTF8)
