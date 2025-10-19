@@ -7,7 +7,7 @@ from textwrap import dedent
 
 import pytest
 
-from rumar import Rumar, make_profile_to_settings_from_toml_text, CreateReason, derive_relative_psx
+from rumar import Rumar, make_profile_to_settings_from_toml_text, CreateReason
 from utils import Rather
 
 
@@ -60,20 +60,17 @@ def _set_up_rumar():
     reasons: list[CreateReason] = []
     relative_ps: list[str] = []
     archive_rathers: list[Rather] = []
-    checksums: list[str] = []
+    checksums: list[bytes] = []
     reason = CreateReason.CREATE
     Rather.BASE_PATH = None
     for rather in rathers:
-        relative_p = derive_relative_psx(rather, rumar.s.source_dir)
-        archive_dir = rumar.compose_archive_container_dir(relative_psx=relative_p)
-        lstat = rather.lstat()
-        archive_path = rumar.compose_archive_path(archive_dir, rumar.calc_mtime_str(lstat), lstat.st_size)
-        archive_rather = Rather(archive_path, lstat_cache=rumar.lstat_cache, mtime=lstat.st_mtime, content='x' * lstat.st_size)
+        rumar._set_rath_and_friends(rather)
+        archive_rather = Rather(rumar._archive_path, lstat_cache=rumar.lstat_cache, mtime=rumar._mtime, content='x' * rumar._size)
         reasons.append(reason)
-        relative_ps.append(relative_p)
+        relative_ps.append(rumar._relative_psx)
         archive_rathers.append(archive_rather)
         checksums.append(rather.checksum)
-        rumardb.save(reason, relative_p, archive_rather, rather.checksum)
+        rumardb.save(reason, rumar._relative_psx, archive_rather, rather.checksum)
     Rather.BASE_PATH = BASE_PATH
     # db = rumardb._db
     # print("\n### Database Tables ###")

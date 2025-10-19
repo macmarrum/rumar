@@ -4,14 +4,14 @@ import shutil
 import sys
 import tarfile
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from textwrap import dedent
 
 import pytest
 import pyzipper
 
-from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, iter_matching_files, derive_relative_psx, CreateReason, can_exclude_dir, can_include_dir, can_exclude_file, can_include_file, absolutopathlify
+from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, derive_relative_psx, CreateReason, can_exclude_dir, can_include_dir, can_exclude_file, can_include_file, absolutopathlify
 from utils import Rather, eq_list
 
 
@@ -731,11 +731,11 @@ class TestCreateTar:
         rathers = d['rathers']
         rather = rathers[14]
         rumar = d['rumar']
-        rumar._update_for_rath(rather)
+        rumar._set_rath_and_friends(rather)
         reason = CreateReason.CREATE
         actual_checksum = rumar._create_tar(reason)
         assert actual_checksum == rather.checksum
-        archive_path = rumar.archive_path()
+        archive_path = rumar._archive_path
         print('\n##', f"archive_path: {archive_path}")
         member = None
         with tarfile.open(archive_path, 'r') as tf:
@@ -754,10 +754,10 @@ class TestCreateTar:
         rumar._init_for_profile(profile)
         rathers = d['rathers']
         rather = rathers[14]
-        rumar._update_for_rath(rather)
+        rumar._set_rath_and_friends(rather)
         actual_checksum = rumar._create_tar(CreateReason.CREATE)
         assert actual_checksum == rather.checksum
-        archive_path = rumar.archive_path()
+        archive_path = rumar._archive_path
         print('\n##', f"archive_path: {archive_path}")
         member = None
         with tarfile.open(archive_path, 'r') as tf:
@@ -779,9 +779,9 @@ class TestCreateZipx:
         rumar._init_for_profile(profile)
         rathers = d['rathers']
         rather = rathers[14]
-        rumar._update_for_rath(rather)
+        rumar._set_rath_and_friends(rather)
         actual_checksum = rumar._create_zipx(CreateReason.CREATE)
-        archive_path = rumar.archive_path()
+        archive_path = rumar._archive_path
         # actual_checksum = rumar.compute_checksum_of_file_in_archive(archive_path, settings.password)
         assert actual_checksum == rather.checksum
         print('\n##', f"archive_path: {archive_path}")
