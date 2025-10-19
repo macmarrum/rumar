@@ -892,7 +892,7 @@ class Rumar:
     def __init__(self, profile_to_settings: ProfileToSettings):
         self._profile_to_settings = profile_to_settings
         self._profile: str | None = None
-        self._created_archives: list[Path] = []
+        self._created_archives: dict[Path, bytes] = {}
         self._suffix_size_stems_and_raths: dict[str, dict[int, dict]] = {}
         self.lstat_cache: dict[Path, os.stat_result] = {}
         self._warnings = []
@@ -1018,10 +1018,10 @@ class Rumar:
         return self._profile_to_settings[self._profile]
 
     def create_for_all_profiles(self):
-        created_archives = []
+        profile_to_created_archives = {}
         for profile in self._profile_to_settings:
-            created_archives += self.create_for_profile(profile)
-        return created_archives
+            profile_to_created_archives[profile] = self.create_for_profile(profile)
+        return profile_to_created_archives
 
     def create_for_profile(self, profile: str):
         """Create a backup for the specified profile
@@ -1141,6 +1141,7 @@ class Rumar:
             checksum_file.write_text(checksum)
 
     def _create(self, create_reason: CreateReason):
+        """:return: useful for tests"""
         sign = create_reason.value
         reason = create_reason.name
         logger.info(f"{sign} {self._relative_psx}  {self._mtime_str}  {self._size} {reason} {self._archive_dir / '...'}")
@@ -1149,9 +1150,9 @@ class Rumar:
         _create = self._create_zipx if self.s.archive_format == RumarFormat.ZIPX else self._create_tar
         is_archive_created = self._call_create_and_verify_checksum_before_and_after_unless_lnk(_create)
         if is_archive_created:
-            self._created_archives.append(self._archive_path)
+            self._created_archives[self._archive_path] = self._rath_checksum
             self._rdb.save(create_reason, self._relative_psx, self._archive_path, self._rath_checksum)
-        return self._rath_checksum
+        return self._archive_path if is_archive_created else None, self._rath_checksum
 
     def _create_tar(self):
         """Creates a tar archive and computes blake2b checksum at the same time"""

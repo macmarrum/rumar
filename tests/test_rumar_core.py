@@ -747,11 +747,11 @@ class TestCreateTar:
         rather = rathers[14]
         rumar = d['rumar']
         rumar._set_rath_and_friends(rather)
-        actual_checksum = rumar._create(CreateReason.CREATE)
+        actual_archive_path, actual_checksum = rumar._create(CreateReason.CREATE)
+        assert actual_archive_path == rumar._archive_path
         assert actual_checksum == rather.checksum
-        archive_path = rumar._archive_path
         # print('\n##', f"archive_path: {archive_path}")
-        self.compare_archive_contents([archive_path], [rather], settings)
+        self.compare_archive_contents([actual_archive_path], [rather], settings)
 
     @pytest.mark.skipif(sys.version_info < (3, 14), reason="zstd requires Python 3.14 or higher")
     def test_create_tar_zst(self, set_up_rumar):
@@ -764,11 +764,11 @@ class TestCreateTar:
         rathers = d['rathers']
         rather = rathers[14]
         rumar._set_rath_and_friends(rather)
-        actual_checksum = rumar._create(CreateReason.CREATE)
+        actual_archive_path, actual_checksum = rumar._create(CreateReason.CREATE)
+        assert actual_archive_path == rumar._archive_path
         assert actual_checksum == rather.checksum
-        archive_path = rumar._archive_path
         # print('\n##', f"archive_path: {archive_path}")
-        self.compare_archive_contents([archive_path], [rather], settings)
+        self.compare_archive_contents([actual_archive_path], [rather], settings)
 
     def test_create_for_profile__all__tar(self):
         _test_create_for_profile__all_('tar', self.compare_archive_contents)
@@ -835,12 +835,11 @@ class TestCreateZipx:
         rathers = d['rathers']
         rather = rathers[14]
         rumar._set_rath_and_friends(rather)
-        actual_checksum = rumar._create(CreateReason.CREATE)
-        archive_path = rumar._archive_path
-        # actual_checksum = rumar.compute_checksum_of_file_in_archive(archive_path, settings.password)
+        actual_archive_path, actual_checksum = rumar._create(CreateReason.CREATE)
+        assert actual_archive_path == rumar._archive_path
         assert actual_checksum == rather.checksum
         # print('\n##', f"archive_path: {archive_path}")
-        self.compare_archive_contents([archive_path], [rather], settings)
+        self.compare_archive_contents([actual_archive_path], [rather], settings)
 
     def test_create_for_profile__all__zipx(self):
         _test_create_for_profile__all_('zipx', self.compare_archive_contents)
