@@ -432,8 +432,9 @@ class Settings:
     included_files_as_regex: dict[Pattern | str, None] = field(default_factory=dict)
     excluded_files_as_regex: dict[Pattern | str, None] = field(default_factory=dict)
     archive_format: RumarFormat | str = RumarFormat.TGZ
-    # password for zipx, as it's AES-encrypted
+    # password for zipx (AES encryption)
     password: bytes | str | None = None
+    # no longer used (stream-zip supports only DEFLATED) but kept to avoid errors in loading old toml configs
     zip_compression_method: int = zipfile.ZIP_DEFLATED
     compression_level: int = 3
     SUFFIXES_SEP: ClassVar[str] = ','
