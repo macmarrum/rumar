@@ -24,6 +24,11 @@ import sys
 import tarfile
 import zipfile
 import zlib
+
+try:
+    from compression import zstd
+except ImportError:
+    pass
 from contextlib import suppress
 from dataclasses import dataclass, field, fields
 from datetime import datetime, timedelta, date
@@ -35,7 +40,7 @@ from pathlib import Path, PurePath
 from stat import S_ISDIR, S_ISSOCK, S_ISDOOR, S_ISLNK
 from textwrap import dedent
 from time import sleep
-from typing import Literal, Pattern, Any, Iterable, cast, Generator, Callable, Sequence, ClassVar
+from typing import Literal, Pattern, Any, Iterable, cast, Generator, Callable, Sequence, ClassVar, Protocol
 
 from stream_zip import stream_zip, ZIP_32
 
@@ -274,6 +279,7 @@ class RumarFormat(Enum):
     TZS = 'tar.zst'
     # zipx is experimental
     ZIPX = 'zipx'
+    ZSTZ = 'zst.zipx'
 
 
 class Command(Enum):
@@ -1146,8 +1152,13 @@ class Rumar:
         reason = create_reason.name
         logger.info(f"{sign} {self._relative_psx}  {self._mtime_str}  {self._size} {reason} {self._archive_dir / '...'}")
         self._archive_dir.mkdir(parents=True, exist_ok=True)
-        # dispatch based on archive format
-        _create = self._create_zipx if self.s.archive_format == RumarFormat.ZIPX else self._create_tar
+        match self.s.archive_format:
+            case RumarFormat.ZIPX:
+                _create = self._create_zipx
+            case RumarFormat.ZSTZ:
+                _create = self._create_zst_zipx
+            case _:
+                _create = self._create_tar
         is_archive_created = self._call_create_and_verify_checksum_before_and_after_unless_lnk(_create)
         if is_archive_created:
             self._created_archives[self._archive_path] = self._rath_checksum
@@ -1175,8 +1186,8 @@ class Rumar:
         """Creates a zipx archive and computes blake2b checksum at the same time"""
         if self._islnk:
             # symbolic link's binary content must be its target
-            content = (os.readlink(self._rath).encode(UTF8),)
             file_blake2b = None
+            content = (os.readlink(self._rath).encode(UTF8),)
         else:
             file_blake2b = FileBlake2b(self._rath)
             file_blake2b.open()
@@ -1188,7 +1199,35 @@ class Rumar:
             for zipped_chunk in stream_zip([member], password=self.s.password, get_compressobj=lambda: zlib.compressobj(wbits=-zlib.MAX_WBITS, level=level)):
                 fo.write(zipped_chunk)
         checksum = file_blake2b.digest() if file_blake2b else None
-        file_blake2b.close()
+        file_blake2b and file_blake2b.close()
+        return checksum
+
+    def _create_zst_zipx(self):
+        """Creates a zst.zipx archive and computes blake2b checksum at the same time"""
+
+        def zstd_compressed_data_gen(fi: BinaryReader):
+            compressor = zstd.ZstdCompressor(level=self.s.compression_level)
+            while chunk := fi.read(32768):
+                yield compressor.compress(chunk)
+            yield compressor.flush()
+
+        if self._islnk:
+            # symbolic link's binary content must be its target
+            file_blake2b = None
+            content = (os.readlink(self._rath).encode(UTF8),)
+        else:
+            file_blake2b = FileBlake2b(self._rath)
+            file_blake2b.open()
+            content = zstd_compressed_data_gen(file_blake2b)
+        # NB using ZIP_32 also for no compression, because "NO_COMPRESSION_32 [...] buffer the entire binary contents of the file in memory before output"
+        # NB uncompressed file's size - doesn't reflect the zst size
+        member = (f"{self._rath.name}.zst", self._mtime_dt, self._size, ZIP_32, content)
+        level = 0  # already zstd-compressed
+        with self._archive_path.open('wb') as fo:
+            for zipped_chunk in stream_zip([member], password=self.s.password, get_compressobj=lambda: zlib.compressobj(wbits=-zlib.MAX_WBITS, level=level)):
+                fo.write(zipped_chunk)
+        checksum = file_blake2b.digest() if file_blake2b else None
+        file_blake2b and file_blake2b.close()
         return checksum
 
     def _call_create_and_verify_checksum_before_and_after_unless_lnk(self, _create: Callable):
@@ -1580,6 +1619,11 @@ class Rumar:
                     self._rdb.mark_backup_as_deleted(path)
 
 
+class BinaryReader(Protocol):
+    def read(self, __n: int = ...) -> bytes:
+        ...
+
+
 class FileBlake2b:
     """Computes blake2b checksum while reading the file"""
 
@@ -1594,6 +1638,7 @@ class FileBlake2b:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+        return False  # don't suppress exceptions cauth within with
 
     def open(self):
         if not S_ISLNK(self._file_rath.lstat().st_mode):

@@ -4,16 +4,25 @@ import shutil
 import sys
 import tarfile
 from collections.abc import Callable
+
+try:
+    from compression import zstd
+except ImportError:
+    pass
 from dataclasses import replace
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 from textwrap import dedent
 
 import pytest
 import pyzipper
+from stream_unzip import stream_unzip
 
 from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, derive_relative_psx, CreateReason, can_exclude_dir, can_include_dir, can_exclude_file, can_include_file, absolutopathlify, RumarDB, Settings
 from utils import Rather, eq_list
+
+password = '~!@#$%^&*()-= 123 qwe żółw'
 
 
 def _can_match_dir(path, s, relative_psx):
@@ -811,7 +820,7 @@ def _test_create_for_profile__all_(archive_format: str, compare_archive_contents
     profile = d['profile']
     profile_to_settings = d['profile_to_settings']
     settings = profile_to_settings[profile]
-    settings.update(db_path=None, archive_format=archive_format)
+    settings.update(db_path=None, archive_format=archive_format, password=password)
     settings.backup_dir.mkdir(parents=True, exist_ok=True)
     rumar = Rumar({profile: settings})
     created_archives = sorted(rumar.create_for_profile(profile))
@@ -829,7 +838,7 @@ class TestCreateZipx:
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
         settings = profile_to_settings[profile]
-        settings = replace(settings, archive_format='zipx', password='test')
+        settings = replace(settings, archive_format='zipx', password=password)
         rumar = Rumar({profile: settings})  # new Rumar, with local settings
         rumar._init_for_profile(profile)
         rathers = d['rathers']
@@ -857,3 +866,40 @@ class TestCreateZipx:
             assert datetime(*zipinfo.date_time) == datetime.fromtimestamp(rather._mtime).replace(microsecond=0)
             assert zipinfo.file_size == rather._size
             assert content == rather._content_as_fileobj().read()
+
+
+class TestCreateZstZipx:
+
+    def test_create_zst_zipx(self, set_up_rumar):
+        d = set_up_rumar
+        profile = d['profile']
+        profile_to_settings = d['profile_to_settings']
+        settings = profile_to_settings[profile]
+        settings = replace(settings, archive_format='zst.zipx', password=password)
+        rumar = Rumar({profile: settings})  # new Rumar, with local settings
+        rumar._init_for_profile(profile)
+        rathers = d['rathers']
+        rather = rathers[14]
+        rumar._set_rath_and_friends(rather)
+        actual_archive_path, actual_checksum = rumar._create(CreateReason.CREATE)
+        assert actual_archive_path == rumar._archive_path
+        assert actual_checksum == rather.checksum
+        # print('\n##', f"archive_path: {archive_path}")
+        self.compare_archive_contents([actual_archive_path], [rather], settings)
+
+    def test_create_for_profile__all__zst_zipx(self):
+        _test_create_for_profile__all_('zst.zipx', self.compare_archive_contents)
+
+    @classmethod
+    def compare_archive_contents(cls, created_archives: list[Path], rathers: list[Rather], settings: Settings):
+        for archive_path, rather in zip(created_archives, rathers, strict=True):
+            content = BytesIO()
+            with archive_path.open('rb') as f:
+                for filename, file_size, unzipped_chunks in stream_unzip(iter(lambda: f.read(32768), b''), password=settings.password):
+                    print(f"\n@@ {archive_path} - {filename}")
+                    assert filename[-4:] == b'.zst'
+                    assert filename.removesuffix(b'.zst').decode('UTF-8') == rather.name
+                    decompressor = zstd.ZstdDecompressor()
+                    for unzipped_zst_chunk in unzipped_chunks:
+                        content.write(decompressor.decompress(unzipped_zst_chunk))
+                    assert content.getvalue() == rather._content_as_fileobj().read()
