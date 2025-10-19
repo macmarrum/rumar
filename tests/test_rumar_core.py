@@ -3,14 +3,16 @@
 import shutil
 import sys
 import tarfile
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime
+from pathlib import Path
 from textwrap import dedent
 
 import pytest
 import pyzipper
 
-from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, derive_relative_psx, CreateReason, can_exclude_dir, can_include_dir, can_exclude_file, can_include_file, absolutopathlify, RumarDB
+from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, derive_relative_psx, CreateReason, can_exclude_dir, can_include_dir, can_exclude_file, can_include_file, absolutopathlify, RumarDB, Settings
 from utils import Rather, eq_list
 
 
@@ -70,7 +72,6 @@ def _set_up_rumar():
         BASE.mkdir(parents=True)
     rumar = Rumar(profile_to_settings)
     rumar._init_for_profile(profile)
-    rumardb = rumar._rdb
     fs_paths = [
         f"/{profile}/file01.txt",
         f"/{profile}/file02.txt",
@@ -750,13 +751,8 @@ class TestCreateTar:
         actual_checksum = rumar._create_tar(reason)
         assert actual_checksum == rather.checksum
         archive_path = rumar._archive_path
-        print('\n##', f"archive_path: {archive_path}")
-        member = None
-        with tarfile.open(archive_path, 'r') as tf:
-            member = tf.next()
-        assert member.name == rather.name
-        assert member.mtime == rumar._mtime
-        assert member.size == rumar._size
+        # print('\n##', f"archive_path: {archive_path}")
+        self.compare_archive_contents([archive_path], [rather], settings)
 
     @pytest.mark.skipif(sys.version_info < (3, 14), reason="zstd requires Python 3.14 or higher")
     def test_create_tar_zst(self, set_up_rumar):
@@ -772,52 +768,59 @@ class TestCreateTar:
         actual_checksum = rumar._create_tar(CreateReason.CREATE)
         assert actual_checksum == rather.checksum
         archive_path = rumar._archive_path
-        print('\n##', f"archive_path: {archive_path}")
-        member = None
-        with tarfile.open(archive_path, 'r') as tf:
-            member = tf.next()
-        assert member.name == rather.name
-        assert member.mtime == rumar._mtime
-        assert member.size == rumar._size
+        # print('\n##', f"archive_path: {archive_path}")
+        self.compare_archive_contents([archive_path], [rather], settings)
 
     def test_create_for_profile__all__tar(self):
-        self._test_create_for_profile__all_('tar')
+        _test_create_for_profile__all_('tar', self.compare_archive_contents)
+
+    def test_create_for_profile__all__tar_gz(self):
+        _test_create_for_profile__all_('tar.gz', self.compare_archive_contents)
+
+    def test_create_for_profile__all__tar_bz2(self):
+        _test_create_for_profile__all_('tar.bz2', self.compare_archive_contents)
+
+    def test_create_for_profile__all__tar_xz(self):
+        _test_create_for_profile__all_('tar.xz', self.compare_archive_contents)
+
+    @pytest.mark.skipif(sys.version_info < (3, 14), reason="zstd requires Python 3.14 or higher")
+    def test_create_for_profile__all__tar_zst(self):
+        _test_create_for_profile__all_('tar.zst', self.compare_archive_contents)
 
     @staticmethod
-    def _test_create_for_profile__all_(archive_format: str):
-        # use per-function environment set-up (tmp, rumardb)
-        d = _set_up_rumar()  # must be called after set_up_rumar() fixture is called
-        profile = d['profile']
-        profile_to_settings = d['profile_to_settings']
-        settings = profile_to_settings[profile]
-        settings.update(db_path=None, archive_format=archive_format)
-        settings.backup_dir.mkdir(parents=True, exist_ok=True)
-        rumar = Rumar({profile: settings})
-        created_archives = sorted(rumar.create_for_profile(profile))
-        rathers: list[Rather] = sorted(d['rathers'])
-        expected = [rather.compose_archive_path(rumar, settings) for rather in rathers]
-        assert created_archives == expected
+    def compare_archive_contents(created_archives: list[Path], rathers: list[Rather], settings: Settings):
+        """
+        :param created_archives: must be sorted
+        :param rathers: must be sorted
+        """
         member = None
+        contents = None
         for archive_path, rather in zip(created_archives, rathers, strict=True):
             # print(f'\n## archive_path: {archive_path}')
             with tarfile.open(archive_path, 'r') as tf:
                 member = tf.next()
+                contents = tf.extractfile(member).read()
             assert member.name == rather.name
             assert member.mtime == rather._mtime
             assert member.size == rather._size
+            assert contents == rather._content_as_fileobj().read()
 
-    def test_create_for_profile__all__tar_gz(self):
-        self._test_create_for_profile__all_('tar.gz')
 
-    def test_create_for_profile__all__tar_bz2(self):
-        self._test_create_for_profile__all_('tar.bz2')
-
-    def test_create_for_profile__all__tar_xz(self):
-        self._test_create_for_profile__all_('tar.xz')
-
-    @pytest.mark.skipif(sys.version_info < (3, 14), reason="zstd requires Python 3.14 or higher")
-    def test_create_for_profile__all__tar_zst(self):
-        self._test_create_for_profile__all_('tar.zst')
+def _test_create_for_profile__all_(archive_format: str, compare_archive_contents: Callable[[list[Path], list[Rather], Settings], None]):
+    # use per-function environment set-up (tmp, rumardb)
+    d = _set_up_rumar()  # must be called after set_up_rumar() fixture is called
+    profile = d['profile']
+    profile_to_settings = d['profile_to_settings']
+    settings = profile_to_settings[profile]
+    settings.update(db_path=None, archive_format=archive_format)
+    settings.backup_dir.mkdir(parents=True, exist_ok=True)
+    rumar = Rumar({profile: settings})
+    created_archives = sorted(rumar.create_for_profile(profile))
+    rathers: list[Rather] = sorted(d['rathers'])
+    expected = [rather.compose_archive_path(rumar, settings) for rather in rathers]
+    assert created_archives == expected
+    # format-specific function i.e., different for tar and zipx
+    compare_archive_contents(created_archives, rathers, settings)
 
 
 class TestCreateZipx:
@@ -837,14 +840,22 @@ class TestCreateZipx:
         archive_path = rumar._archive_path
         # actual_checksum = rumar.compute_checksum_of_file_in_archive(archive_path, settings.password)
         assert actual_checksum == rather.checksum
-        print('\n##', f"archive_path: {archive_path}")
+        # print('\n##', f"archive_path: {archive_path}")
+        self.compare_archive_contents([archive_path], [rather], settings)
+
+    def test_create_for_profile__all__zipx(self):
+        _test_create_for_profile__all_('zipx', self.compare_archive_contents)
+
+    @staticmethod
+    def compare_archive_contents(created_archives: list[Path], rathers: list[Rather], settings: Settings):
         content = None
         zipinfo = None
-        with pyzipper.AESZipFile(archive_path, 'r') as zf:
-            zf.setpassword(settings.password)
-            zipinfo = next(iter(zf.infolist()))
-            content = zf.read(zipinfo)
-        assert zipinfo.filename == rather.name
-        assert datetime(*zipinfo.date_time).astimezone() == rumar._mtime_dt.replace(microsecond=0)
-        assert zipinfo.file_size == rumar._size
-        assert content == rather._content_as_fileobj().read()
+        for archive_path, rather in zip(created_archives, rathers, strict=True):
+            with pyzipper.AESZipFile(archive_path, 'r') as zf:
+                zf.setpassword(settings.password)
+                zipinfo = next(iter(zf.infolist()))
+                content = zf.read(zipinfo)
+            assert zipinfo.filename == rather.name
+            assert datetime(*zipinfo.date_time) == datetime.fromtimestamp(rather._mtime).replace(microsecond=0)
+            assert zipinfo.file_size == rather._size
+            assert content == rather._content_as_fileobj().read()
