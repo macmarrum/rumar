@@ -747,8 +747,7 @@ class TestCreateTar:
         rather = rathers[14]
         rumar = d['rumar']
         rumar._set_rath_and_friends(rather)
-        reason = CreateReason.CREATE
-        actual_checksum = rumar._create_tar(reason)
+        actual_checksum = rumar._create(CreateReason.CREATE)
         assert actual_checksum == rather.checksum
         archive_path = rumar._archive_path
         # print('\n##', f"archive_path: {archive_path}")
@@ -765,7 +764,7 @@ class TestCreateTar:
         rathers = d['rathers']
         rather = rathers[14]
         rumar._set_rath_and_friends(rather)
-        actual_checksum = rumar._create_tar(CreateReason.CREATE)
+        actual_checksum = rumar._create(CreateReason.CREATE)
         assert actual_checksum == rather.checksum
         archive_path = rumar._archive_path
         # print('\n##', f"archive_path: {archive_path}")
@@ -836,7 +835,7 @@ class TestCreateZipx:
         rathers = d['rathers']
         rather = rathers[14]
         rumar._set_rath_and_friends(rather)
-        actual_checksum = rumar._create_zipx(CreateReason.CREATE)
+        actual_checksum = rumar._create(CreateReason.CREATE)
         archive_path = rumar._archive_path
         # actual_checksum = rumar.compute_checksum_of_file_in_archive(archive_path, settings.password)
         assert actual_checksum == rather.checksum

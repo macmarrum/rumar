@@ -1141,71 +1141,54 @@ class Rumar:
             checksum_file.write_text(checksum)
 
     def _create(self, create_reason: CreateReason):
-        if self.s.archive_format == RumarFormat.ZIPX:
-            return self._create_zipx(create_reason)
-        else:
-            return self._create_tar(create_reason)
-
-    def _create_tar(self, create_reason: CreateReason):
         sign = create_reason.value
         reason = create_reason.name
         logger.info(f"{sign} {self._relative_psx}  {self._mtime_str}  {self._size} {reason} {self._archive_dir / '...'}")
         self._archive_dir.mkdir(parents=True, exist_ok=True)
+        # dispatch based on archive format
+        _create = self._create_zipx if self.s.archive_format == RumarFormat.ZIPX else self._create_tar
+        is_archive_created = self._call_create_and_verify_checksum_before_and_after_unless_lnk(_create)
+        if is_archive_created:
+            self._created_archives.append(self._archive_path)
+            self._rdb.save(create_reason, self._relative_psx, self._archive_path, self._rath_checksum)
+        return self._rath_checksum
+
+    def _create_tar(self):
+        """Creates a tar archive and computes blake2b checksum at the same time"""
         archive_format, compresslevel_kwargs = self.calc_archive_format_and_compresslevel_kwargs()
         tar_mode = self.ARCHIVE_FORMAT_TO_MODE[archive_format]
-
-        def _create():
-            """Creates a tar archive and computes blake2b checksum at the same time"""
-            checksum = None
-            with tarfile.open(self._archive_path, tar_mode, format=self.s.tar_format, **compresslevel_kwargs) as tf:
-                # NB gettarinfo calls os.stat => fresh stat_result
-                tarinfo = tf.gettarinfo(name=self._rath, arcname=self._rath.name)
-                if self._islnk:
-                    # no content and checksum for symlinks
-                    tf.addfile(tarinfo, fileobj=None)
-                else:
-                    with FileBlake2b(self._rath) as file_blake2b:
-                        tf.addfile(tarinfo, fileobj=file_blake2b)
-                        checksum = file_blake2b.digest()
-            return checksum
-
-        is_archive_created = self._call_create_and_verify_checksum_before_and_after_unless_lnk(_create)
-        if is_archive_created:
-            self._created_archives.append(self._archive_path)
-            self._rdb.save(create_reason, self._relative_psx, self._archive_path, self._rath_checksum)
-        return self._rath_checksum
-
-    def _create_zipx(self, create_reason: CreateReason):
-        sign = create_reason.value
-        reason = create_reason.name
-        logger.info(f"{sign} {self._relative_psx}  {self._mtime_str}  {self._size} {reason} {self._archive_dir / '...'}")
-        self._archive_dir.mkdir(parents=True, exist_ok=True)
-
-        def _create():
-            """Creates a zipx archive and computes blake2b checksum at the same time"""
+        checksum = None
+        with tarfile.open(self._archive_path, tar_mode, format=self.s.tar_format, **compresslevel_kwargs) as tf:
+            # NB gettarinfo calls os.stat => fresh stat_result
+            tarinfo = tf.gettarinfo(name=self._rath, arcname=self._rath.name)
             if self._islnk:
-                # symbolic link's binary content must be its target
-                content = (os.readlink(self._rath).encode(UTF8),)
-                file_blake2b = None
+                # no content and checksum for symlinks
+                tf.addfile(tarinfo, fileobj=None)
             else:
-                file_blake2b = FileBlake2b(self._rath)
-                file_blake2b.open()
-                content = iter(lambda: file_blake2b.read(8192), b'')
-            # NB using ZIP_32 also for no compression, because "NO_COMPRESSION_32 [...] buffer the entire binary contents of the file in memory before output"
-            member = (self._rath.name, self._mtime_dt, self._size, ZIP_32, content)
-            level = 0 if self._rath.suffix.lower() in self.s.suffixes_without_compression else self.s.compression_level
-            with self._archive_path.open('wb') as fo:
-                for zipped_chunk in stream_zip([member], password=self.s.password, get_compressobj=lambda: zlib.compressobj(wbits=-zlib.MAX_WBITS, level=level)):
-                    fo.write(zipped_chunk)
-            checksum = file_blake2b.digest() if file_blake2b else None
-            file_blake2b.close()
-            return checksum
+                with FileBlake2b(self._rath) as file_blake2b:
+                    tf.addfile(tarinfo, fileobj=file_blake2b)
+                    checksum = file_blake2b.digest()
+        return checksum
 
-        is_archive_created = self._call_create_and_verify_checksum_before_and_after_unless_lnk(_create)
-        if is_archive_created:
-            self._created_archives.append(self._archive_path)
-            self._rdb.save(create_reason, self._relative_psx, self._archive_path, self._rath_checksum)
-        return self._rath_checksum
+    def _create_zipx(self):
+        """Creates a zipx archive and computes blake2b checksum at the same time"""
+        if self._islnk:
+            # symbolic link's binary content must be its target
+            content = (os.readlink(self._rath).encode(UTF8),)
+            file_blake2b = None
+        else:
+            file_blake2b = FileBlake2b(self._rath)
+            file_blake2b.open()
+            content = iter(lambda: file_blake2b.read(8192), b'')
+        # NB using ZIP_32 also for no compression, because "NO_COMPRESSION_32 [...] buffer the entire binary contents of the file in memory before output"
+        member = (self._rath.name, self._mtime_dt, self._size, ZIP_32, content)
+        level = 0 if self._rath.suffix.lower() in self.s.suffixes_without_compression else self.s.compression_level
+        with self._archive_path.open('wb') as fo:
+            for zipped_chunk in stream_zip([member], password=self.s.password, get_compressobj=lambda: zlib.compressobj(wbits=-zlib.MAX_WBITS, level=level)):
+                fo.write(zipped_chunk)
+        checksum = file_blake2b.digest() if file_blake2b else None
+        file_blake2b.close()
+        return checksum
 
     def _call_create_and_verify_checksum_before_and_after_unless_lnk(self, _create: Callable):
         is_archive_created_lst = [False]
