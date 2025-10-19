@@ -893,6 +893,7 @@ class Rumar:
     def __init__(self, profile_to_settings: ProfileToSettings):
         self._profile_to_settings = profile_to_settings
         self._profile: str | None = None
+        self._created_archives: list[Path] = []
         self._suffix_size_stems_and_raths: dict[str, dict[int, dict]] = {}
         self.lstat_cache: dict[Path, os.stat_result] = {}
         self._warnings = []
@@ -1008,16 +1009,20 @@ class Rumar:
         size = int(split_result[1])
         return mtime_str, size
 
-    def compose_archive_path(self, archive_dir: Path, mtime_str: str, size: int, comment: str | None = None) -> Path:
-        return compose_archive_path(archive_dir, self.s.archive_format, mtime_str, size, comment)
+    def compose_archive_path(self, archive_dir: Path, mtime_str: str, size: int, comment: str | None = None, settings: Settings = None) -> Path:
+        """:param settings: useful for tests when ``self._profile`` is unset"""
+        s = settings or self.s
+        return compose_archive_path(archive_dir, s.archive_format, mtime_str, size, comment)
 
     @property
     def s(self) -> Settings:
         return self._profile_to_settings[self._profile]
 
     def create_for_all_profiles(self):
+        created_archives = []
         for profile in self._profile_to_settings:
-            self.create_for_profile(profile)
+            created_archives += self.create_for_profile(profile)
+        return created_archives
 
     def create_for_profile(self, profile: str):
         """Create a backup for the specified profile
@@ -1063,9 +1068,11 @@ class Rumar:
                     logger.debug(f":== {self._relative_psx}  {latest_mtime_str}  {latest_size} ==: unchanged")
                     self._rdb.save_unchanged(self._relative_psx)
         self._finalize_profile_changes()
+        return self._created_archives
 
     def _init_for_profile(self, profile: str):
         self._profile = profile  # for self.s to work
+        self._created_archives.clear()
         self.lstat_cache.clear()
         self._warnings.clear()
         self._errors.clear()
@@ -1136,9 +1143,9 @@ class Rumar:
 
     def _create(self, create_reason: CreateReason):
         if self.s.archive_format == RumarFormat.ZIPX:
-            self._create_zipx(create_reason)
+            return self._create_zipx(create_reason)
         else:
-            self._create_tar(create_reason)
+            return self._create_tar(create_reason)
 
     def _create_tar(self, create_reason: CreateReason):
         sign = create_reason.value
@@ -1165,6 +1172,7 @@ class Rumar:
 
         is_archive_created = self._call_create_and_verify_checksum_before_and_after_unless_lnk(_create)
         if is_archive_created:
+            self._created_archives.append(self._archive_path)
             self._rdb.save(create_reason, self._relative_psx, self._archive_path, self._rath_checksum)
         return self._rath_checksum
 
@@ -1196,6 +1204,7 @@ class Rumar:
 
         is_archive_created = self._call_create_and_verify_checksum_before_and_after_unless_lnk(_create)
         if is_archive_created:
+            self._created_archives.append(self._archive_path)
             self._rdb.save(create_reason, self._relative_psx, self._archive_path, self._rath_checksum)
         return self._rath_checksum
 
@@ -1236,12 +1245,14 @@ class Rumar:
             self._rath_checksum = None  # signal to get a new checksum
             return False
 
-    def compose_archive_container_dir(self, *, relative_psx: str | None = None, path: Path | None = None) -> Path:
-        if not relative_psx or path:
+    def compose_archive_container_dir(self, *, relative_psx: str | None = None, path: Path | None = None, settings: Settings = None) -> Path:
+        """:param settings: useful for tests when ``self._profile`` is unset"""
+        if not (relative_psx or path):
             raise AttributeError('** either relative_psx or path must be provided')
+        s = settings or self.s
         if not relative_psx:
-            relative_psx = derive_relative_psx(path, self.s.source_dir)
-        return self.s.backup_dir / relative_psx
+            relative_psx = derive_relative_psx(path, s.source_dir)
+        return s.backup_dir / relative_psx
 
     def calc_archive_format_and_compresslevel_kwargs(self) -> tuple[RumarFormat, dict]:
         if (

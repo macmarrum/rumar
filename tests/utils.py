@@ -6,7 +6,7 @@ from io import BytesIO
 from pathlib import Path, PurePath
 from typing import Sequence
 
-from rumar import Rath, compute_blake2b_checksum
+from rumar import Rath, compute_blake2b_checksum, Rumar, Settings
 
 _path_to_lstat_ = {}
 
@@ -28,7 +28,7 @@ class Rather(Rath):
         super().__init__(*args, lstat_cache=lstat_cache if lstat_cache is not None else _path_to_lstat_)
         self._mtime = mtime
         self._content = f"{self}\n" if content == '' else content  # can be None, to produce None checksum for NULL blake2b
-        self._st_size = len(self._content) if self._content else 0
+        self._size = len(self._content) if self._content else 0
         if islnk:
             filetype = S_IFLNK
         elif isdir:
@@ -52,7 +52,7 @@ class Rather(Rath):
                 1,  # st_nlink
                 0,  # st_uid
                 0,  # st_gid
-                self._st_size,  # st_size
+                self._size,  # st_size
                 self._mtime,  # st_atime
                 self._mtime,  # st_mtime
                 self._mtime  # st_ctime
@@ -80,7 +80,7 @@ class Rather(Rath):
     @content.setter
     def content(self, value):
         self._content = value
-        self._st_size = len(value) if value is not None else 0
+        self._size = len(value) if value is not None else 0
         self._checksum = None  # checksum will be computed anew
         self.lstat_cache.pop(self, None)
 
@@ -99,6 +99,10 @@ class Rather(Rath):
 
     def as_path(self):
         return Path(self)
+
+    def compose_archive_path(self, rumar: Rumar, settings: Settings):
+        archive_dir = rumar.compose_archive_container_dir(path=self, settings=settings)
+        return rumar.compose_archive_path(archive_dir, rumar.calc_mtime_str(self.lstat()), self._size, comment=None, settings=settings)
 
     @property
     def checksum(self) -> bytes | None:

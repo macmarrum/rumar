@@ -5,13 +5,12 @@ import sys
 import tarfile
 from dataclasses import replace
 from datetime import datetime
-from pathlib import Path
 from textwrap import dedent
 
 import pytest
 import pyzipper
 
-from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, derive_relative_psx, CreateReason, can_exclude_dir, can_include_dir, can_exclude_file, can_include_file, absolutopathlify
+from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, derive_relative_psx, CreateReason, can_exclude_dir, can_include_dir, can_exclude_file, can_include_file, absolutopathlify, RumarDB
 from utils import Rather, eq_list
 
 
@@ -39,9 +38,21 @@ def _can_match_file(path, s, relative_psx):
     return 1 if can_include_file(path, s, relative_psx, base_path=s.source_dir) else 0
 
 
+# for tests that need individual _set_up_rumar()
+_tmp_path_factory: pytest.TempPathFactory = None
+
+
 @pytest.fixture(scope='module')
-def set_up_rumar():
-    BASE = Path('/tmp/rumar')
+def set_up_rumar(tmp_path_factory):
+    global _tmp_path_factory
+    _tmp_path_factory = tmp_path_factory
+    d = _set_up_rumar()
+    yield d
+    _tear_down_rumar(d['rumar'], d['rumar']._rdb)
+
+
+def _set_up_rumar():
+    BASE = _tmp_path_factory.mktemp(basename='t', numbered=True)  # t0: module, t1..*: individual tests
     Rather.BASE_PATH = BASE
     profile = 'profileA'
     toml = dedent(f"""\
@@ -93,7 +104,10 @@ def set_up_rumar():
         rathers=rathers,
         raths=raths,
     )
-    yield d
+    return d
+
+
+def _tear_down_rumar(rumar: Rumar, rumardb: RumarDB):
     rumar.lstat_cache.clear()
     rumardb.close_db()
     rumardb._profile_to_id.clear()
@@ -765,6 +779,45 @@ class TestCreateTar:
         assert member.name == rather.name
         assert member.mtime == rumar._mtime
         assert member.size == rumar._size
+
+    def test_create_for_profile__all__tar(self):
+        self._test_create_for_profile__all_('tar')
+
+    @staticmethod
+    def _test_create_for_profile__all_(archive_format: str):
+        # use per-function environment set-up (tmp, rumardb)
+        d = _set_up_rumar()  # must be called after set_up_rumar() fixture is called
+        profile = d['profile']
+        profile_to_settings = d['profile_to_settings']
+        settings = profile_to_settings[profile]
+        settings.update(db_path=None, archive_format=archive_format)
+        settings.backup_dir.mkdir(parents=True, exist_ok=True)
+        rumar = Rumar({profile: settings})
+        created_archives = sorted(rumar.create_for_profile(profile))
+        rathers: list[Rather] = sorted(d['rathers'])
+        expected = [rather.compose_archive_path(rumar, settings) for rather in rathers]
+        assert created_archives == expected
+        member = None
+        for archive_path, rather in zip(created_archives, rathers, strict=True):
+            # print(f'\n## archive_path: {archive_path}')
+            with tarfile.open(archive_path, 'r') as tf:
+                member = tf.next()
+            assert member.name == rather.name
+            assert member.mtime == rather._mtime
+            assert member.size == rather._size
+
+    def test_create_for_profile__all__tar_gz(self):
+        self._test_create_for_profile__all_('tar.gz')
+
+    def test_create_for_profile__all__tar_bz2(self):
+        self._test_create_for_profile__all_('tar.bz2')
+
+    def test_create_for_profile__all__tar_xz(self):
+        self._test_create_for_profile__all_('tar.xz')
+
+    @pytest.mark.skipif(sys.version_info < (3, 14), reason="zstd requires Python 3.14 or higher")
+    def test_create_for_profile__all__tar_zst(self):
+        self._test_create_for_profile__all_('tar.zst')
 
 
 class TestCreateZipx:
