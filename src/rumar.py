@@ -1216,8 +1216,7 @@ class Rumar:
             file_blake2b = None
             content = (os.readlink(self._rath).encode(UTF8),)
         else:
-            file_blake2b = FileBlake2b(self._rath)
-            file_blake2b.open()
+            file_blake2b = FileBlake2b(self._rath).open()
             content = zstd_compressed_data_gen(file_blake2b)
         # NB using ZIP_32 also for no compression, because "NO_COMPRESSION_32 [...] buffer the entire binary contents of the file in memory before output"
         # NB uncompressed file's size - doesn't reflect the zst size
@@ -1641,8 +1640,11 @@ class FileBlake2b:
         return False  # don't suppress exceptions cauth within with
 
     def open(self):
-        if not S_ISLNK(self._file_rath.lstat().st_mode):
-            self._fileobj = self._file_rath.open('rb')
+        """An alternative to ``with FileBlake2b(...) as f:``"""
+        if S_ISLNK(self._file_rath.lstat().st_mode):
+            raise ValueError(f"expected a file, but got a symlink - {self._file_rath}")
+        self._fileobj = self._file_rath.open('rb')
+        return self
 
     def close(self):
         if not self._fileobj.closed:
