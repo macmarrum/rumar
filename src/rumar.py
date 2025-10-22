@@ -931,7 +931,10 @@ class Rumar:
             self._mode = self._rath.lstat().st_mode
             self._islnk = S_ISLNK(self._mode)
             lnk = self.LNK if self._islnk else self.BLANK
-            self._archive_path = compose_archive_path(self._archive_dir, self.s.archive_format, self._mtime_str, self._size, comment=lnk)
+            archive_format = self.s.archive_format
+            if self.s.archive_format == RumarFormat.ZSTZ and rath.suffix.lower() in self.s.suffixes_without_compression:
+                archive_format = RumarFormat.ZIPX
+            self._archive_path = compose_archive_path(self._archive_dir, archive_format, self._mtime_str, self._size, comment=lnk)
         else:
             self._rath = self._relative_psx = self._archive_dir = self._mtime = self._mtime_str = self._mtime_dt = self._size = self._mode = self._islnk = self._archive_path = None
 
@@ -1044,8 +1047,6 @@ class Rumar:
         for rath in self.source_files:
             self._set_rath_and_friends(rath)
             self._rath_checksum = None
-            # TODO handle LNK target changes, don't blake2b LNKs
-            # latest_archive = find_last_file_in_dir(archive_dir, RX_ARCHIVE_SUFFIX)
             latest_archive = self._rdb.get_latest_archive_for_source(self._relative_psx)
             if latest_archive is None:
                 self._create(CreateReason.CREATE)
@@ -1206,6 +1207,7 @@ class Rumar:
         """Creates a zst.zipx archive and computes blake2b checksum at the same time"""
 
         def zstd_compressed_data_gen(fi: BinaryReader):
+            # Note: no-compression-suffix case is handled in _set_rath_and_friends by forcing ZIPX in place of ZSTZ
             compressor = zstd.ZstdCompressor(level=self.s.compression_level)
             while chunk := fi.read(32768):
                 yield compressor.compress(chunk)
