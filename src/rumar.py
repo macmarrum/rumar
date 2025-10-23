@@ -42,7 +42,10 @@ from textwrap import dedent
 from time import sleep
 from typing import Literal, Pattern, Any, Iterable, cast, Generator, Callable, Sequence, ClassVar, Protocol
 
-from stream_zip import stream_zip, ZIP_32
+try:
+    from stream_zip import stream_zip, ZIP_32
+except ImportError:
+    pass
 
 vi = sys.version_info
 PY_VER = (vi.major, vi.minor)
@@ -1043,7 +1046,7 @@ class Rumar:
                 errors.append(str(ex))
         if errors:
             logger.warning(f"SKIP {profile} - {'; '.join(errors)}")
-            return
+            return None
         for rath in self.source_files:
             self._set_rath_and_friends(rath)
             self._rath_checksum = None
