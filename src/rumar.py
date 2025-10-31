@@ -1197,7 +1197,8 @@ class Rumar:
             file_blake2b.open()
             content = iter(lambda: file_blake2b.read(8192), b'')
         # NB using ZIP_32 also for no compression, because "NO_COMPRESSION_32 [...] buffer the entire binary contents of the file in memory before output"
-        member = (self._rath.name, self._mtime_dt, self._size, ZIP_32, content)
+        # NB None size - letting steam-zip discover it
+        member = (self._rath.name, self._mtime_dt, None, ZIP_32, content)
         level = 0 if self._rath.suffix.lower() in self.s.suffixes_without_compression else self.s.compression_level
         with self._archive_path.open('wb') as fo:
             for zipped_chunk in stream_zip([member], password=self.s.password, get_compressobj=lambda: zlib.compressobj(wbits=-zlib.MAX_WBITS, level=level)):
@@ -1224,8 +1225,8 @@ class Rumar:
             file_blake2b = FileBlake2b(self._rath).open()
             content = zstd_compressed_data_gen(file_blake2b)
         # NB using ZIP_32 also for no compression, because "NO_COMPRESSION_32 [...] buffer the entire binary contents of the file in memory before output"
-        # NB uncompressed file's size - doesn't reflect the zst size
-        member = (f"{self._rath.name}.zst", self._mtime_dt, self._size, ZIP_32, content)
+        # NB None size - letting steam-zip discover it
+        member = (f"{self._rath.name}.zst", self._mtime_dt, None, ZIP_32, content)
         level = 0  # already zstd-compressed
         with self._archive_path.open('wb') as fo:
             for zipped_chunk in stream_zip([member], password=self.s.password, get_compressobj=lambda: zlib.compressobj(wbits=-zlib.MAX_WBITS, level=level)):
