@@ -180,7 +180,7 @@ store_true = 'store_true'
 PathAlike = str | PathLike[str]
 UTF8 = 'UTF-8'
 RUMAR_SQLITE = 'rumar.sqlite'
-RX_ARCHIVE_SUFFIX = re.compile(r'(\.(?:tar(?:\.(?:gz|bz2|xz|zst))?|zipx))$')
+RX_ARCHIVE_SUFFIX = re.compile(r'(\.(?:tar(?:\.(?:gz|bz2|xz|zst))?|(?:zst\.)?zipx))$')
 # Example: 2023-04-30_09,48,20.872144+02,00~123~ab12~LNK
 RX_ARCHIVE_NAME = re.compile(r'^\d\d\d\d-\d\d-\d\d_\d\d,\d\d,\d\d(?:\.\d\d\d\d\d\d)?\+\d\d,\d\d~\d+.*' + RX_ARCHIVE_SUFFIX.pattern)
 
