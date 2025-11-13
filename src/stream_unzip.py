@@ -1,3 +1,18 @@
+# Copyright (C) 2023-2025  macmarrum (at) outlook (dot) ie
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
 # MIT License
 # 
 # Copyright (c) 2021 Department for International Trade
@@ -33,7 +48,6 @@ from Crypto.Protocol.KDF import PBKDF2
 
 from stream_inflate import stream_inflate64
 
-from ._zipcrypto import zipcrypto_decryptor
 
 
 # Type is private to prevent users from inventing new values
@@ -253,20 +267,7 @@ def stream_unzip(
             return value
 
         def decrypt_weak_decompress(chunks, decompress, is_done, num_unused):
-            decrypt = zipcrypto_decryptor(password)
-
-            encryption_header = decrypt(get_num(12))
-            check_password_byte = \
-                (mod_time >> 8) if has_data_descriptor else \
-                (crc_32_expected >> 24)
-
-            if encryption_header[11] != check_password_byte:
-                raise IncorrectZipCryptoPasswordError()
-
-            while not is_done():
-                yield from decompress(decrypt(next_or_truncated_error(chunks)))
-
-            return_num_unused(num_unused())
+            raise NotImplementedError()
 
         def decrypt_aes_decompress(chunks, decompress, is_done, num_unused, key_length, salt_length):
             salt = get_num(salt_length)
