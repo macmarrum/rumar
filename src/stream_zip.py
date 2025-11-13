@@ -39,8 +39,17 @@ from collections import deque
 from datetime import datetime
 from struct import Struct
 import asyncio
+import bz2
 import secrets
+import sys
 import zlib
+if sys.version_info >= (3, 14):
+    from compression import zstd
+else:
+    try:
+        from backports import zstd
+    except ImportError:
+        zstd = None
 from typing import Any, Iterable, Generator, Tuple, Optional, Deque, Type, AsyncIterable, Callable
 
 from Crypto.Cipher import AES
@@ -175,6 +184,25 @@ class Zip64Method(Method):
 
     def _get(self, offset: int, default_get_compressobj: _CompressObjGetter) -> _MethodTuple:
         return _ZIP_64, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, self._get_compressobj, 0, 0, self._compression_method, self._min_version
+
+def ZipAutoMethod(zip_compression_method: int, level: int, uncompressed_size: int) -> Method:
+        if zip_compression_method == ZIP_DEFLATED:
+            compressobj, zip_version = lambda: zlib.compressobj(level=level, memLevel=8, wbits=-zlib.MAX_WBITS), DEFAULT_VERSION
+        elif zip_compression_method == ZIP_BZIP2:
+            compressobj, zip_version = lambda: bz2.BZ2Compressor(level), BZIP2_VERSION
+        ## looking at zipfile, ZIP_LZMA requires special handling in Central Directory
+        elif zip_compression_method == ZIP_ZSTANDARD:
+            compressobj, zip_version = lambda: zstd.ZstdCompressor(level=level), ZSTANDARD_VERSION
+        else:
+            raise ValueError(f"Unsupported compression method: {zip_compression_method}")
+
+        class _ZIP_AUTO_TYPE_INNER(Method):
+            def _get(self, offset: int, default_get_compressobj: _CompressObjGetter) -> _MethodTuple:
+                method = _ZIP_64 if uncompressed_size > 4293656841 or offset > 0xffffffff else _ZIP_32
+                min_version = max(ZIP64_VERSION if method == _ZIP_64 else DEFAULT_VERSION, zip_version)
+                return method, _AUTO_UPGRADE_CENTRAL_DIRECTORY, compressobj, 0, 0, zip_compression_method, min_version
+
+        return _ZIP_AUTO_TYPE_INNER()
 
 
 # Each member file is a tuple of its name, last modified date, file mode, Method, and its bytes
