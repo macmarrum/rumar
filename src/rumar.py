@@ -21,14 +21,15 @@ import os
 import re
 import sqlite3
 import sys
-import tarfile
+PY_VER = sys.version_info[:2]
+if PY_VER >= (3, 14):
+    import tarfile
+else:
+    try:
+        from backports.zstd import tarfile
+    except ImportError:
+        import tarfile
 import zipfile
-import zlib
-
-try:
-    from compression import zstd
-except ImportError:
-    pass
 from contextlib import suppress
 from dataclasses import dataclass, field, fields
 from datetime import datetime, timedelta, date
@@ -43,12 +44,10 @@ from time import sleep
 from typing import Literal, Pattern, Any, Iterable, cast, Generator, Callable, Sequence, ClassVar, Protocol
 
 try:
-    from stream_zip import stream_zip, ZIP_32
+    from stream_zip import stream_zip, ZipAutoMethod, ZIP_ZSTANDARD
 except ImportError:
     pass
 
-vi = sys.version_info
-PY_VER = (vi.major, vi.minor)
 assert PY_VER >= (3, 10), 'expected Python 3.10 or higher'
 
 try:
@@ -180,7 +179,7 @@ store_true = 'store_true'
 PathAlike = str | PathLike[str]
 UTF8 = 'UTF-8'
 RUMAR_SQLITE = 'rumar.sqlite'
-RX_ARCHIVE_SUFFIX = re.compile(r'(\.(?:tar(?:\.(?:gz|bz2|xz|zst))?|(?:zst\.)?zipx))$')
+RX_ARCHIVE_SUFFIX = re.compile(r'(\.(?:tar(?:\.(?:gz|bz2|xz|zst))?|zipx))$')
 # Example: 2023-04-30_09,48,20.872144+02,00~123~ab12~LNK
 RX_ARCHIVE_NAME = re.compile(r'^\d\d\d\d-\d\d-\d\d_\d\d,\d\d,\d\d(?:\.\d\d\d\d\d\d)?\+\d\d,\d\d~\d+.*' + RX_ARCHIVE_SUFFIX.pattern)
 
@@ -282,7 +281,6 @@ class RumarFormat(Enum):
     TZS = 'tar.zst'
     # zipx is experimental
     ZIPX = 'zipx'
-    ZSTZ = 'zst.zipx'
 
 
 class Command(Enum):
@@ -307,7 +305,7 @@ class Settings:
     archive_format: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz', 'tar.zst'] = 'tar.gz'
       used by: create, sweep
       format of archive files to be created
-      'tar.zst' requires Python 3.14 or higher
+      'tar.zst' requires Python 3.14 or higher or backports.zstd
     compression_level: int = 3
       used by: create
       0 to 9 for 'tar.gz', 'tar.bz2', 'tar.xz'
@@ -443,8 +441,7 @@ class Settings:
     archive_format: RumarFormat | str = RumarFormat.TGZ
     # password for zipx (AES encryption)
     password: bytes | str | None = None
-    # no longer used (stream-zip supports only DEFLATED) but kept to avoid errors in loading old toml configs
-    zip_compression_method: int = zipfile.ZIP_DEFLATED
+    zip_compression_method: int = ZIP_ZSTANDARD
     compression_level: int = 3
     SUFFIXES_SEP: ClassVar[str] = ','
     no_compression_suffixes_default: str = (
@@ -935,8 +932,6 @@ class Rumar:
             self._islnk = S_ISLNK(self._mode)
             lnk = self.LNK if self._islnk else self.BLANK
             archive_format = self.s.archive_format
-            if self.s.archive_format == RumarFormat.ZSTZ and rath.suffix.lower() in self.s.suffixes_without_compression:
-                archive_format = RumarFormat.ZIPX
             self._archive_path = compose_archive_path(self._archive_dir, archive_format, self._mtime_str, self._size, comment=lnk)
         else:
             self._rath = self._relative_psx = self._archive_dir = self._mtime = self._mtime_str = self._mtime_dt = self._size = self._mode = self._islnk = self._archive_path = None
@@ -1159,8 +1154,6 @@ class Rumar:
         match self.s.archive_format:
             case RumarFormat.ZIPX:
                 _create = self._create_zipx
-            case RumarFormat.ZSTZ:
-                _create = self._create_zst_zipx
             case _:
                 _create = self._create_tar
         is_archive_created = self._call_create_and_verify_checksum_before_and_after_unless_lnk(_create)
@@ -1196,38 +1189,9 @@ class Rumar:
             file_blake2b = FileBlake2b(self._rath)
             file_blake2b.open()
             content = iter(lambda: file_blake2b.read(8192), b'')
-        # NB using ZIP_32 also for no compression, because "NO_COMPRESSION_32 [...] buffer the entire binary contents of the file in memory before output"
-        member = (self._rath.name, self._mtime_dt, self._mode, ZIP_32, content)
-        level = 0 if self._rath.suffix.lower() in self.s.suffixes_without_compression else self.s.compression_level
+        member = (self._rath.name, self._mtime_dt, self._mode, ZipAutoMethod(self.s.zip_compression_method, self.s.compression_level, self._size), content)
         with self._archive_path.open('wb') as fo:
-            for zipped_chunk in stream_zip([member], password=self.s.password, get_compressobj=lambda: zlib.compressobj(wbits=-zlib.MAX_WBITS, level=level)):
-                fo.write(zipped_chunk)
-        checksum = file_blake2b.digest() if file_blake2b else None
-        file_blake2b and file_blake2b.close()
-        return checksum
-
-    def _create_zst_zipx(self):
-        """Creates a zst.zipx archive and computes blake2b checksum at the same time"""
-
-        def zstd_compressed_data_gen(fi: BinaryReader):
-            # Note: no-compression-suffix case is handled in _set_rath_and_friends by forcing ZIPX in place of ZSTZ
-            compressor = zstd.ZstdCompressor(level=self.s.compression_level)
-            while chunk := fi.read(32768):
-                yield compressor.compress(chunk)
-            yield compressor.flush()
-
-        if self._islnk:
-            # symbolic link's binary content must be its target
-            file_blake2b = None
-            content = (os.readlink(self._rath).encode(UTF8),)
-        else:
-            file_blake2b = FileBlake2b(self._rath).open()
-            content = zstd_compressed_data_gen(file_blake2b)
-        # NB using ZIP_32 also for no compression, because "NO_COMPRESSION_32 [...] buffer the entire binary contents of the file in memory before output"
-        member = (f"{self._rath.name}.zst", self._mtime_dt, self._mode, ZIP_32, content)
-        level = 0  # already zstd-compressed
-        with self._archive_path.open('wb') as fo:
-            for zipped_chunk in stream_zip([member], password=self.s.password, get_compressobj=lambda: zlib.compressobj(wbits=-zlib.MAX_WBITS, level=level)):
+            for zipped_chunk in stream_zip((member,), password=self.s.password):
                 fo.write(zipped_chunk)
         checksum = file_blake2b.digest() if file_blake2b else None
         file_blake2b and file_blake2b.close()

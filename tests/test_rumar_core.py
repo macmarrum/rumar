@@ -1,9 +1,12 @@
 # Copyright (C) 2023-2025  macmarrum (at) outlook (dot) ie
 # SPDX-License-Identifier: GPL-3.0-or-later
 import shutil
+import subprocess
 import sys
 import tarfile
 from collections.abc import Callable
+
+import stream_zip
 
 try:
     from compression import zstd
@@ -866,40 +869,3 @@ class TestCreateZipx:
             assert datetime(*zipinfo.date_time) == datetime.fromtimestamp(rather._mtime).replace(microsecond=0)
             assert zipinfo.file_size == rather._size
             assert content == rather._content_as_fileobj().read()
-
-
-class TestCreateZstZipx:
-
-    def test_create_zst_zipx(self, set_up_rumar):
-        d = set_up_rumar
-        profile = d['profile']
-        profile_to_settings = d['profile_to_settings']
-        settings = profile_to_settings[profile]
-        settings = replace(settings, archive_format='zst.zipx', password=password)
-        rumar = Rumar({profile: settings})  # new Rumar, with local settings
-        rumar._init_for_profile(profile)
-        rathers = d['rathers']
-        rather = rathers[14]
-        rumar._set_rath_and_friends(rather)
-        actual_archive_path, actual_checksum = rumar._create(CreateReason.CREATE)
-        assert actual_archive_path == rumar._archive_path
-        assert actual_checksum == rather.checksum
-        # print('\n##', f"archive_path: {archive_path}")
-        self.compare_archive_contents([actual_archive_path], [rather], settings)
-
-    def test_create_for_profile__all__zst_zipx(self):
-        _test_create_for_profile__all_('zst.zipx', self.compare_archive_contents)
-
-    @classmethod
-    def compare_archive_contents(cls, created_archives: list[Path], rathers: list[Rather], settings: Settings):
-        for archive_path, rather in zip(created_archives, rathers, strict=True):
-            content = BytesIO()
-            with archive_path.open('rb') as f:
-                for filename, file_size, unzipped_chunks in stream_unzip(iter(lambda: f.read(32768), b''), password=settings.password):
-                    print(f"\n@@ {archive_path} - {filename}")
-                    assert filename[-4:] == b'.zst'
-                    assert filename.removesuffix(b'.zst').decode('UTF-8') == rather.name
-                    decompressor = zstd.ZstdDecompressor()
-                    for unzipped_zst_chunk in unzipped_chunks:
-                        content.write(decompressor.decompress(unzipped_zst_chunk))
-                    assert content.getvalue() == rather._content_as_fileobj().read()
