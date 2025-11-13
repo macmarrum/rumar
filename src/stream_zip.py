@@ -1,3 +1,18 @@
+# Copyright (C) 2023-2025  macmarrum (at) outlook (dot) ie
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
 # MIT License
 #
 # Copyright (c) 2021 Department for International Trade
@@ -58,6 +73,8 @@ _MethodTuple = Tuple[
     _CompressObjGetter,  # Function to get the zlib Compress object for
     int,                 # The uncompressed size of the file for NO_COMPRESSION_STREAMED_* types
     int,                 # The CRC32 of the file for NO_COMPRESSION_STREAMED_* types
+    int,                 # The compression method code (0=stored, 8=deflate, 93=zstd, etc.)
+    int,                 # The minimum version required to extract
 ]
 
 # A "Method" is an instance of a class that has a _get function that returns a _MethodTuple
@@ -68,31 +85,31 @@ class Method(ABC):
 
 class _ZIP_64_TYPE(Method):
     def _get(self, offset: int, default_get_compressobj: _CompressObjGetter)  -> _MethodTuple:
-        return _ZIP_64, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, 0, 0
+        return _ZIP_64, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, 0, 0, 8, 45
 
 class _ZIP_32_TYPE(Method):
     def _get(self, offset: int, default_get_compressobj: _CompressObjGetter)  -> _MethodTuple:
-        return _ZIP_32, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, 0, 0
+        return _ZIP_32, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, 0, 0, 8, 20
 
 class _NO_COMPRESSION_32_TYPE(Method):
     def _get(self, offset: int, default_get_compressobj: _CompressObjGetter) -> _MethodTuple:
-        return _NO_COMPRESSION_BUFFERED_32, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, 0, 0
+        return _NO_COMPRESSION_BUFFERED_32, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, 0, 0, 0, 20
 
     def __call__(self, uncompressed_size: int, crc_32: int) -> Method:
         class _NO_COMPRESSION_32_TYPE_STREAMED_TYPE(Method):
             def _get(self, offset: int, default_get_compressobj: _CompressObjGetter) -> _MethodTuple:
-                return _NO_COMPRESSION_STREAMED_32, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, uncompressed_size, crc_32
+                return _NO_COMPRESSION_STREAMED_32, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, uncompressed_size, crc_32, 0, 20
 
         return _NO_COMPRESSION_32_TYPE_STREAMED_TYPE()
 
 class _NO_COMPRESSION_64_TYPE(Method):
     def _get(self, offset: int, default_get_compressobj: _CompressObjGetter) -> _MethodTuple:
-        return _NO_COMPRESSION_BUFFERED_64, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, 0, 0
+        return _NO_COMPRESSION_BUFFERED_64, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, 0, 0, 0, 45
 
     def __call__(self, uncompressed_size: int, crc_32: int) -> Method:
         class _NO_COMPRESSION_64_TYPE_STREAMED_TYPE(Method):
             def _get(self, offset: int, default_get_compressobj: _CompressObjGetter) -> _MethodTuple:
-                return _NO_COMPRESSION_STREAMED_64, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, uncompressed_size, crc_32
+                return _NO_COMPRESSION_STREAMED_64, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, uncompressed_size, crc_32, 0, 45
         return _NO_COMPRESSION_64_TYPE_STREAMED_TYPE()
 
 class _ZIP_AUTO_TYPE():
@@ -113,7 +130,8 @@ class _ZIP_AUTO_TYPE():
         class _ZIP_AUTO_TYPE_INNER(Method):
             def _get(self, offset: int, default_get_compressobj: _CompressObjGetter) -> _MethodTuple:
                 method = _ZIP_64 if uncompressed_size > 4293656841 or offset > 0xffffffff else _ZIP_32
-                return (method, _AUTO_UPGRADE_CENTRAL_DIRECTORY, lambda: zlib.compressobj(level=level, memLevel=8, wbits=-zlib.MAX_WBITS), 0, 0)
+                min_version = 45 if method == _ZIP_64 else 20
+                return (method, _AUTO_UPGRADE_CENTRAL_DIRECTORY, lambda: zlib.compressobj(level=level, memLevel=8, wbits=-zlib.MAX_WBITS), 0, 0, 8, min_version)
 
         return _ZIP_AUTO_TYPE_INNER()
 
@@ -128,6 +146,25 @@ NO_COMPRESSION_32 = _NO_COMPRESSION_32_TYPE()
 NO_COMPRESSION_64 = _NO_COMPRESSION_64_TYPE()
 ZIP_AUTO = _ZIP_AUTO_TYPE()
 
+class Zip32Method(Method):
+    def __init__(self, get_compressobj: _CompressObjGetter, compression_method: int, min_version: int = 63):
+        self._get_compressobj = get_compressobj
+        self._compression_method = compression_method
+        self._min_version = min_version
+
+    def _get(self, offset: int, default_get_compressobj: _CompressObjGetter) -> _MethodTuple:
+        return _ZIP_32, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, self._get_compressobj, 0, 0, self._compression_method, self._min_version
+
+class Zip64Method(Method):
+    def __init__(self, get_compressobj: _CompressObjGetter, compression_method: int, min_version: int = 63):
+        self._get_compressobj = get_compressobj
+        self._compression_method = compression_method
+        self._min_version = max(min_version, 45)  # ZIP64 requires at least version 45
+
+    def _get(self, offset: int, default_get_compressobj: _CompressObjGetter) -> _MethodTuple:
+        return _ZIP_64, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, self._get_compressobj, 0, 0, self._compression_method, self._min_version
+
+
 # Each member file is a tuple of its name, last modified date, file mode, Method, and its bytes
 MemberFile = Tuple[str, datetime, int, Method, Iterable[bytes]]
 AsyncMemberFile = Tuple[str, datetime, int, Method, AsyncIterable[bytes]]
@@ -138,7 +175,7 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
                extended_timestamps: bool=True,
                password: Optional[str]=None,
                get_crypto_random: Callable[[int], bytes]=lambda num_bytes: secrets.token_bytes(num_bytes),
-) -> Iterable[bytes]:
+               ) -> Iterable[bytes]:
 
     def evenly_sized(chunks: Iterable[bytes]) -> Iterable[bytes]:
         chunk = b''
@@ -186,7 +223,7 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
 
         end_of_central_directory_signature = b'PK\x05\x06'
         end_of_central_directory_struct = Struct('<HHHHIIH')
-        
+
         zip_64_extra_signature = b'\x01\x00'
         zip_64_local_extra_struct = Struct('<2sHQQ')
         zip_64_central_directory_extra_struct = Struct('<2sHQQQ')
@@ -273,7 +310,7 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
                 compression: int, aes_size_increase: int, aes_flags: int, name_encoded: bytes, mod_at_ms_dos: bytes,
                 mod_at_unix_extra: bytes, aes_extra: bytes, external_attr: int, uncompressed_size: int, crc_32: int,
                 crc_32_mask: int, _get_compress_obj: _CompressObjGetter, encryption_func: Callable[[Generator[bytes, None, Any]], Generator[bytes, None, Any]],
-                chunks: Iterable[bytes],
+                chunks: Iterable[bytes], min_version: int = 45,
         ) -> Generator[bytes, None, Tuple[bytes, bytes, bytes]]:
             file_offset = offset
 
@@ -289,7 +326,7 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
 
             yield from _(local_header_signature)
             yield from _(local_header_struct.pack(
-                45,           # Version
+                min_version,  # Version
                 flags,
                 compression,
                 mod_at_ms_dos,
@@ -322,9 +359,9 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
                 file_offset,
             ) + mod_at_unix_extra + aes_extra
             return central_directory_header_struct.pack(
-                45,           # Version made by
+                min_version,  # Version made by
                 3,            # System made by (UNIX)
-                45,           # Version required
+                min_version,  # Version required
                 0,            # Reserved
                 flags,
                 compression,
@@ -345,7 +382,7 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
                 compression: int, aes_size_increase: int, aes_flags: int, name_encoded: bytes, mod_at_ms_dos: bytes,
                 mod_at_unix_extra: bytes, aes_extra: bytes, external_attr: int, uncompressed_size: int, crc_32: int,
                 crc_32_mask: int, _get_compress_obj: _CompressObjGetter, encryption_func: Callable[[Generator[bytes, None, Any]], Generator[bytes, None, Any]],
-                chunks: Iterable[bytes],
+                chunks: Iterable[bytes], min_version: int = 20,
         ) -> Generator[bytes, None, Tuple[bytes, bytes, bytes]]:
             file_offset = offset
 
@@ -356,7 +393,7 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
 
             yield from _(local_header_signature)
             yield from _(local_header_struct.pack(
-                20,           # Version
+                min_version,  # Version
                 flags,
                 compression,
                 mod_at_ms_dos,
@@ -382,9 +419,9 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
             yield from _(data_descriptor_zip_32_struct.pack(masked_crc_32, compressed_size, uncompressed_size))
 
             return central_directory_header_struct.pack(
-                20,           # Version made by
+                min_version,  # Version made by
                 3,            # System made by (UNIX)
-                20,           # Version required
+                min_version,  # Version required
                 0,            # Reserved
                 flags,
                 compression,
@@ -476,23 +513,23 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
                 file_offset,
             ) + mod_at_unix_extra + aes_extra
             return central_directory_header_struct.pack(
-               45,           # Version made by
-               3,            # System made by (UNIX)
-               45,           # Version required
-               0,            # Reserved
-               flags,
-               compression,
-               mod_at_ms_dos,
-               masked_crc_32,
-               0xffffffff,   # Compressed size - since zip64
-               0xffffffff,   # Uncompressed size - since zip64
-               len(name_encoded),
-               len(extra),
-               0,            # File comment length
-               0,            # Disk number
-               0,            # Internal file attributes - is binary
-               external_attr,
-               0xffffffff,   # File offset - since zip64
+                45,           # Version made by
+                3,            # System made by (UNIX)
+                45,           # Version required
+                0,            # Reserved
+                flags,
+                compression,
+                mod_at_ms_dos,
+                masked_crc_32,
+                0xffffffff,   # Compressed size - since zip64
+                0xffffffff,   # Uncompressed size - since zip64
+                len(name_encoded),
+                len(extra),
+                0,            # File comment length
+                0,            # Disk number
+                0,            # Internal file attributes - is binary
+                external_attr,
+                0xffffffff,   # File offset - since zip64
             ), name_encoded, extra
 
 
@@ -531,23 +568,23 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
             yield from encryption_func((chunk for chunk in chunks))
 
             return central_directory_header_struct.pack(
-               20,           # Version made by
-               3,            # System made by (UNIX)
-               20,           # Version required
-               0,            # Reserved
-               flags,
-               compression,
-               mod_at_ms_dos,
-               masked_crc_32,
-               compressed_size,
-               uncompressed_size,
-               len(name_encoded),
-               len(extra),
-               0,            # File comment length
-               0,            # Disk number
-               0,            # Internal file attributes - is binary
-               external_attr,
-               file_offset,
+                20,           # Version made by
+                3,            # System made by (UNIX)
+                20,           # Version required
+                0,            # Reserved
+                flags,
+                compression,
+                mod_at_ms_dos,
+                masked_crc_32,
+                compressed_size,
+                uncompressed_size,
+                len(name_encoded),
+                len(extra),
+                0,            # File comment length
+                0,            # Disk number
+                0,            # Internal file attributes - is binary
+                external_attr,
+                file_offset,
             ), name_encoded, extra
 
         def _no_compression_buffered_data_size_crc_32(chunks: Iterable[bytes], maximum_size: int) -> Tuple[Iterable[bytes], int, int]:
@@ -614,23 +651,23 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
                 file_offset,
             ) + mod_at_unix_extra + aes_extra
             return central_directory_header_struct.pack(
-               45,           # Version made by
-               3,            # System made by (UNIX)
-               45,           # Version required
-               0,            # Reserved
-               flags,
-               compression,
-               mod_at_ms_dos,
-               masked_crc_32,
-               0xffffffff,   # Compressed size - since zip64
-               0xffffffff,   # Uncompressed size - since zip64
-               len(name_encoded),
-               len(extra),
-               0,            # File comment length
-               0,            # Disk number
-               0,            # Internal file attributes - is binary
-               external_attr,
-               0xffffffff,   # File offset - since zip64
+                45,           # Version made by
+                3,            # System made by (UNIX)
+                45,           # Version required
+                0,            # Reserved
+                flags,
+                compression,
+                mod_at_ms_dos,
+                masked_crc_32,
+                0xffffffff,   # Compressed size - since zip64
+                0xffffffff,   # Uncompressed size - since zip64
+                len(name_encoded),
+                len(extra),
+                0,            # File comment length
+                0,            # Disk number
+                0,            # Internal file attributes - is binary
+                external_attr,
+                0xffffffff,   # File offset - since zip64
             ), name_encoded, extra
 
 
@@ -667,23 +704,23 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
             yield from encryption_func(_no_compression_streamed_data(chunks, uncompressed_size, crc_32, 0xffffffff))
 
             return central_directory_header_struct.pack(
-               20,                 # Version made by
-               3,                  # System made by (UNIX)
-               20,                 # Version required
-               0,                  # Reserved
-               flags,
-               compression,
-               mod_at_ms_dos,
-               masked_crc_32,
-               compressed_size,
-               uncompressed_size,
-               len(name_encoded),
-               len(extra),
-               0,                  # File comment length
-               0,                  # Disk number
-               0,                  # Internal file attributes - is binary
-               external_attr,
-               file_offset,
+                20,                 # Version made by
+                3,                  # System made by (UNIX)
+                20,                 # Version required
+                0,                  # Reserved
+                flags,
+                compression,
+                mod_at_ms_dos,
+                masked_crc_32,
+                compressed_size,
+                uncompressed_size,
+                len(name_encoded),
+                len(extra),
+                0,                  # File comment length
+                0,                  # Disk number
+                0,                  # Internal file attributes - is binary
+                external_attr,
+                file_offset,
             ), name_encoded, extra
 
         def _no_compression_streamed_data(chunks: Iterable[bytes], uncompressed_size: int, crc_32: int, maximum_size: int) -> Generator[bytes, None, Any]:
@@ -702,7 +739,7 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
                 raise UncompressedSizeIntegrityError()
 
         for name, modified_at, mode, method, chunks in files:
-            _method, _auto_upgrade_central_directory, _get_compress_obj, uncompressed_size, crc_32 = method._get(offset, get_compressobj)
+            _method, _auto_upgrade_central_directory, _get_compress_obj, uncompressed_size, crc_32, compression_method, min_version = method._get(offset, get_compressobj)
 
             name_encoded = name.encode('utf-8')
             _raise_if_beyond(len(name_encoded), maximum=0xffff, exception_class=NameLengthOverflowError)
@@ -714,7 +751,7 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
                 modified_at.day | \
                 (modified_at.month << 5) | \
                 (modified_at.year - 1980) << 9,
-            )
+                )
             mod_at_unix_extra = mod_at_unix_extra_struct.pack(
                 mod_at_unix_extra_signature,
                 5,        # Size of extra
@@ -725,30 +762,31 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
                 (mode << 16) | \
                 (0x10 if name_encoded[-1:] == b'/' else 0x0)  # MS-DOS directory
 
-            data_func, raw_compression = \
-                (_zip_64_local_header_and_data, 8) if _method is _ZIP_64 else \
-                (_zip_32_local_header_and_data, 8) if _method is _ZIP_32 else \
-                (_no_compression_64_local_header_and_data, 0) if _method is _NO_COMPRESSION_BUFFERED_64 else \
-                (_no_compression_32_local_header_and_data, 0) if _method is _NO_COMPRESSION_BUFFERED_32 else \
-                (_no_compression_streamed_64_local_header_and_data, 0) if _method is _NO_COMPRESSION_STREAMED_64 else \
+            data_func, raw_compression = (
+                (_zip_64_local_header_and_data, compression_method) if _method is _ZIP_64 else
+                (_zip_32_local_header_and_data, compression_method) if _method is _ZIP_32 else
+                (_no_compression_64_local_header_and_data, 0) if _method is _NO_COMPRESSION_BUFFERED_64 else
+                (_no_compression_32_local_header_and_data, 0) if _method is _NO_COMPRESSION_BUFFERED_32 else
+                (_no_compression_streamed_64_local_header_and_data, 0) if _method is _NO_COMPRESSION_STREAMED_64 else
                 (_no_compression_streamed_32_local_header_and_data, 0)
+            )
 
             compression, aes_size_increase, aes_flags, aes_extra, crc_32_mask, encryption_func = \
                 (99, 28, aes_flag, aes_extra_struct.pack(aes_extra_signature, 7, 2, b'AE', 3, raw_compression), 0, _get_encrypt_aes(password)) if password is not None else \
-                (raw_compression, 0, 0, b'', 0xffffffff, _encrypt_dummy)
+                    (raw_compression, 0, 0, b'', 0xffffffff, _encrypt_dummy)
 
-            central_directory_header_entry, name_encoded, extra = yield from data_func(compression, aes_size_increase, aes_flags, name_encoded, mod_at_ms_dos, mod_at_unix_extra, aes_extra, external_attr, uncompressed_size, crc_32, crc_32_mask, _get_compress_obj, encryption_func, evenly_sized(chunks))
+            central_directory_header_entry, name_encoded, extra = yield from data_func(compression, aes_size_increase, aes_flags, name_encoded, mod_at_ms_dos, mod_at_unix_extra, aes_extra, external_attr, uncompressed_size, crc_32, crc_32_mask, _get_compress_obj, encryption_func, evenly_sized(chunks), min_version)
             central_directory_size += len(central_directory_header_signature) + len(central_directory_header_entry) + len(name_encoded) + len(extra)
             central_directory.append((central_directory_header_entry, name_encoded, extra))
 
             zip_64_central_directory = zip_64_central_directory \
-                or (_auto_upgrade_central_directory is _AUTO_UPGRADE_CENTRAL_DIRECTORY and offset > 0xffffffff) \
-                or (_auto_upgrade_central_directory is _AUTO_UPGRADE_CENTRAL_DIRECTORY and len(central_directory) > 0xffff) \
-                or _method in (_ZIP_64, _NO_COMPRESSION_BUFFERED_64, _NO_COMPRESSION_STREAMED_64)
+                                       or (_auto_upgrade_central_directory is _AUTO_UPGRADE_CENTRAL_DIRECTORY and offset > 0xffffffff) \
+                                       or (_auto_upgrade_central_directory is _AUTO_UPGRADE_CENTRAL_DIRECTORY and len(central_directory) > 0xffff) \
+                                       or _method in (_ZIP_64, _NO_COMPRESSION_BUFFERED_64, _NO_COMPRESSION_STREAMED_64)
 
             max_central_directory_length, max_central_directory_start_offset, max_central_directory_size = \
                 (0xffffffffffffffff, 0xffffffffffffffff, 0xffffffffffffffff) if zip_64_central_directory else \
-                (0xffff, 0xffffffff, 0xffffffff)
+                    (0xffff, 0xffffffff, 0xffffffff)
 
             central_directory_start_offset = offset
             central_directory_end_offset = offset + central_directory_size
@@ -812,11 +850,11 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
 
 
 async def async_stream_zip(
-    files: AsyncIterable[AsyncMemberFile], chunk_size: int=65536,
-    get_compressobj: _CompressObjGetter=lambda: zlib.compressobj(wbits=-zlib.MAX_WBITS, level=9),
-    extended_timestamps: bool=True,
-    password: Optional[str]=None,
-    get_crypto_random: Callable[[int], bytes]=lambda num_bytes: secrets.token_bytes(num_bytes),
+        files: AsyncIterable[AsyncMemberFile], chunk_size: int=65536,
+        get_compressobj: _CompressObjGetter=lambda: zlib.compressobj(wbits=-zlib.MAX_WBITS, level=9),
+        extended_timestamps: bool=True,
+        password: Optional[str]=None,
+        get_crypto_random: Callable[[int], bytes]=lambda num_bytes: secrets.token_bytes(num_bytes),
 ) -> AsyncIterable[bytes]:
 
     async def to_async_iterable(sync_iterable: Iterable[Any]) -> AsyncIterable[Any]:
