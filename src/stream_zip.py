@@ -49,6 +49,18 @@ from Crypto.Util import Counter
 from Crypto.Protocol.KDF import PBKDF2
 
 
+ZIP_STORED = 0
+ZIP_DEFLATED = 8
+ZIP_BZIP2 = 12
+ZIP_LZMA = 14
+ZIP_ZSTANDARD = 93
+
+DEFAULT_VERSION = 20
+ZIP64_VERSION = 45
+BZIP2_VERSION = 46
+LZMA_VERSION = 63
+ZSTANDARD_VERSION = 63
+
 ################################
 # Private sentinel objects/types
 
@@ -73,7 +85,7 @@ _MethodTuple = Tuple[
     _CompressObjGetter,  # Function to get the zlib Compress object for
     int,                 # The uncompressed size of the file for NO_COMPRESSION_STREAMED_* types
     int,                 # The CRC32 of the file for NO_COMPRESSION_STREAMED_* types
-    int,                 # The compression method code (0=stored, 8=deflate, 93=zstd, etc.)
+    int,                 # The compression method code (ZIP_STORED, ZIP_DEFLATED, ZIP_BZIP2, ZIP_LZMA, ZIP_ZSTANDARD)
     int,                 # The minimum version required to extract
 ]
 
@@ -85,31 +97,31 @@ class Method(ABC):
 
 class _ZIP_64_TYPE(Method):
     def _get(self, offset: int, default_get_compressobj: _CompressObjGetter)  -> _MethodTuple:
-        return _ZIP_64, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, 0, 0, 8, 45
+        return _ZIP_64, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, 0, 0, ZIP_DEFLATED, ZIP64_VERSION
 
 class _ZIP_32_TYPE(Method):
     def _get(self, offset: int, default_get_compressobj: _CompressObjGetter)  -> _MethodTuple:
-        return _ZIP_32, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, 0, 0, 8, 20
+        return _ZIP_32, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, 0, 0, ZIP_DEFLATED, DEFAULT_VERSION
 
 class _NO_COMPRESSION_32_TYPE(Method):
     def _get(self, offset: int, default_get_compressobj: _CompressObjGetter) -> _MethodTuple:
-        return _NO_COMPRESSION_BUFFERED_32, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, 0, 0, 0, 20
+        return _NO_COMPRESSION_BUFFERED_32, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, 0, 0, ZIP_STORED, DEFAULT_VERSION
 
     def __call__(self, uncompressed_size: int, crc_32: int) -> Method:
         class _NO_COMPRESSION_32_TYPE_STREAMED_TYPE(Method):
             def _get(self, offset: int, default_get_compressobj: _CompressObjGetter) -> _MethodTuple:
-                return _NO_COMPRESSION_STREAMED_32, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, uncompressed_size, crc_32, 0, 20
+                return _NO_COMPRESSION_STREAMED_32, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, uncompressed_size, crc_32, ZIP_STORED, DEFAULT_VERSION
 
         return _NO_COMPRESSION_32_TYPE_STREAMED_TYPE()
 
 class _NO_COMPRESSION_64_TYPE(Method):
     def _get(self, offset: int, default_get_compressobj: _CompressObjGetter) -> _MethodTuple:
-        return _NO_COMPRESSION_BUFFERED_64, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, 0, 0, 0, 45
+        return _NO_COMPRESSION_BUFFERED_64, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, 0, 0, ZIP_STORED, ZIP64_VERSION
 
     def __call__(self, uncompressed_size: int, crc_32: int) -> Method:
         class _NO_COMPRESSION_64_TYPE_STREAMED_TYPE(Method):
             def _get(self, offset: int, default_get_compressobj: _CompressObjGetter) -> _MethodTuple:
-                return _NO_COMPRESSION_STREAMED_64, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, uncompressed_size, crc_32, 0, 45
+                return _NO_COMPRESSION_STREAMED_64, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, default_get_compressobj, uncompressed_size, crc_32, ZIP_STORED, ZIP64_VERSION
         return _NO_COMPRESSION_64_TYPE_STREAMED_TYPE()
 
 class _ZIP_AUTO_TYPE():
@@ -130,8 +142,8 @@ class _ZIP_AUTO_TYPE():
         class _ZIP_AUTO_TYPE_INNER(Method):
             def _get(self, offset: int, default_get_compressobj: _CompressObjGetter) -> _MethodTuple:
                 method = _ZIP_64 if uncompressed_size > 4293656841 or offset > 0xffffffff else _ZIP_32
-                min_version = 45 if method == _ZIP_64 else 20
-                return (method, _AUTO_UPGRADE_CENTRAL_DIRECTORY, lambda: zlib.compressobj(level=level, memLevel=8, wbits=-zlib.MAX_WBITS), 0, 0, 8, min_version)
+                min_version = ZIP64_VERSION if method == _ZIP_64 else DEFAULT_VERSION
+                return (method, _AUTO_UPGRADE_CENTRAL_DIRECTORY, lambda: zlib.compressobj(level=level, memLevel=8, wbits=-zlib.MAX_WBITS), 0, 0, ZIP_DEFLATED, min_version)
 
         return _ZIP_AUTO_TYPE_INNER()
 
@@ -147,7 +159,7 @@ NO_COMPRESSION_64 = _NO_COMPRESSION_64_TYPE()
 ZIP_AUTO = _ZIP_AUTO_TYPE()
 
 class Zip32Method(Method):
-    def __init__(self, get_compressobj: _CompressObjGetter, compression_method: int, min_version: int = 63):
+    def __init__(self, get_compressobj: _CompressObjGetter, compression_method: int, min_version: int = ZSTANDARD_VERSION):
         self._get_compressobj = get_compressobj
         self._compression_method = compression_method
         self._min_version = min_version
@@ -156,10 +168,10 @@ class Zip32Method(Method):
         return _ZIP_32, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, self._get_compressobj, 0, 0, self._compression_method, self._min_version
 
 class Zip64Method(Method):
-    def __init__(self, get_compressobj: _CompressObjGetter, compression_method: int, min_version: int = 63):
+    def __init__(self, get_compressobj: _CompressObjGetter, compression_method: int, min_version: int = ZSTANDARD_VERSION):
         self._get_compressobj = get_compressobj
         self._compression_method = compression_method
-        self._min_version = max(min_version, 45)  # ZIP64 requires at least version 45
+        self._min_version = max(min_version, ZIP64_VERSION)
 
     def _get(self, offset: int, default_get_compressobj: _CompressObjGetter) -> _MethodTuple:
         return _ZIP_64, _NO_AUTO_UPGRADE_CENTRAL_DIRECTORY, self._get_compressobj, 0, 0, self._compression_method, self._min_version
@@ -310,7 +322,7 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
                 compression: int, aes_size_increase: int, aes_flags: int, name_encoded: bytes, mod_at_ms_dos: bytes,
                 mod_at_unix_extra: bytes, aes_extra: bytes, external_attr: int, uncompressed_size: int, crc_32: int,
                 crc_32_mask: int, _get_compress_obj: _CompressObjGetter, encryption_func: Callable[[Generator[bytes, None, Any]], Generator[bytes, None, Any]],
-                chunks: Iterable[bytes], min_version: int = 45,
+                chunks: Iterable[bytes], min_version: int = ZIP64_VERSION,
         ) -> Generator[bytes, None, Tuple[bytes, bytes, bytes]]:
             file_offset = offset
 
@@ -382,7 +394,7 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
                 compression: int, aes_size_increase: int, aes_flags: int, name_encoded: bytes, mod_at_ms_dos: bytes,
                 mod_at_unix_extra: bytes, aes_extra: bytes, external_attr: int, uncompressed_size: int, crc_32: int,
                 crc_32_mask: int, _get_compress_obj: _CompressObjGetter, encryption_func: Callable[[Generator[bytes, None, Any]], Generator[bytes, None, Any]],
-                chunks: Iterable[bytes], min_version: int = 20,
+                chunks: Iterable[bytes], min_version: int = DEFAULT_VERSION,
         ) -> Generator[bytes, None, Tuple[bytes, bytes, bytes]]:
             file_offset = offset
 
@@ -490,7 +502,7 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
 
             yield from _(local_header_signature)
             yield from _(local_header_struct.pack(
-                45,           # Version
+                ZIP64_VERSION,  # Version
                 flags,
                 compression,
                 mod_at_ms_dos,
@@ -513,10 +525,10 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
                 file_offset,
             ) + mod_at_unix_extra + aes_extra
             return central_directory_header_struct.pack(
-                45,           # Version made by
-                3,            # System made by (UNIX)
-                45,           # Version required
-                0,            # Reserved
+                ZIP64_VERSION,  # Version made by
+                3,              # System made by (UNIX)
+                ZIP64_VERSION,  # Version required
+                0,              # Reserved
                 flags,
                 compression,
                 mod_at_ms_dos,
@@ -552,7 +564,7 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
 
             yield from _(local_header_signature)
             yield from _(local_header_struct.pack(
-                20,           # Version
+                DEFAULT_VERSION,  # Version
                 flags,
                 compression,
                 mod_at_ms_dos,
@@ -568,10 +580,10 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
             yield from encryption_func((chunk for chunk in chunks))
 
             return central_directory_header_struct.pack(
-                20,           # Version made by
-                3,            # System made by (UNIX)
-                20,           # Version required
-                0,            # Reserved
+                DEFAULT_VERSION,  # Version made by
+                3,                # System made by (UNIX)
+                DEFAULT_VERSION,  # Version required
+                0,                # Reserved
                 flags,
                 compression,
                 mod_at_ms_dos,
@@ -628,7 +640,7 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
 
             yield from _(local_header_signature)
             yield from _(local_header_struct.pack(
-                45,           # Version
+                ZIP64_VERSION,  # Version
                 flags,
                 compression,
                 mod_at_ms_dos,
@@ -651,10 +663,10 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
                 file_offset,
             ) + mod_at_unix_extra + aes_extra
             return central_directory_header_struct.pack(
-                45,           # Version made by
-                3,            # System made by (UNIX)
-                45,           # Version required
-                0,            # Reserved
+                ZIP64_VERSION,  # Version made by
+                3,              # System made by (UNIX)
+                ZIP64_VERSION,  # Version required
+                0,              # Reserved
                 flags,
                 compression,
                 mod_at_ms_dos,
@@ -688,7 +700,7 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
 
             yield from _(local_header_signature)
             yield from _(local_header_struct.pack(
-                20,                 # Version
+                DEFAULT_VERSION,  # Version
                 flags,
                 compression,
                 mod_at_ms_dos,
@@ -704,10 +716,10 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
             yield from encryption_func(_no_compression_streamed_data(chunks, uncompressed_size, crc_32, 0xffffffff))
 
             return central_directory_header_struct.pack(
-                20,                 # Version made by
-                3,                  # System made by (UNIX)
-                20,                 # Version required
-                0,                  # Reserved
+                DEFAULT_VERSION,  # Version made by
+                3,                # System made by (UNIX)
+                DEFAULT_VERSION,  # Version required
+                0,                # Reserved
                 flags,
                 compression,
                 mod_at_ms_dos,
@@ -806,8 +818,8 @@ def stream_zip(files: Iterable[MemberFile], chunk_size: int=65536,
             yield from _(zip_64_end_of_central_directory_signature)
             yield from _(zip_64_end_of_central_directory_struct.pack(
                 44,  # Size of zip_64 end of central directory record
-                45,  # Version made by
-                45,  # Version required
+                ZIP64_VERSION,  # Version made by
+                ZIP64_VERSION,  # Version required
                 0,   # Disk number
                 0,   # Disk number with central directory
                 len(central_directory),  # On this disk
