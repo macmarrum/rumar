@@ -49,6 +49,12 @@ from Crypto.Protocol.KDF import PBKDF2
 from stream_inflate import stream_inflate64
 
 
+ZIP_STORED = 0
+ZIP_DEFLATED = 8
+ZIP_DEFLATED64 = 9
+ZIP_BZIP2 = 12
+ZIP_LZMA = 14
+ZIP_ZSTANDARD = 93
 
 # Type is private to prevent users from inventing new values
 _Encryption = NewType('_Encryption', object)
@@ -447,7 +453,7 @@ def stream_unzip(
             unsigned_short.unpack(aes_extra[5:7])[0] if is_aes_encrypted else \
             compression_raw
 
-        if compression not in (0, 8, 9, 12):
+        if compression not in (ZIP_STORED, ZIP_DEFLATED, ZIP_DEFLATED64, ZIP_BZIP2):
             raise UnsupportedCompressionTypeError(compression)
 
         has_data_descriptor = flag_bits[3]
@@ -459,12 +465,12 @@ def stream_unzip(
             raise UnsupportedZip64Error()
 
         compressed_size = \
-            None if has_data_descriptor and compression in (8, 9, 12) else \
+            None if has_data_descriptor and compression in (ZIP_DEFLATED, ZIP_DEFLATED64, ZIP_BZIP2) else \
             unsigned_long_long.unpack(zip64_extra[8:16])[0] if is_sure_zip64 else \
             compressed_size_raw
 
         uncompressed_size = \
-            None if has_data_descriptor and compression in (8, 9, 12) else \
+            None if has_data_descriptor and compression in (ZIP_DEFLATED, ZIP_DEFLATED64, ZIP_BZIP2) else \
             unsigned_long_long.unpack(zip64_extra[:8])[0] if is_sure_zip64 else \
             uncompressed_size_raw
 
@@ -473,13 +479,13 @@ def stream_unzip(
         # archivers write the size in the local header even if a data descriptor is used, so if we
         # have a non-zero value, we _should_ be able to use it, and so only need to fail if we have
         # a zero size.
-        if has_data_descriptor and compression == 0 and compressed_size == 0:
+        if has_data_descriptor and compression == ZIP_STORED and compressed_size == 0:
             raise NotStreamUnzippable(file_name)
 
         decompressor = \
-            get_decompressor_none(uncompressed_size) if compression == 0 else \
-            get_decompressor_deflate() if compression == 8 else \
-            get_decompressor_deflate64() if compression == 9 else \
+            get_decompressor_none(uncompressed_size) if compression == ZIP_STORED else \
+            get_decompressor_deflate() if compression == ZIP_DEFLATED else \
+            get_decompressor_deflate64() if compression == ZIP_DEFLATED64 else \
             get_decompressor_bz2()
 
         decompressed_bytes = \
