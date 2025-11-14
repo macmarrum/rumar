@@ -95,13 +95,13 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
 <!-- settings pydoc begin -->
 * **backup_base_dir**: str &nbsp; &nbsp; _used by: create, sweep_\
   path to the base directory used for backup; usually set in the global space, common for all profiles\
-  ⓘ backup directory for each profile, i.e. _**backup_dir**_, is constructed as `{backup_base_dir}/{profile}`, unless _**backup_dir**_ is set, which takes precedence
+  ⓘ note: backup directory for each profile, i.e. _**backup_dir**_, is constructed as `{backup_base_dir}/{profile}`, unless _**backup_dir**_ is set, which takes precedence
 * **backup_dir**: str = None &nbsp; &nbsp; _used by: create, extract, sweep_\
   path to the backup directory used for the profile\
-  ⚠ usually left unset; if so, its value defaults to `{backup_base_dir}/{profile}`
-* **archive_format**: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz', 'tar.zst'] = 'tar.gz' &nbsp; &nbsp; _used by: create, sweep_\
+  ⚠️ caution: usually left unset; if so, its value defaults to `{backup_base_dir}/{profile}`
+* **archive_format**: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz', 'tar.zst'] = 'tar.zst' &nbsp; &nbsp; _used by: create, sweep_\
   format of archive files to be created\
-  'tar.zst' requires Python 3.14 or higher
+  'tar.zst' requires Python 3.14 or higher or backports.zstd
 * **compression_level**: int = 3 &nbsp; &nbsp; _used by: create_\
   0 to 9 for 'tar.gz', 'tar.bz2', 'tar.xz'\
   0 to 22 for 'tar.zst'

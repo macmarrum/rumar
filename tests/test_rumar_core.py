@@ -750,10 +750,11 @@ class TestCreateTar:
         d = set_up_rumar
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
-        settings = profile_to_settings[profile]
+        settings = replace(profile_to_settings[profile], archive_format='tar')
         rathers = d['rathers']
         rather = rathers[14]
-        rumar = d['rumar']
+        rumar = Rumar({profile: settings})
+        rumar._init_for_profile(profile)
         rumar._set_rath_and_friends(rather)
         actual_archive_path, actual_checksum = rumar._create(CreateReason.CREATE)
         assert actual_archive_path == rumar._archive_path

@@ -277,7 +277,7 @@ class RumarFormat(Enum):
     TGZ = 'tar.gz'
     TBZ = 'tar.bz2'
     TXZ = 'tar.xz'
-    TZS = 'tar.zst'
+    TZST = 'tar.zst'
     # zipx is experimental
     ZIPX = 'zipx'
 
@@ -888,7 +888,7 @@ class Rumar:
     SYMLINK_FORMAT_COMPRESSLEVEL = RumarFormat.TGZ, {COMPRESSLEVEL: 3}
     NOCOMPRESSION_FORMAT_COMPRESSLEVEL = RumarFormat.TAR, {}
     LNK = 'LNK'
-    ARCHIVE_FORMAT_TO_MODE = {RumarFormat.TAR: 'x', RumarFormat.TGZ: 'x:gz', RumarFormat.TBZ: 'x:bz2', RumarFormat.TXZ: 'x:xz', RumarFormat.TZS: 'x:zst'}
+    ARCHIVE_FORMAT_TO_MODE = {RumarFormat.TAR: 'x', RumarFormat.TGZ: 'x:gz', RumarFormat.TBZ: 'x:bz2', RumarFormat.TXZ: 'x:xz', RumarFormat.TZST: 'x:zst'}
     CHECKSUM_SUFFIX = '.b2'
     CHECKSUM_SIZE_THRESHOLD = 10_000_000
     STEMS = 'stems'
@@ -1252,7 +1252,13 @@ class Rumar:
         elif self._rath.suffix.lower() in self.s.suffixes_without_compression or self.s.archive_format == RumarFormat.TAR:
             return self.NOCOMPRESSION_FORMAT_COMPRESSLEVEL
         else:
-            key = {RumarFormat.TXZ: self.PRESET, RumarFormat.TZS: self.LEVEL}.get(self.s.archive_format, self.COMPRESSLEVEL)
+            match self.s.archive_format:
+                case RumarFormat.TXZ:
+                    key = self.PRESET
+                case RumarFormat.TZST:
+                    key = self.LEVEL
+                case _:
+                    key = self.COMPRESSLEVEL
             return self.s.archive_format, {key: self.s.compression_level}
 
     @property
