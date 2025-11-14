@@ -40,6 +40,14 @@ import asyncio
 import contextvars
 import bz2
 import zlib
+import sys
+if sys.version_info >= (3, 14):
+    from compression import zstd
+else:
+    try:
+        from backports import zstd
+    except ImportError:
+        zstd = None
 
 from Crypto.Cipher import AES
 from Crypto.Hash import HMAC, SHA1
@@ -219,6 +227,34 @@ def stream_unzip(
                 return dobj.decompress(compressed_chunk, chunk_size)
             except OSError as e:
                 raise BZ2Error() from e
+
+        def _decompress(compressed_chunk):
+            uncompressed_chunk = _decompress_single(compressed_chunk)
+            if uncompressed_chunk:
+                yield uncompressed_chunk
+
+            while not dobj.eof:
+                uncompressed_chunk = _decompress_single(b'')
+                if not uncompressed_chunk:
+                    break
+                yield uncompressed_chunk
+
+        def _is_done():
+            return dobj.eof
+
+        def _num_unused():
+            return len(dobj.unused_data)
+
+        return _decompress, _is_done, _num_unused
+
+    def get_decompressor_zstd():
+        dobj = zstd.ZstdDecompressor()
+
+        def _decompress_single(compressed_chunk):
+            try:
+                return dobj.decompress(compressed_chunk, chunk_size)
+            except OSError as e:
+                raise ZstdError() from e
 
         def _decompress(compressed_chunk):
             uncompressed_chunk = _decompress_single(compressed_chunk)
@@ -453,7 +489,7 @@ def stream_unzip(
             unsigned_short.unpack(aes_extra[5:7])[0] if is_aes_encrypted else \
             compression_raw
 
-        if compression not in (ZIP_STORED, ZIP_DEFLATED, ZIP_DEFLATED64, ZIP_BZIP2):
+        if compression not in (ZIP_STORED, ZIP_DEFLATED, ZIP_DEFLATED64, ZIP_BZIP2, ZIP_ZSTANDARD):
             raise UnsupportedCompressionTypeError(compression)
 
         has_data_descriptor = flag_bits[3]
@@ -465,12 +501,12 @@ def stream_unzip(
             raise UnsupportedZip64Error()
 
         compressed_size = \
-            None if has_data_descriptor and compression in (ZIP_DEFLATED, ZIP_DEFLATED64, ZIP_BZIP2) else \
+            None if has_data_descriptor and compression in (ZIP_DEFLATED, ZIP_DEFLATED64, ZIP_BZIP2, ZIP_ZSTANDARD) else \
             unsigned_long_long.unpack(zip64_extra[8:16])[0] if is_sure_zip64 else \
             compressed_size_raw
 
         uncompressed_size = \
-            None if has_data_descriptor and compression in (ZIP_DEFLATED, ZIP_DEFLATED64, ZIP_BZIP2) else \
+            None if has_data_descriptor and compression in (ZIP_DEFLATED, ZIP_DEFLATED64, ZIP_BZIP2, ZIP_ZSTANDARD) else \
             unsigned_long_long.unpack(zip64_extra[:8])[0] if is_sure_zip64 else \
             uncompressed_size_raw
 
@@ -482,11 +518,13 @@ def stream_unzip(
         if has_data_descriptor and compression == ZIP_STORED and compressed_size == 0:
             raise NotStreamUnzippable(file_name)
 
-        decompressor = \
-            get_decompressor_none(uncompressed_size) if compression == ZIP_STORED else \
-            get_decompressor_deflate() if compression == ZIP_DEFLATED else \
-            get_decompressor_deflate64() if compression == ZIP_DEFLATED64 else \
-            get_decompressor_bz2()
+        decompressor = (
+            get_decompressor_none(uncompressed_size) if compression == ZIP_STORED else
+            get_decompressor_deflate() if compression == ZIP_DEFLATED else
+            get_decompressor_deflate64() if compression == ZIP_DEFLATED64 else
+            get_decompressor_bz2() if compression == ZIP_BZIP2 else
+            get_decompressor_zstd()
+        )
 
         decompressed_bytes = \
             decrypt_weak_decompress(yield_all(), *decompressor) if is_weak_encrypted else \
@@ -603,6 +641,9 @@ class DeflateError(UncompressError):
     pass
 
 class BZ2Error(UncompressError):
+    pass
+
+class ZstdError(UncompressError):
     pass
 
 class UnsupportedFeatureError(DataError):
