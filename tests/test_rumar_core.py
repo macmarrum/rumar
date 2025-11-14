@@ -1,30 +1,22 @@
 # Copyright (C) 2023-2025  macmarrum (at) outlook (dot) ie
 # SPDX-License-Identifier: GPL-3.0-or-later
 import shutil
-import subprocess
 import sys
 import tarfile
+import zipfile
 from collections.abc import Callable
-
-import stream_zip
-
-try:
-    from compression import zstd
-except ImportError:
-    pass
 from dataclasses import replace
 from datetime import datetime
-from io import BytesIO
 from pathlib import Path
 from textwrap import dedent
 
 import pytest
-import pyzipper
-from stream_unzip import stream_unzip
 
 from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, derive_relative_psx, CreateReason, can_exclude_dir, can_include_dir, can_exclude_file, can_include_file, absolutopathlify, RumarDB, Settings
+from stream_unzip import stream_unzip, ZIP_ZSTANDARD
 from utils import Rather, eq_list
 
+UTF8 = 'UTF-8'
 password = '~!@#$%^&*()-= 123 qwe żółw'
 
 
@@ -66,7 +58,11 @@ def set_up_rumar(tmp_path_factory):
 
 
 def _set_up_rumar():
-    BASE = _tmp_path_factory.mktemp(basename='t', numbered=True)  # t0: module, t1..*: individual tests
+    try:
+        BASE = _tmp_path_factory.mktemp(basename='t', numbered=True)  # t0: module, t1..*: individual tests
+    except AttributeError as e:
+        if F"{e}" == "'NoneType' object has no attribute 'mktemp'":
+            raise AttributeError("This test cannot be run in isolation; run it as part of the class, which ensures it's run after a test that uses set_up_rumar fixture")
     Rather.BASE_PATH = BASE
     profile = 'profileA'
     toml = dedent(f"""\
@@ -817,13 +813,14 @@ class TestCreateTar:
             assert contents == rather._content_as_fileobj().read()
 
 
-def _test_create_for_profile__all_(archive_format: str, compare_archive_contents: Callable[[list[Path], list[Rather], Settings], None]):
+def _test_create_for_profile__all_(archive_format: str, compare_archive_contents: Callable[[list[Path], list[Rather], Settings], None], settings_overrides: dict = None):
+    settings_overrides = settings_overrides or {}
     # use per-function environment set-up (tmp, rumardb)
     d = _set_up_rumar()  # must be called after set_up_rumar() fixture is called
     profile = d['profile']
     profile_to_settings = d['profile_to_settings']
     settings = profile_to_settings[profile]
-    settings.update(db_path=None, archive_format=archive_format, password=password)
+    settings = replace(settings, db_path=None, archive_format=archive_format, password=password, **settings_overrides)
     settings.backup_dir.mkdir(parents=True, exist_ok=True)
     rumar = Rumar({profile: settings})
     created_archives = sorted(rumar.create_for_profile(profile))
@@ -841,7 +838,7 @@ class TestCreateZipx:
         profile = d['profile']
         profile_to_settings = d['profile_to_settings']
         settings = profile_to_settings[profile]
-        settings = replace(settings, archive_format='zipx', password=password)
+        settings = replace(settings, archive_format='zipx', password=password, zip_compression_method=ZIP_ZSTANDARD, compression_level=0)
         rumar = Rumar({profile: settings})  # new Rumar, with local settings
         rumar._init_for_profile(profile)
         rathers = d['rathers']
@@ -854,18 +851,21 @@ class TestCreateZipx:
         self.compare_archive_contents([actual_archive_path], [rather], settings)
 
     def test_create_for_profile__all__zipx(self):
-        _test_create_for_profile__all_('zipx', self.compare_archive_contents)
+        _test_create_for_profile__all_('zipx', self.compare_archive_contents, {'zip_compression_method': ZIP_ZSTANDARD, 'compression_level': 0})
 
     @staticmethod
     def compare_archive_contents(created_archives: list[Path], rathers: list[Rather], settings: Settings):
-        content = None
-        zipinfo = None
         for archive_path, rather in zip(created_archives, rathers, strict=True):
-            with pyzipper.AESZipFile(archive_path, 'r') as zf:
-                zf.setpassword(settings.password)
+            ## verify metadata (they aren't encrypted)
+            zipinfo = None
+            with zipfile.ZipFile(archive_path, 'r') as zf:
                 zipinfo = next(iter(zf.infolist()))
-                content = zf.read(zipinfo)
             assert zipinfo.filename == rather.name
             assert datetime(*zipinfo.date_time) == datetime.fromtimestamp(rather._mtime).replace(microsecond=0)
             assert zipinfo.file_size == rather._size
-            assert content == rather._content_as_fileobj().read()
+            ## unpack and verify content
+            with archive_path.open('rb') as fi:
+                for file_name, _size_not_available, zipped_chunks in stream_unzip(iter(lambda: fi.read(65536), b''), chunk_size=65536, password=settings.password):
+                    assert file_name.decode(UTF8) == rather.name
+                    assert b''.join(zipped_chunks) == rather.open('rb').read()
+                    break

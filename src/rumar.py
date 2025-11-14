@@ -29,7 +29,6 @@ else:
         from backports.zstd import tarfile
     except ImportError:
         import tarfile
-import zipfile
 from contextlib import suppress
 from dataclasses import dataclass, field, fields
 from datetime import datetime, timedelta, date
@@ -46,14 +45,14 @@ from typing import Literal, Pattern, Any, Iterable, cast, Generator, Callable, S
 try:
     from stream_zip import stream_zip, ZipAutoMethod, ZIP_ZSTANDARD
 except ImportError:
-    pass
+    stream_zip = ZipAutoMethod = None
+    ZIP_ZSTANDARD = 93
+try:
+    from stream_unzip import stream_unzip
+except ImportError:
+    stream_unzip = None
 
 assert PY_VER >= (3, 10), 'expected Python 3.10 or higher'
-
-try:
-    import pyzipper
-except ImportError:
-    pass
 
 try:
     import tomllib
@@ -946,11 +945,12 @@ class Rumar:
         if Rumar.derive_stem(archive.name).endswith(f"~{Rumar.LNK}"):
             return None
         if archive.suffix == Rumar.DOT_ZIPX:
-            with pyzipper.AESZipFile(archive) as zf:
-                zf.setpassword(password)
-                zip_info = zf.infolist()[0]
-                with zf.open(zip_info) as f:
-                    return compute_blake2b_checksum(f)
+            with archive.open('rb') as fi:
+                for _, _, zipped_chunks in stream_unzip(iter(lambda: fi.read(65536), b''), chunk_size=65536, password=password):
+                    b2 = blake2b()
+                    for chunk in zipped_chunks:
+                        b2.update(chunk)
+                    return b2.digest()
         else:
             with tarfile.open(archive) as tf:
                 member = tf.getmembers()[0]
@@ -1483,23 +1483,25 @@ class Rumar:
             logger.error(message)
             self._rdb.mark_backup_as_deleted(archive_file)
             return
-        if archive_file.suffix == self.DOT_ZIPX:
-            self._extract_zipx(f, archive_file, target_file)
-        else:
-            self._extract_tar(f, archive_file, target_file)
-        f.close()
+        try:
+            if archive_file.suffix == self.DOT_ZIPX:
+                self._extract_zipx(f, archive_file, target_file)
+            else:
+                self._extract_tar(f, archive_file, target_file)
+        finally:
+            f.close()
 
     def _extract_zipx(self, file: BufferedIOBase, archive_file: Path, target_file: Path):
         logger.info(f":@ {archive_file.parent.name} | {archive_file.name} -> {target_file}")
-        with pyzipper.AESZipFile(file) as zf:
-            zf.setpassword(self.s.password)
-            member = cast(zipfile.ZipInfo, zf.infolist()[0])
-            if member.filename == target_file.name:
-                zf.extract(member, target_file.parent)
+        for _member_name, _, unzipped_chunks in stream_unzip(iter(lambda: file.read(65536), b''), chunk_size=65536, password=self.s.password):
+            if (member_name := _member_name.decode(UTF8)) == target_file.name:
+                with target_file.open('wb') as fo:
+                    for chunk in unzipped_chunks:
+                        fo.write(chunk)
                 mtime_str, _ = self.derive_mtime_size(archive_file)
                 self.set_mtime(target_file, self.calc_mtime_dt(mtime_str))
             else:
-                error = f"archived-file name is different than the archive-container-directory name: {member.filename} != {target_file.name}"
+                error = f"archived-file name is different than the archive-container-directory name: {member_name} != {target_file.name}"
                 self._errors.append(error)
                 logger.error(error)
 
