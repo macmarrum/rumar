@@ -606,6 +606,7 @@ def verify_and_remove_version(toml_dict):
 class CreateReason(Enum):
     """like in CRUD + INIT (for RumarDB initial state)"""
     CREATE = '+>'
+    RESTORE = 'o>'
     UPDATE = '~>'
     DELETE = 'x>'
     INIT = '*>'  # for RumarDB
@@ -1080,6 +1081,11 @@ class Rumar:
                 else:
                     logger.debug(f":== {self._relative_psx}  {latest_mtime_str}  {latest_size} ==: unchanged")
                     self._rdb.save_unchanged(self._relative_psx)
+                    reason_short, src_id = self._rdb.get_latest_source_lc_reason_short(self._relative_psx)
+                    if reason_short == CreateReason.DELETE.name[0]:
+                        reason = CreateReason.RESTORE
+                        logger.debug(f"{reason.value} {self._relative_psx}  {reason.name} {rath.parent}")
+                        self._rdb.restore_source_lc(src_id)
         self._finalize_profile_changes()
         return self._created_archives
 
@@ -2113,6 +2119,24 @@ class RumarDB:
                 result = Path(bak_dir, relative_psx, bak_name)
         logger.debug(f"=> {result}")
         return result
+
+    def get_latest_source_lc_reason_short(self, relative_psx: str):
+        src_id = self.get_src_id(relative_psx)
+        stmt = dedent('''\
+            SELECT reason
+            FROM source_lc
+            WHERE id = (SELECT max(id) FROM source_lc WHERE src_id = ?)
+        ''')
+        reason_short = None
+        for row in execute(self._cur, stmt, (src_id,)):
+            reason_short = row[0]
+        return reason_short, src_id
+
+    def restore_source_lc(self, src_id):
+        stmt = 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)'
+        params = (src_id, CreateReason.RESTORE.name[0], self.run_id)
+        execute(self._cur, stmt, params)
+        self._db.commit()
 
     def get_blake2b_checksum(self, archive_path: Path) -> bytes | None:
         if bak_dir_id := self.bak_dir_id:
