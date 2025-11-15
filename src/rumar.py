@@ -164,10 +164,11 @@ handlers = [
 level = "DEBUG_14"
 '''
 
-rumar_logging_toml_path = get_default_path(suffix='.logging.toml')
-if rumar_logging_toml_path.exists():
-    # print(f":: load logging config from {rumar_logging_toml_path}")
-    dict_config = tomllib.load(rumar_logging_toml_path.open('rb'))
+default_logging_toml_path = get_default_path(suffix='.logging.toml')
+if default_logging_toml_path.exists():
+    # print(f":: load logging config from {default_logging_toml_path}")
+    with default_logging_toml_path.open('rb') as fi:
+        dict_config = tomllib.load(fi)
 else:
     # print(':: load default logging config')
     dict_config = tomllib.loads(LOGGING_TOML_DEFAULT)
@@ -219,6 +220,7 @@ def main(argv: Sequence[str] = None):
     parser_sweep.add_argument('-d', '--dry-run', action=store_true)
     add_profile_args_to_parser(parser_sweep, required=True)
     args = parser.parse_args(argv)
+    load_config_from_logging_toml_if_exists_next_to_settings_toml(args.toml, default_logging_toml_path)
     # pass args to the appropriate function
     args.func(args)
 
@@ -231,6 +233,13 @@ def add_profile_args_to_parser(parser: argparse.ArgumentParser, required: bool):
 
 def mk_abs_path(file_path: str) -> Path:
     return Path(file_path).expanduser().absolute()
+
+
+def load_config_from_logging_toml_if_exists_next_to_settings_toml(rumar_toml_path: Path, _default_logging_toml_path: Path):
+    """Load config from logging toml if it exists next to settings toml and is different from the default one"""
+    if (_logging_toml_path := rumar_toml_path.with_suffix('.logging.toml')) != _default_logging_toml_path:
+        with suppress(FileNotFoundError), _logging_toml_path.open('rb') as fi:
+            logging.config.dictConfig(tomllib.load(fi))
 
 
 def list_profiles(args):
