@@ -21,6 +21,7 @@ import os
 import re
 import sqlite3
 import sys
+
 PY_VER = sys.version_info[:2]
 if PY_VER >= (3, 14):
     import tarfile
@@ -1055,10 +1056,14 @@ class Rumar:
         for rath in self.source_files:
             self._set_rath_and_friends(rath)
             self._rath_checksum = None
-            latest_archive = self._rdb.get_latest_archive_for_source(self._relative_psx)
-            if latest_archive is None:
+            if (src_id := self._rdb.get_src_id(self._relative_psx)) is None:
                 self._create(CreateReason.CREATE)
             else:
+                latest_archive = self._rdb.get_latest_archive_for_source(src_id)
+                if not latest_archive.exists():
+                    self._rdb.mark_backup_as_deleted(latest_archive, src_id)
+                    self._create(CreateReason.CREATE)
+                    continue
                 latest_mtime_str, latest_size = self.derive_mtime_size(latest_archive)
                 latest_mtime_dt = self.calc_mtime_dt(latest_mtime_str)
                 is_changed = False
@@ -1080,8 +1085,8 @@ class Rumar:
                     self._create(CreateReason.UPDATE)
                 else:
                     logger.debug(f":== {self._relative_psx}  {latest_mtime_str}  {latest_size} ==: unchanged")
-                    self._rdb.save_unchanged(self._relative_psx)
-                    reason_short, src_id = self._rdb.get_latest_source_lc_reason_short(self._relative_psx)
+                    self._rdb.save_unchanged(src_id)
+                    reason_short = self._rdb.get_latest_source_lc_reason_short(src_id)
                     if reason_short == CreateReason.DELETE.name[0]:
                         reason = CreateReason.RESTORE
                         logger.debug(f"{reason.value} {self._relative_psx}  {reason.name} {rath.parent}")
@@ -2050,10 +2055,9 @@ class RumarDB:
         self._backup_to_checksum[(bak_dir_id, src_id, bak_name)] = blake2b_checksum
         self._db.commit()
 
-    def save_unchanged(self, relative_psx: str):
-        src_path = relative_psx
-        stmt = 'INSERT INTO unchanged (src_id) SELECT id FROM source WHERE src_dir_id = ? AND src_path = ?'
-        params = (self.src_dir_id, src_path)
+    def save_unchanged(self, src_id: int):
+        stmt = 'INSERT INTO unchanged (src_id) VALUES (?)'
+        params = (src_id,)
         execute(self._cur, stmt, params)
         self._db.commit()
 
@@ -2100,28 +2104,27 @@ class RumarDB:
         self._cur.close()
         self._db.close()
 
-    def get_latest_archive_for_source(self, relative_psx: str) -> Path | None:
+    def get_latest_archive_for_source(self, src_id: int) -> Path | None:
         stmt = dedent('''\
-            SELECT bak_dir, bak_name
+            SELECT bd.bak_dir, s.src_path, b.bak_name
             FROM backup b 
             JOIN run r ON r.id = b.run_id AND r.profile_id = ? 
             JOIN backup_dir bd ON b.bak_dir_id = bd.id 
-            JOIN "source" s ON b.src_id = s.id AND s.src_path = ?
-            JOIN source_dir sd ON s.src_dir_id = sd.id AND sd.src_dir = ?
+            JOIN "source" s ON b.src_id = s.id
+            WHERE src_id = ?
             ORDER BY b.id DESC
             LIMIT 1
         ''')
-        params = (self.profile_id, relative_psx, self.s.source_dir.as_posix())
-        result = None
+        params = (self.profile_id, src_id)
+        latest_archive = None
         for row in execute(self._cur, stmt, params):
-            bak_dir, bak_name = row
+            bak_dir, src_path, bak_name = row
             if bak_name:
-                result = Path(bak_dir, relative_psx, bak_name)
-        logger.debug(f"=> {result}")
-        return result
+                latest_archive = Path(bak_dir, src_path, bak_name)
+        logger.debug(f"=> {latest_archive}")
+        return latest_archive
 
-    def get_latest_source_lc_reason_short(self, relative_psx: str):
-        src_id = self.get_src_id(relative_psx)
+    def get_latest_source_lc_reason_short(self, src_id: int):
         stmt = dedent('''\
             SELECT reason
             FROM source_lc
@@ -2130,7 +2133,7 @@ class RumarDB:
         reason_short = None
         for row in execute(self._cur, stmt, (src_id,)):
             reason_short = row[0]
-        return reason_short, src_id
+        return reason_short
 
     def restore_source_lc(self, src_id):
         stmt = 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)'
@@ -2230,10 +2233,11 @@ class RumarDB:
             _directory = directory or Path(src_dir)
             yield Path(bak_dir, src_path, bak_name), _directory / src_path
 
-    def mark_backup_as_deleted(self, archive_path: Path):
+    def mark_backup_as_deleted(self, archive_path: Path, src_id: int = None):
         archive_dir = archive_path.parent
-        relative_psx = derive_relative_psx(archive_dir, self.s.backup_dir)
-        src_id = self._source_to_id[(self.src_dir_id, relative_psx)]
+        if not src_id:
+            relative_psx = derive_relative_psx(archive_dir, self.s.backup_dir)
+            src_id = self._source_to_id[(self.src_dir_id, relative_psx)]
         params = (self.run_id, self.bak_dir_id, src_id, archive_path.name)
         found = False
         if src_id:

@@ -266,8 +266,8 @@ class TestRumarDB:
         relative_ps = data['relative_ps']
         for i, relative_p in enumerate(relative_ps):
             if i % 3 == 0:
-                rumardb.save_unchanged(relative_p)
                 src_id = rumardb.get_src_id(relative_p)
+                rumardb.save_unchanged(src_id)
                 expected_unchanged.append(src_id)
         actual_unchanged = [row[0] for row in db.execute('SELECT src_id FROM unchanged')]
         assert actual_unchanged == expected_unchanged
@@ -317,7 +317,7 @@ class TestRumarDB:
         for i, relative_p in enumerate(relative_ps):
             src_id = rumardb.get_src_id(relative_p)
             if i % 3 == 0 and i != 0:  # file idx0 was already deleted in test_iter_latest_archives_and_targets_deleted_and_no_top_archive_dir_and_no_directory
-                rumardb.save_unchanged(relative_p)
+                rumardb.save_unchanged(src_id)
                 expected_unchanged.append(src_id)
             else:
                 input_not_unchanged.append(src_id)
