@@ -1061,9 +1061,12 @@ class Rumar:
             if (src_id := self._rdb.get_src_id(self._relative_psx)) is None:
                 self._create(OpReason.CREATE)
             else:
-                latest_archive = self._rdb.get_latest_archive_for_source(src_id)
-                if not latest_archive.exists():
-                    self._rdb.mark_backup_as_deleted(latest_archive, src_id)
+                while latest_archive := self._rdb.get_latest_archive_for_source(src_id):
+                    if not latest_archive.exists():
+                        self._rdb.mark_backup_as_deleted(latest_archive, src_id)
+                    else:
+                        break
+                if not latest_archive:
                     self._create(OpReason.CREATE)
                     continue
                 latest_mtime_str, latest_size = self.derive_mtime_size(latest_archive)
