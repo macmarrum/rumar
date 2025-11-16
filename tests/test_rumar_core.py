@@ -12,7 +12,7 @@ from textwrap import dedent
 
 import pytest
 
-from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, derive_relative_psx, CreateReason, can_exclude_dir, can_include_dir, can_exclude_file, can_include_file, absolutopathlify, RumarDB, Settings
+from rumar import Rumar, make_profile_to_settings_from_toml_text, Rath, iter_all_files, derive_relative_psx, OpReason, can_exclude_dir, can_include_dir, can_exclude_file, can_include_file, absolutopathlify, RumarDB, Settings
 from stream_unzip import stream_unzip, ZIP_ZSTANDARD
 from utils import Rather, eq_list
 
@@ -756,7 +756,7 @@ class TestCreateTar:
         rumar = Rumar({profile: settings})
         rumar._init_for_profile(profile)
         rumar._set_rath_and_friends(rather)
-        actual_archive_path, actual_checksum = rumar._create(CreateReason.CREATE)
+        actual_archive_path, actual_checksum = rumar._create(OpReason.CREATE)
         assert actual_archive_path == rumar._archive_path
         assert actual_checksum == rather.checksum
         # print('\n##', f"archive_path: {archive_path}")
@@ -773,7 +773,7 @@ class TestCreateTar:
         rathers = d['rathers']
         rather = rathers[14]
         rumar._set_rath_and_friends(rather)
-        actual_archive_path, actual_checksum = rumar._create(CreateReason.CREATE)
+        actual_archive_path, actual_checksum = rumar._create(OpReason.CREATE)
         assert actual_archive_path == rumar._archive_path
         assert actual_checksum == rather.checksum
         # print('\n##', f"archive_path: {archive_path}")
@@ -845,7 +845,7 @@ class TestCreateZipx:
         rathers = d['rathers']
         rather = rathers[14]
         rumar._set_rath_and_friends(rather)
-        actual_archive_path, actual_checksum = rumar._create(CreateReason.CREATE)
+        actual_archive_path, actual_checksum = rumar._create(OpReason.CREATE)
         assert actual_archive_path == rumar._archive_path
         assert actual_checksum == rather.checksum
         # print('\n##', f"archive_path: {archive_path}")

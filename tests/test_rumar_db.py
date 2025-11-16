@@ -7,7 +7,7 @@ from textwrap import dedent
 
 import pytest
 
-from rumar import Rumar, make_profile_to_settings_from_toml_text, CreateReason
+from rumar import Rumar, make_profile_to_settings_from_toml_text, OpReason
 from utils import Rather
 
 
@@ -57,11 +57,11 @@ def _set_up_rumar():
     rathers = [Rather(fs_path, lstat_cache=rumar.lstat_cache, mtime=i * 60) for i, fs_path in enumerate(fs_paths, start=1)]
     rathers[0].checksum = Rather.NONE  # set checksum to None while keeping content intact
     raths = [r.as_rath() for r in rathers]
-    reasons: list[CreateReason] = []
+    reasons: list[OpReason] = []
     relative_ps: list[str] = []
     archive_rathers: list[Rather] = []
     checksums: list[bytes] = []
-    reason = CreateReason.CREATE
+    reason = OpReason.CREATE
     Rather.BASE_PATH = None
     for rather in rathers:
         rumar._set_rath_and_friends(rather)
@@ -141,7 +141,7 @@ class TestRumarDB:
         db = rumar._rdb._db
         bak_dir = rumar.s.backup_dir.as_posix()
         for i, actual in enumerate(db.execute('SELECT profile, reason, bak_dir, src_path, bak_name, blake2b FROM v_backup')):
-            reason: CreateReason = data['reasons'][i]
+            reason: OpReason = data['reasons'][i]
             relative_p = data['relative_ps'][i]
             archive_path: Path = data['archive_rathers'][i]
             blake2b = data['checksums'][i]  # bytes | None
@@ -233,7 +233,7 @@ class TestRumarDB:
         src_id = 1
         rumardb.init_run_datetime_iso_anew()
         db = rumardb._db
-        db.execute('INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)', (src_id, CreateReason.DELETE.name[0], rumardb.run_id,))
+        db.execute('INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)', (src_id, OpReason.DELETE.name[0], rumardb.run_id,))
         db.commit()
         ## add another backup for file #2 (index 1)
         i = 1
@@ -241,7 +241,7 @@ class TestRumarDB:
         rather.content = rather.content + '\n' + rumardb._run_datetime_iso
         lstat = rather.lstat()
         updated_archive_path1 = rumar.compose_archive_path(archive_rathers[i].parent, rumar.calc_mtime_str(lstat), lstat.st_size)
-        rumardb.save(CreateReason.UPDATE, data['relative_ps'][i], updated_archive_path1, rather.checksum)
+        rumardb.save(OpReason.UPDATE, data['relative_ps'][i], updated_archive_path1, rather.checksum)
         ## mark the updated backup as deleted, so that its previous backup is used, i.e. file #2 (index 1)
         rumardb.mark_backup_as_deleted(updated_archive_path1)
         ## verify
@@ -303,7 +303,7 @@ class TestRumarDB:
         rather.content = rather.content + '\n' + rumardb._run_datetime_iso
         archive_dir = archive_rathers[1].parent
         archive_path = rumar.compose_archive_path(archive_dir, rumar.calc_mtime_str(rather.lstat()), rather.lstat().st_size)
-        rumardb.save(CreateReason.UPDATE, relative_ps[1], archive_path, rather.checksum)
+        rumardb.save(OpReason.UPDATE, relative_ps[1], archive_path, rather.checksum)
         ## update d for next tests
         rathers.append(rather)
         raths.append(rather.as_rath())
@@ -335,7 +335,7 @@ class TestRumarDB:
         expected_deleted = input_not_unchanged
         expected_deleted.remove(rumardb.get_src_id(relative_ps[1]))
         actual_deleted = []
-        for row in db.execute('SELECT src_id FROM source_lc WHERE reason = ?', (CreateReason.DELETE.name[0],)):
+        for row in db.execute('SELECT src_id FROM source_lc WHERE reason = ?', (OpReason.DELETE.name[0],)):
             actual_deleted.append(row[0])
         ## clean up for next tests
         db.execute('DELETE FROM unchanged_or_restored')

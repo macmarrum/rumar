@@ -604,7 +604,7 @@ def verify_and_remove_version(toml_dict):
     del toml_dict['version']
 
 
-class CreateReason(Enum):
+class OpReason(Enum):
     """like in CRUD + INIT (for RumarDB initial state)"""
     CREATE = '+>'
     RESTORE = 'o>'
@@ -1059,12 +1059,12 @@ class Rumar:
         for rath in self.source_files:
             self._set_rath_and_friends(rath)
             if (src_id := self._rdb.get_src_id(self._relative_psx)) is None:
-                self._create(CreateReason.CREATE)
+                self._create(OpReason.CREATE)
             else:
                 latest_archive = self._rdb.get_latest_archive_for_source(src_id)
                 if not latest_archive.exists():
                     self._rdb.mark_backup_as_deleted(latest_archive, src_id)
-                    self._create(CreateReason.CREATE)
+                    self._create(OpReason.CREATE)
                     continue
                 latest_mtime_str, latest_size = self.derive_mtime_size(latest_archive)
                 latest_mtime_dt = self.calc_mtime_dt(latest_mtime_str)
@@ -1083,7 +1083,7 @@ class Rumar:
                         # else:  # different mtime, same size, not instructed to do checksum comparison => no backup
                 should_restore_source = False
                 latest_src_reason = self._rdb.get_latest_source_lc_reason_short(src_id)
-                reason_delete_short = CreateReason.DELETE.name[0]
+                reason_delete_short = OpReason.DELETE.name[0]
                 if is_changed:  # file has changed as compared to the last backup
                     if self._archive_path.exists():
                         if latest_src_reason != reason_delete_short:
@@ -1105,15 +1105,15 @@ class Rumar:
                         should_restore_source = True
                     else:
                         logger.info(f":= {self._relative_psx}  {latest_mtime_str}  {latest_size} =: last backup")
-                        self._create(CreateReason.UPDATE)
+                        self._create(OpReason.UPDATE)
                 else:  # file has not changed as compared to the last backup
                     logger.debug(f":== {self._relative_psx}  {latest_mtime_str}  {latest_size} ==: unchanged")
                     self._rdb.save_unchanged_or_restored(src_id)
                     if latest_src_reason == reason_delete_short:
                         should_restore_source = True
                 if should_restore_source:
-                    reason_restore = CreateReason.RESTORE
-                    logger.debug(f"{reason_restore.value} {self._relative_psx}  {reason_restore.name} {rath.parent}")
+                    op_reason = OpReason.RESTORE
+                    logger.debug(f"{op_reason.value} {self._relative_psx}  {op_reason.name} {rath.parent}")
                     self._rdb.restore_source_lc(src_id)
         self._finalize_profile_changes()
         return self._created_archives
@@ -1189,10 +1189,10 @@ class Rumar:
             archive_dir.mkdir(parents=True, exist_ok=True)
             checksum_file.write_text(checksum)
 
-    def _create(self, create_reason: CreateReason):
+    def _create(self, op_reason: OpReason):
         """:return: useful for tests"""
-        sign = create_reason.value
-        reason = create_reason.name
+        sign = op_reason.value
+        reason = op_reason.name
         logger.info(f"{sign} {self._relative_psx}  {self._mtime_str}  {self._size} {reason} {self._archive_dir / '...'}")
         self._archive_dir.mkdir(parents=True, exist_ok=True)
         match self.s.archive_format:
@@ -1203,7 +1203,7 @@ class Rumar:
         is_archive_created = self._call_create_and_verify_checksum_before_and_after_unless_lnk(_create)
         if is_archive_created:
             self._created_archives[self._archive_path] = self._rath_checksum
-            self._rdb.save(create_reason, self._relative_psx, self._archive_path, self._rath_checksum)
+            self._rdb.save(op_reason, self._relative_psx, self._archive_path, self._rath_checksum)
         return self._archive_path if is_archive_created else None, self._rath_checksum
 
     def _create_tar(self):
@@ -1962,7 +1962,7 @@ class RumarDB:
     def _init_source_lc_if_empty(self):
         cur = self._cur
         if cur.execute('SELECT (SELECT count(*) FROM source_lc) = 0 AND (SELECT count(*) FROM source) > 0').fetchone()[0] == 1:
-            cur.execute('INSERT INTO source_lc (src_id, reason, run_id) SELECT id, ?, ? FROM source', (CreateReason.INIT.name[0], self.run_id,))
+            cur.execute('INSERT INTO source_lc (src_id, reason, run_id) SELECT id, ?, ? FROM source', (OpReason.INIT.name[0], self.run_id,))
             self._db.commit()
 
     def _load_data_into_memory(self):
@@ -2040,7 +2040,7 @@ class RumarDB:
             execute(self._cur, 'INSERT INTO source (src_dir_id, src_path) VALUES (?, ?)', (src_dir_id, src_path))
             src_id = execute(self._cur, 'SELECT max(id) FROM source').fetchone()[0]
             self._source_to_id[(src_dir_id, src_path)] = src_id
-            execute(self._cur, 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)', (src_id, CreateReason.CREATE.name[0], self.run_id,))
+            execute(self._cur, 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)', (src_id, OpReason.CREATE.name[0], self.run_id,))
             self._db.commit()
         return src_id
 
@@ -2057,21 +2057,21 @@ class RumarDB:
                 except FileNotFoundError:
                     # blake2b_checksum = Rumar.compute_checksum_of_file_in_archive(latest_archive, self.s.password)
                     blake2b_checksum = None
-                create_reason = CreateReason.INIT
-                sign = create_reason.value
-                reason = create_reason.name
+                op_reason = OpReason.INIT
+                sign = op_reason.value
+                reason = op_reason.name
                 logger.info(f"{sign} {relative_psx}  {latest_archive.name}  {reason} {latest_archive.parent}")
-                self.save(create_reason, relative_psx, latest_archive, blake2b_checksum)
+                self.save(op_reason, relative_psx, latest_archive, blake2b_checksum)
 
-    def save(self, create_reason: CreateReason, relative_psx: str, archive_path: Path | None, blake2b_checksum: bytes | None):
-        # logger.debug(f"{create_reason}, {relative_psx}, {archive_path.name if archive_path else None}, {blake2b_checksum.hex() if blake2b_checksum else None})")
+    def save(self, op_reason: OpReason, relative_psx: str, archive_path: Path | None, blake2b_checksum: bytes | None):
+        # logger.debug(f"{op_reason}, {relative_psx}, {archive_path.name if archive_path else None}, {blake2b_checksum.hex() if blake2b_checksum else None})")
         # source
         src_path = relative_psx
         src_id = self.get_src_id(src_path, create_if_missing=True)
         # backup
         run_id = self.run_id
         bak_dir_id = self.bak_dir_id
-        reason = create_reason.name[0]
+        reason = op_reason.name[0]
         bak_name = archive_path.name if archive_path else None
         stmt = 'INSERT INTO backup (run_id, reason, bak_dir_id, src_id, bak_name, blake2b) VALUES (?, ?, ?, ?, ?, ?)'
         params = (run_id, reason, bak_dir_id, src_id, bak_name, blake2b_checksum)
@@ -2118,7 +2118,7 @@ class RumarDB:
             WHERE b.src_id = lc.src_id
             AND lc.reason = ?
         );''')
-        reason_d = CreateReason.DELETE.name[0]
+        reason_d = OpReason.DELETE.name[0]
         run_id = self.run_id
         profile_id = self.profile_id
         execute(self._cur, query, (reason_d, run_id, profile_id, run_id, reason_d,))
@@ -2161,7 +2161,7 @@ class RumarDB:
 
     def restore_source_lc(self, src_id):
         stmt = 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)'
-        params = (src_id, CreateReason.RESTORE.name[0], self.run_id)
+        params = (src_id, OpReason.RESTORE.name[0], self.run_id)
         execute(self._cur, stmt, params)
         self._db.commit()
 
@@ -2249,7 +2249,7 @@ class RumarDB:
             AND lc.reason = ?
         );''')
         top_archive_dir_psx = top_archive_dir.as_posix() if top_archive_dir else 'None'
-        reason_d = CreateReason.DELETE.name[0]
+        reason_d = OpReason.DELETE.name[0]
         for row in execute(self._cur, query, (self.profile_id, reason_d,)):
             bak_dir, src_path, bak_name, src_dir = row
             if top_archive_dir and not f"{bak_dir}/{src_path}".startswith(top_archive_dir_psx):
