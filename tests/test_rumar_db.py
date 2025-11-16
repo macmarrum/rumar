@@ -253,26 +253,26 @@ class TestRumarDB:
         ## clean up
         _tear_down_rumar(d)
 
-    def test_save_unchanged(self, set_up_rumar):
+    def test_save_unchanged_or_restored(self, set_up_rumar):
         d = set_up_rumar
         data = d['data']
         rumardb = d['rumardb']
         db = rumardb._db
-        ## verify in RumarDB the initial state of unchanged rows in 0
-        actual_unchanged_rows_count = db.execute('SELECT count(*) FROM unchanged').fetchone()[0]
+        ## verify in RumarDB the initial state of unchanged_or_restored rows in 0
+        actual_unchanged_rows_count = db.execute('SELECT count(*) FROM unchanged_or_restored').fetchone()[0]
         assert actual_unchanged_rows_count == 0
-        ## call save_unchanged and verify it's been persisted in the DB
+        ## call save_unchanged_or_restored and verify it's been persisted in the DB
         expected_unchanged = []
         relative_ps = data['relative_ps']
         for i, relative_p in enumerate(relative_ps):
             if i % 3 == 0:
                 src_id = rumardb.get_src_id(relative_p)
-                rumardb.save_unchanged(src_id)
+                rumardb.save_unchanged_or_restored(src_id)
                 expected_unchanged.append(src_id)
-        actual_unchanged = [row[0] for row in db.execute('SELECT src_id FROM unchanged')]
+        actual_unchanged = [row[0] for row in db.execute('SELECT src_id FROM unchanged_or_restored')]
         assert actual_unchanged == expected_unchanged
         ## clean up for next tests
-        db.execute('DELETE FROM unchanged')
+        db.execute('DELETE FROM unchanged_or_restored')
 
     def test_init_run_datetime_iso_anew(self, set_up_rumar):
         d = set_up_rumar
@@ -317,17 +317,17 @@ class TestRumarDB:
         for i, relative_p in enumerate(relative_ps):
             src_id = rumardb.get_src_id(relative_p)
             if i % 3 == 0 and i != 0:  # file idx0 was already deleted in test_iter_latest_archives_and_targets_deleted_and_no_top_archive_dir_and_no_directory
-                rumardb.save_unchanged(src_id)
+                rumardb.save_unchanged_or_restored(src_id)
                 expected_unchanged.append(src_id)
             else:
                 input_not_unchanged.append(src_id)
-        actual_unchanged = [row[0] for row in db.execute('SELECT src_id FROM unchanged')]
+        actual_unchanged = [row[0] for row in db.execute('SELECT src_id FROM unchanged_or_restored')]
         assert actual_unchanged == expected_unchanged
         ## call the method under test
         rumardb.identify_and_save_deleted()
         # print data for manual debugging
         # print()
-        # for table in ['unchanged', 'source_lc']:
+        # for table in ['unchanged_or_restored', 'source_lc']:
         #     print(table)
         #     for row in db.execute('SELECT * FROM ' + table):
         #         print(row)
@@ -338,7 +338,7 @@ class TestRumarDB:
         for row in db.execute('SELECT src_id FROM source_lc WHERE reason = ?', (CreateReason.DELETE.name[0],)):
             actual_deleted.append(row[0])
         ## clean up for next tests
-        db.execute('DELETE FROM unchanged')
+        db.execute('DELETE FROM unchanged_or_restored')
         assert actual_deleted == expected_deleted
 
     def test_iter_non_deleted_archive_paths(self, set_up_rumar):

@@ -1101,14 +1101,14 @@ class Rumar:
                         #     self._warnings.append(msg)
                         # restore backup, but first make sure the latest is actually deleted
                         # logger.debug(f":== {self._relative_psx}  {latest_mtime_str}  {latest_size} ==: unchanged")
-                        self._rdb.save_unchanged(src_id)
+                        self._rdb.save_unchanged_or_restored(src_id)
                         should_restore_source = True
                     else:
                         logger.info(f":= {self._relative_psx}  {latest_mtime_str}  {latest_size} =: last backup")
                         self._create(CreateReason.UPDATE)
                 else:  # file has not changed as compared to the last backup
                     logger.debug(f":== {self._relative_psx}  {latest_mtime_str}  {latest_size} ==: unchanged")
-                    self._rdb.save_unchanged(src_id)
+                    self._rdb.save_unchanged_or_restored(src_id)
                     if latest_src_reason == reason_delete_short:
                         should_restore_source = True
                 if should_restore_source:
@@ -1787,8 +1787,8 @@ class RumarDB:
                 CONSTRAINT u_bak_dir_id_src_id_bak_name UNIQUE (bak_dir_id, src_id, bak_name)
             ) STRICT;'''),
             'drop unchanged': 'DROP TABLE IF EXISTS unchanged;',
-            'unchanged': dedent('''\
-            CREATE TEMPORARY TABLE unchanged (
+            'unchanged_or_restored': dedent('''\
+            CREATE TEMPORARY TABLE unchanged_or_restored (
                 src_id INTEGER PRIMARY KEY
             ) STRICT;'''),
         },
@@ -2079,8 +2079,8 @@ class RumarDB:
         self._backup_to_checksum[(bak_dir_id, src_id, bak_name)] = blake2b_checksum
         self._db.commit()
 
-    def save_unchanged(self, src_id: int):
-        stmt = 'INSERT INTO unchanged (src_id) VALUES (?)'
+    def save_unchanged_or_restored(self, src_id: int):
+        stmt = 'INSERT INTO unchanged_or_restored (src_id) VALUES (?)'
         params = (src_id,)
         execute(self._cur, stmt, params)
         self._db.commit()
@@ -2088,8 +2088,8 @@ class RumarDB:
     def identify_and_save_deleted(self):
         """
         Inserts a DELETE record for each file in the DB that's no longer available in source_dir files.
-        Selects from backup latest src files for profile minus already deleted ones, minus those seen in this run,
-        i.e. both changed and unchanged files. The result is a list of newly deleted src files.
+        Selects from backup latest src files for profile minus already deleted ones, minus those seen in this run
+        i.e.: changed, unchanged and restored files. The result is a list of newly deleted src files.
         """
         query = dedent('''\
         INSERT INTO source_lc (src_id, reason, run_id)
@@ -2104,7 +2104,7 @@ class RumarDB:
         WHERE b.run_id != ? -- minus src files changed in this run
         AND NOT EXISTS ( -- minus src files not changed in this run
             SELECT 1
-            FROM unchanged u
+            FROM unchanged_or_restored u
             WHERE b.src_id = u.src_id
         )
         AND NOT EXISTS ( -- minus src files already deleted
