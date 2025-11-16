@@ -927,6 +927,7 @@ class Rumar:
         self._islnk: bool = None
         self._archive_path: Path = None
         self._rath_checksum: bytes = None
+        self._latest_checksum: bytes = None
 
     def _set_rath_and_friends(self, rath: Rath | None, afresh=False):
         if rath is not None:
@@ -945,6 +946,8 @@ class Rumar:
             self._archive_path = compose_archive_path(self._archive_dir, archive_format, self._mtime_str, self._size, comment=lnk)
         else:
             self._rath = self._relative_psx = self._archive_dir = self._mtime = self._mtime_str = self._mtime_dt = self._size = self._mode = self._islnk = self._archive_path = None
+        self._rath_checksum: bytes = None
+        self._latest_checksum: bytes = None
 
     @staticmethod
     def should_ignore_for_archive(lstat: os.stat_result) -> bool:
@@ -1055,7 +1058,6 @@ class Rumar:
             return None
         for rath in self.source_files:
             self._set_rath_and_friends(rath)
-            self._rath_checksum = None
             if (src_id := self._rdb.get_src_id(self._relative_psx)) is None:
                 self._create(CreateReason.CREATE)
             else:
@@ -1067,7 +1069,7 @@ class Rumar:
                 latest_mtime_str, latest_size = self.derive_mtime_size(latest_archive)
                 latest_mtime_dt = self.calc_mtime_dt(latest_mtime_str)
                 is_changed = False
-                if self._mtime_dt > latest_mtime_dt:
+                if self._mtime_dt != latest_mtime_dt:
                     if self._size != latest_size:
                         is_changed = True
                     else:
@@ -1075,22 +1077,44 @@ class Rumar:
                         if self.s.checksum_comparison_if_same_size:
                             with self._rath.open('rb') as f:
                                 self._rath_checksum = compute_blake2b_checksum(f)
-                            latest_checksum = self._get_archive_checksum(latest_archive)
-                            logger.info(f':- {self._relative_psx}  {latest_mtime_str}  {latest_checksum.hex() if latest_checksum else None}')
-                            is_changed = self._rath_checksum != latest_checksum
-                        # else:  # newer mtime, same size, not instructed to do checksum comparison => no backup
-                if is_changed:
-                    # file has changed as compared to the last backup
-                    logger.info(f":= {self._relative_psx}  {latest_mtime_str}  {latest_size} =: last backup")
-                    self._create(CreateReason.UPDATE)
-                else:
+                            self._latest_checksum = self._get_archive_checksum(latest_archive)
+                            logger.info(f':- {self._relative_psx}  {latest_mtime_str}  {self._latest_checksum.hex() if self._latest_checksum else None}')
+                            is_changed = self._rath_checksum != self._latest_checksum
+                        # else:  # different mtime, same size, not instructed to do checksum comparison => no backup
+                should_restore_source = False
+                latest_src_reason = self._rdb.get_latest_source_lc_reason_short(src_id)
+                reason_delete_short = CreateReason.DELETE.name[0]
+                if is_changed:  # file has changed as compared to the last backup
+                    if self._archive_path.exists():
+                        if latest_src_reason != reason_delete_short:
+                            msg = f"=! {self._relative_psx}  latest source reason in {self.s.db_path.__str__()!r} is not DELETED: {latest_src_reason!r}!='D' {rath.parent}"
+                            logger.error(msg)
+                            self._errors.append(msg)
+                        # if self._rath_checksum is None:
+                        #     with self._rath.open('rb') as f:
+                        #         self._rath_checksum = compute_blake2b_checksum(f)
+                        # if self._latest_checksum is None:
+                        #     self._latest_checksum = self._get_archive_checksum(latest_archive)
+                        # if self._rath_checksum == self._latest_checksum:
+                        #     msg = f"=! {self._relative_psx}  checksum hasn't changed although mtime and/or size changed"
+                        #     logger.warning(msg)
+                        #     self._warnings.append(msg)
+                        # restore backup, but first make sure the latest is actually deleted
+                        # logger.debug(f":== {self._relative_psx}  {latest_mtime_str}  {latest_size} ==: unchanged")
+                        self._rdb.save_unchanged(src_id)
+                        should_restore_source = True
+                    else:
+                        logger.info(f":= {self._relative_psx}  {latest_mtime_str}  {latest_size} =: last backup")
+                        self._create(CreateReason.UPDATE)
+                else:  # file has not changed as compared to the last backup
                     logger.debug(f":== {self._relative_psx}  {latest_mtime_str}  {latest_size} ==: unchanged")
                     self._rdb.save_unchanged(src_id)
-                    reason_short = self._rdb.get_latest_source_lc_reason_short(src_id)
-                    if reason_short == CreateReason.DELETE.name[0]:
-                        reason = CreateReason.RESTORE
-                        logger.debug(f"{reason.value} {self._relative_psx}  {reason.name} {rath.parent}")
-                        self._rdb.restore_source_lc(src_id)
+                    if latest_src_reason == reason_delete_short:
+                        should_restore_source = True
+                if should_restore_source:
+                    reason_restore = CreateReason.RESTORE
+                    logger.debug(f"{reason_restore.value} {self._relative_psx}  {reason_restore.name} {rath.parent}")
+                    self._rdb.restore_source_lc(src_id)
         self._finalize_profile_changes()
         return self._created_archives
 
@@ -2116,12 +2140,12 @@ class RumarDB:
             LIMIT 1
         ''')
         params = (self.profile_id, src_id)
-        latest_archive = None
+        latest_archive = reason = None
         for row in execute(self._cur, stmt, params):
             bak_dir, src_path, bak_name = row
             if bak_name:
                 latest_archive = Path(bak_dir, src_path, bak_name)
-        logger.debug(f"=> {latest_archive}")
+        logger.debug(f"=> {latest_archive.__str__()!r} {reason!r}")
         return latest_archive
 
     def get_latest_source_lc_reason_short(self, src_id: int):
@@ -2265,11 +2289,12 @@ class RumarDB:
 
 
 def execute(cur: sqlite3.Cursor | sqlite3.Connection, stmt: str, params: tuple | None = None, log=logger.debug):
+    stmt_for_log = stmt.rstrip()
     if params:
-        sql_stmt = stmt.replace('?', '%r') % params
-    else:
-        sql_stmt = stmt
-    log(sql_stmt)
+        stmt_for_log = stmt_for_log.replace('?', '%r') % params
+    if '\n' in stmt_for_log:
+        stmt_for_log = '\n' + stmt_for_log
+    log(stmt_for_log)
     if params:
         result = cur.execute(stmt, params)
     else:
