@@ -356,7 +356,7 @@ class TestRumarDB:
         actual = [path.as_posix() for path in rumardb.iter_non_deleted_archive_paths()]
         assert actual == expected
         ## clean up
-        db.execute('UPDATE backup SET del_run_id = NULL')
+        db.execute('UPDATE backup SET del_run_id = 0')
         db.commit()
 
     def test_reconcile_backup_files_with_disk(self, set_up_rumar):
@@ -399,5 +399,5 @@ class TestRumarDB:
         assert actual_intact == expected_intact
         assert actual_deleted == expected_deleted
         ## clean up
-        db.execute('UPDATE backup SET del_run_id = NULL')
+        db.execute('UPDATE backup SET del_run_id = 0')
         db.commit()

@@ -150,7 +150,7 @@ def test_migrate_to_blob_blake2b(set_up_rumardb):
     assert columns == expected_columns, f"Expected columns {expected_columns}, but got {columns}"
 
 
-def test_alter_backup_add_del_run_id_if_required(set_up_rumardb):
+def test_migrate_backup_del_run_id_if_required(set_up_rumardb):
     db = set_up_rumardb['db']
     cur = db.cursor()
     # Undo creation of the new backup table
@@ -165,7 +165,7 @@ def test_alter_backup_add_del_run_id_if_required(set_up_rumardb):
             bak_dir_id INTEGER NOT NULL REFERENCES backup_dir (id),
             src_id INTEGER NOT NULL REFERENCES source (id),
             bak_name TEXT,
-            blake2b TEXT,
+            blake2b BLOB,
             CONSTRAINT u_bak_dir_id_src_id_bak_name UNIQUE (bak_dir_id, src_id, bak_name)
         ) STRICT;
         CREATE VIEW v_backup AS SELECT * FROM backup;
@@ -179,17 +179,17 @@ def test_alter_backup_add_del_run_id_if_required(set_up_rumardb):
         INSERT INTO source (id, src_dir_id, src_path) VALUES (1, 1, 'subdir/file.txt');
         INSERT INTO backup (id, run_id, reason, bak_dir_id, src_id, bak_name, blake2b)
         VALUES 
-        (1, 1, 'C', 1, 1, '2024-01-01_11,00,00+00,00~1000.tar.gz', '626ea9f0'),
-        (2, 1, 'U', 1, 1, '2024-01-01_22,00,00+00,00~2000.tar.gz', '785a0dc3')
+        (1, 1, 'C', 1, 1, '2024-01-01_11,00,00+00,00~1000.tar.gz', X'626ea9f0'),
+        (2, 1, 'U', 1, 1, '2024-01-01_22,00,00+00,00~2000.tar.gz', X'785a0dc3')
     ''')
     # Perform alteration
-    RumarDB._alter_backup_add_del_run_id_if_required(db)
+    RumarDB._migrate_backup_del_run_id_if_required(db)
     # Verify results
     cur.execute('SELECT id, bak_name, del_run_id FROM backup ORDER BY id')
     results = cur.fetchall()
     expected = [
-        (1, '2024-01-01_11,00,00+00,00~1000.tar.gz', None),
-        (2, '2024-01-01_22,00,00+00,00~2000.tar.gz', None),
+        (1, '2024-01-01_11,00,00+00,00~1000.tar.gz', 0),
+        (2, '2024-01-01_22,00,00+00,00~2000.tar.gz', 0),
     ]
     assert results == expected, f"Expected {expected}, but got {results}"
     # Verify new table structure
