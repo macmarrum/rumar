@@ -1230,6 +1230,7 @@ class Rumar:
                 with FileBlake2b(self._rath) as file_blake2b:
                     tf.addfile(tarinfo, fileobj=file_blake2b)
                     checksum = file_blake2b.digest()
+        logger.log(RETVAL_16, f" archive_format: {self.s.archive_format}, compression_level: {self.s.compression_level}, {checksum.hex() if checksum else None}")
         return checksum
 
     def _create_zipx(self):
@@ -1248,6 +1249,7 @@ class Rumar:
                 fo.write(zipped_chunk)
         checksum = file_blake2b.digest() if file_blake2b else None
         file_blake2b and file_blake2b.close()
+        logger.log(RETVAL_16, f"zip_compression_method: {self.s.zip_compression_method}, compression_level: {self.s.compression_level}, {checksum.hex() if checksum else None}")
         return checksum
 
     def _call_create_and_verify_checksum_before_and_after_unless_lnk(self, _create: Callable):
