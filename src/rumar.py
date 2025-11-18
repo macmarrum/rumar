@@ -1840,12 +1840,12 @@ class RumarDB:
         self._db = db
         self._cur = db.cursor()
         if len(self._profile_to_id) == 0:
+            self._insert_zero_to_profile_and_run_tables_if_required(db)
             self._migrate_backup_to_bak_name_if_required(db)
             self._migrate_to_blob_blake2b_if_required(db)
             self._migrate_backup_del_run_id_if_required(db)
             self._rename_backup_base_dir_for_profile_if_required(db)
             self._create_tables_and_indexes_if_not_exist(db)
-            self._insert_zero_to_profile_and_run_tables_if_required(db)
             self._recreate_views(db)
             self._load_data_into_memory()
         self._profile_id = self._profile_to_id.get(profile)
