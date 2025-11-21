@@ -1061,7 +1061,9 @@ class Rumar:
             if (src_id := self._rdb.get_src_id(self._relative_psx)) is None:
                 self._create(OpReason.CREATE)
             else:  # file is already in the database (was backed up before)
-                while latest_archive := self._rdb.get_latest_archive_for_source(src_id):
+                latest_archive = None
+                while latest_archive_tuple := self._rdb.get_latest_archive_for_source(src_id):
+                    latest_archive, latest_mtime_str_2, latest_bak_id = latest_archive_tuple
                     if not latest_archive.exists():
                         self._rdb.mark_backup_as_deleted(latest_archive, src_id)
                     else:
@@ -1071,6 +1073,7 @@ class Rumar:
                     continue
                 # check if file changed since last backup
                 latest_mtime_str, latest_size = self.derive_mtime_size(latest_archive)
+                latest_mtime_str = latest_mtime_str_2 or latest_mtime_str
                 latest_mtime_dt = self.calc_mtime_dt(latest_mtime_str)
                 is_changed = False
                 if self._mtime_dt != latest_mtime_dt:
@@ -1084,6 +1087,8 @@ class Rumar:
                             self._latest_checksum = self._get_archive_checksum(latest_archive)
                             is_changed = self._rath_checksum != self._latest_checksum
                             logger.info(f":- {self._relative_psx}  mtime changed, same size, {'checksum CHANGED' if is_changed else 'checksum matches'}  {latest_mtime_str} -> {self._mtime_str}")
+                            if not is_changed:
+                                self._rdb.set_mtime(latest_bak_id, self._mtime_str)
                         # else:  # different mtime, same size, not instructed to do checksum comparison => no backup
                 should_restore_source = False
                 latest_src_reason_x = self._rdb.get_latest_source_lc_reason_x(src_id)
@@ -1793,6 +1798,7 @@ class RumarDB:
                 bak_dir_id INTEGER NOT NULL REFERENCES backup_dir (id),
                 src_id INTEGER NOT NULL REFERENCES source (id),
                 bak_name TEXT,
+                mtime TEXT,
                 blake2b BLOB,
                 del_run_id INTEGER NOT NULL DEFAULT (0) REFERENCES run (id),
                 CONSTRAINT u_bak_dir_id_src_id_bak_name_del_run_id UNIQUE (bak_dir_id, src_id, bak_name, del_run_id)
@@ -1809,7 +1815,7 @@ class RumarDB:
         'view': {
             'v_backup': dedent('''\
             CREATE VIEW IF NOT EXISTS v_backup AS
-            SELECT b.id, b.run_id, r.run_datetime_iso, p.profile, bd.bak_dir, s.src_path, b.bak_name, b.reason, b.del_run_id, b.src_id, ld.run_id src_del_run_id, nullif(lower(hex(blake2b)), '') blake2b
+            SELECT b.id, b.run_id, r.run_datetime_iso, p.profile, bd.bak_dir, s.src_path, b.bak_name, b.mtime, b.reason, b.del_run_id, b.src_id, ld.run_id src_del_run_id, nullif(lower(hex(blake2b)), '') blake2b
             FROM backup b
             JOIN backup_dir bd ON bak_dir_id = bd.id
             JOIN "source" s ON b.src_id = s.id
@@ -1845,6 +1851,7 @@ class RumarDB:
             self._migrate_to_blob_blake2b_if_required(db)
             self._migrate_backup_del_run_id_if_required(db)
             self._rename_backup_base_dir_for_profile_if_required(db)
+            self._alter_backup_add_mtime_if_required(db)
             self._create_tables_and_indexes_if_not_exist(db)
             self._recreate_views(db)
             self._load_data_into_memory()
@@ -1969,10 +1976,15 @@ class RumarDB:
 
     @classmethod
     def _rename_backup_base_dir_for_profile_if_required(cls, db):
-        cur = db.cursor()
-        for _ in cur.execute("SELECT 1 FROM pragma_table_list('backup_base_dir_for_profile')"):
+        for _ in db.execute("SELECT 1 FROM pragma_table_list('backup_base_dir_for_profile')"):
             db.execute('ALTER TABLE backup_base_dir_for_profile RENAME TO backup_dir')
             db.commit()
+
+    def _alter_backup_add_mtime_if_required(self, db):
+        if db.execute("SELECT 1 FROM pragma_table_list('backup')").fetchone():
+            if db.execute("SELECT 1 FROM pragma_table_info('backup') WHERE name = 'mtime'").fetchone() is None:
+                db.execute('ALTER TABLE backup ADD COLUMN mtime TEXT')
+                db.commit()
 
     def _init_source_lc_if_empty(self):
         """Requires ``self._run_datetime_iso``"""
@@ -2146,7 +2158,7 @@ class RumarDB:
 
     def get_latest_archive_for_source(self, src_id: int) -> Path | None:
         stmt = dedent('''\
-            SELECT bd.bak_dir, s.src_path, b.bak_name
+            SELECT bd.bak_dir, s.src_path, b.bak_name, b.mtime, b.id
             FROM backup b 
             JOIN run r ON r.id = b.run_id AND r.profile_id = ? 
             JOIN backup_dir bd ON b.bak_dir_id = bd.id 
@@ -2159,11 +2171,11 @@ class RumarDB:
         params = (self.profile_id, src_id)
         latest_archive = reason = None
         for row in execute(self._cur, stmt, params):
-            bak_dir, src_path, bak_name = row
+            bak_dir, src_path, bak_name, mtime_str, bak_id = row
             if bak_name:
                 latest_archive = Path(bak_dir, src_path, bak_name)
         logger.debug(f"=> {latest_archive.__str__()!r} {reason!r}")
-        return latest_archive
+        return latest_archive, mtime_str, bak_id
 
     def get_latest_source_lc_reason_x(self, src_id: int):
         stmt = dedent('''\
@@ -2204,6 +2216,10 @@ class RumarDB:
         self._db.execute('UPDATE backup SET blake2b = ? WHERE bak_dir_id = ? AND src_id = ? AND bak_name = ?', (blake2b_checksum, bak_dir_id, src_id, bak_name))
         self._db.commit()
         self._backup_to_checksum[key] = blake2b_checksum
+
+    def set_mtime(self, bak_id: int, mtime_str: str):
+        self._db.execute('UPDATE backup SET mtime = ? WHERE id = ?', (mtime_str, bak_id))
+        self._db.commit()
 
     def is_run_present(self, run_datetime_iso):
         for _, _run_datetime_iso in self._run_to_id:
