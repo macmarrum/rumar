@@ -1083,7 +1083,7 @@ class Rumar:
                                 self._rath_checksum = compute_blake2b_checksum(f)
                             self._latest_checksum = self._get_archive_checksum(latest_archive)
                             is_changed = self._rath_checksum != self._latest_checksum
-                            logger.info(f":- {self._relative_psx}  mtime changed, same size, {'checksum CHANGED' if is_changed else 'checksum matches'}")
+                            logger.info(f":- {self._relative_psx}  mtime changed, same size, {'checksum CHANGED' if is_changed else 'checksum matches'}  {latest_mtime_str} -> {self._mtime_str}")
                         # else:  # different mtime, same size, not instructed to do checksum comparison => no backup
                 should_restore_source = False
                 latest_src_reason_x = self._rdb.get_latest_source_lc_reason_x(src_id)
