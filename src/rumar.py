@@ -1804,6 +1804,8 @@ class RumarDB:
                 CONSTRAINT u_bak_dir_id_src_id_bak_name_del_run_id UNIQUE (bak_dir_id, src_id, bak_name, del_run_id)
             ) STRICT;'''),
             'drop unchanged': 'DROP TABLE IF EXISTS unchanged;',
+        },
+        'temp': {
             'unchanged_or_restored': dedent('''\
             CREATE TEMPORARY TABLE unchanged_or_restored (
                 src_id INTEGER PRIMARY KEY
@@ -1855,6 +1857,7 @@ class RumarDB:
             self._create_tables_and_indexes_if_not_exist(db)
             self._recreate_views(db)
             self._load_data_into_memory()
+        self._create_temp_tables(db)
         self._profile_id = self._profile_to_id.get(profile)
         self._run_id = None
         self._src_dir_id = None
@@ -1883,6 +1886,13 @@ class RumarDB:
         for stmt in cls.ddl['table'].values():
             cur.execute(stmt)
         cur.executescript(cls.ddl['indexes'])
+        cur.close()
+
+    @classmethod
+    def _create_temp_tables(cls, db):
+        cur = db.cursor()
+        for stmt in cls.ddl['temp'].values():
+            cur.execute(stmt)
         cur.close()
 
     @staticmethod
