@@ -1061,9 +1061,10 @@ class Rumar:
             if (src_id := self._rdb.get_src_id(self._relative_psx)) is None:
                 self._create(OpReason.CREATE)
             else:  # file is already in the database (was backed up before)
-                latest_archive = None
-                while latest_archive_tuple := self._rdb.get_latest_archive_for_source(src_id):
-                    latest_archive, latest_mtime_str_2, latest_bak_id = latest_archive_tuple
+                while True:
+                    latest_archive, latest_mtime_str_2, latest_bak_id = self._rdb.get_latest_archive_for_source(src_id)
+                    if latest_archive is None:
+                        break
                     if not latest_archive.exists():
                         self._rdb.mark_backup_as_deleted(latest_archive, src_id)
                     else:
