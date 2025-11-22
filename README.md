@@ -99,7 +99,7 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
 * **backup_dir**: str = None &nbsp; &nbsp; _used by: create, extract, sweep_\
   path to the backup directory used for the profile\
   ⚠️ caution: usually left unset; if so, its value defaults to `{backup_base_dir}/{profile}`
-* **archive_format**: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz', 'tar.zst'] = 'tar.zst' &nbsp; &nbsp; _used by: create, sweep_\
+* **archive_format**: Literal['tar', 'tar.gz', 'tar.bz2', 'tar.xz', 'tar.zst'] = 'tar.gz' &nbsp; &nbsp; _used by: create, sweep_\
   format of archive files to be created\
   'tar.zst' requires Python 3.14 or higher or backports.zstd
 * **compression_level**: int = 3 &nbsp; &nbsp; _used by: create_\
