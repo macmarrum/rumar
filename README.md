@@ -199,6 +199,7 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
 * **db_path**: str = None  _used by: create, extract_\
   path to the rumar database file — used for tracking changes, e.g. deletion of source files, to avoid restoring deleted ones with _**extract**_\
   ⚠️ caution: usually left unset; if so, its value defaults to `{backup_base_dir}/rumar.sqlite`\
+  the following settings can be used in _**db_path**_: `{profile}`, `{backup_base_dir}`, `{backup_dir}`, `{source_dir}`\
   an empty string (`''`) disables the database
 <!-- settings pydoc end -->
 

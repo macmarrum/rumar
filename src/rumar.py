@@ -434,6 +434,7 @@ class Settings:
     db_path: str = None  _used by: create, extract_
       path to the rumar database file — used for tracking changes, e.g. deletion of source files, to avoid restoring deleted ones with _**extract**_
       ⚠️ caution: usually left unset; if so, its value defaults to `{backup_base_dir}/rumar.sqlite`
+      the following settings can be used in _**db_path**_: `{profile}`, `{backup_base_dir}`, `{backup_dir}`, `{source_dir}`
       an empty string (`''`) disables the database
     """
     profile: str
@@ -504,7 +505,11 @@ class Settings:
         if self.db_path is None:
             self.db_path = self.backup_base_dir / RUMAR_SQLITE
         elif isinstance(self.db_path, str) and self.db_path not in [':memory:', '']:
-            self.db_path = Path(self.db_path)
+            db_path = self.db_path
+            if '{' in db_path:
+                for name in ('profile', 'backup_base_dir', 'backup_dir', 'source_dir'):
+                    db_path = db_path.replace(f"{{{name}}}", getattr(self, name).__str__())
+            self.db_path = Path(db_path)
 
     def _dictify(self, attribute_name: str):
         attr = getattr(self, attribute_name)
