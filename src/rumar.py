@@ -182,7 +182,7 @@ UTF8 = 'UTF-8'
 RUMAR_SQLITE = 'rumar.sqlite'
 RX_ARCHIVE_SUFFIX = re.compile(r'(\.(?:tar(?:\.(?:gz|bz2|xz|zst))?|zipx))$')
 # Example: 2023-04-30_09,48,20.872144+02,00~123~ab12~LNK
-RX_ARCHIVE_NAME = re.compile(r'^\d\d\d\d-\d\d-\d\d_\d\d,\d\d,\d\d(?:\.\d\d\d\d\d\d)?\+\d\d,\d\d~\d+.*' + RX_ARCHIVE_SUFFIX.pattern)
+RX_ARCHIVE_NAME = re.compile(r'^\d\d\d\d-\d\d-\d\d_\d\d,\d\d,\d\d(?:\.\d\d\d\d\d\d)?\+\d\d,\d\d~\d+(?:~[^~]+){0,2}' + RX_ARCHIVE_SUFFIX.pattern)
 
 
 def main(argv: Sequence[str] = None):
@@ -2108,24 +2108,30 @@ class RumarDB:
         return src_id
 
     def _save_initial_state(self):
-        """Walks the current profile's `backup_dir` and saves each source's latest archive, whether the source file currently exists or not"""
+        """Walks the current profile's ``backup_dir`` and saves each source's archive, whether the source file currently exists or not"""
         for basedir, dirnames, filenames in os.walk(self.s.backup_dir):
-            if latest_archive := find_on_disk_last_file_in_directory(basedir, filenames, RX_ARCHIVE_NAME):
-                relative_archive_dir = derive_relative_psx(latest_archive.parent, self.s.backup_dir)
-                file_path = self.s.source_dir / relative_archive_dir
-                relative_psx = derive_relative_psx(file_path, self.s.source_dir)
-                checksum_file = Rumar.compose_checksum_file_path(latest_archive)
-                try:
-                    blake2b_checksum = checksum_file.read_bytes()
-                    if len(blake2b_checksum) > 64:
-                        blake2b_checksum = bytes.fromhex(blake2b_checksum.decode())
-                except FileNotFoundError:
-                    blake2b_checksum = None
-                op_reason = OpReason.INIT
-                sign = op_reason.value
-                reason = op_reason.name
-                logger.info(f"{sign} {relative_psx}  {latest_archive.name}  {reason} {latest_archive.parent}")
-                self.save(op_reason, relative_psx, latest_archive, blake2b_checksum)
+            for filename in filenames:
+                if RX_ARCHIVE_NAME.match(filename):
+                    archive_path = Path(basedir, filename)
+                    relative_archive_dir = derive_relative_psx(archive_path.parent, self.s.backup_dir)
+                    file_path = self.s.source_dir / relative_archive_dir
+                    relative_psx = derive_relative_psx(file_path, self.s.source_dir)
+                    checksum_file = Rumar.compose_checksum_file_path(archive_path)
+                    try:
+                        blake2b_checksum = checksum_file.read_bytes()
+                        typ = 'bytes'
+                        if len(blake2b_checksum) > 64:
+                            blake2b_checksum = bytes.fromhex(blake2b_checksum.decode())
+                            typ = 'hex'
+                        logger.debug(f">> read checksum [{typ}] from {checksum_file.__str__()!r}")
+                    except FileNotFoundError as e:
+                        blake2b_checksum = None
+                        logger.debug(f">> {e}: {checksum_file.__str__()!r}")
+                    op_reason = OpReason.INIT
+                    sign = op_reason.value
+                    reason = op_reason.name
+                    logger.info(f"{sign} {relative_psx}  {archive_path.name}  {reason} {archive_path.parent}")
+                    self.save(op_reason, relative_psx, archive_path, blake2b_checksum)
 
     def save(self, op_reason: OpReason, relative_psx: str, archive_path: Path | None, blake2b_checksum: bytes | None):
         # logger.debug(f"{op_reason}, {relative_psx}, {archive_path.name if archive_path else None}, {blake2b_checksum.hex() if blake2b_checksum else None})")
