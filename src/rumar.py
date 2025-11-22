@@ -920,7 +920,7 @@ class Rumar:
         self._warnings = []
         self._errors = []
         self._rdb: RumarDB = None  # initiated per profile in _init_for_profile to support db_path per profile
-        self._rdb_cache = {}
+        self._db_path_to_rdb_cache = {}
         self._bdb: BroomDB = None  # initiated per profile in _init_for_profile to support db_path per profile
         self._rath: Rath = None
         self._relative_psx: str = None
@@ -1142,7 +1142,8 @@ class Rumar:
         self.lstat_cache.clear()
         self._warnings.clear()
         self._errors.clear()
-        self._rdb = RumarDB(self._profile, self.s, self._rdb_cache) if self.s.db_path else None
+        rdb_cache = self._db_path_to_rdb_cache.setdefault(self.s.db_path, {}) if isinstance(self.s.db_path, Path) else {}  # [':memory:', '']
+        self._rdb = RumarDB(self._profile, self.s, rdb_cache) if self.s.db_path else None
         self._bdb = BroomDB(self._profile, self.s)
 
     def _finalize_profile_changes(self, *, for_sweep=False):
