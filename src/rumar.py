@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 # rumar – a file-backup utility
 # Copyright (C) 2023-2025  macmarrum (at) outlook (dot) ie
 #
