@@ -1855,6 +1855,7 @@ class RumarDB:
             self._rename_backup_base_dir_for_profile_if_required(db)
             self._alter_backup_add_mtime_if_required(db)
             self._create_tables_and_indexes_if_not_exist(db)
+            self._insert_zero_to_profile_and_run_tables_if_required(db)
             self._recreate_views(db)
             self._load_data_into_memory()
         self._create_temp_tables(db)
@@ -1897,11 +1898,12 @@ class RumarDB:
 
     @staticmethod
     def _insert_zero_to_profile_and_run_tables_if_required(db):
-        if not db.execute('''SELECT 1 FROM profile WHERE id = 0''').fetchone():
-            db.execute('''INSERT INTO profile (id, profile) VALUES (0, '');''')
-        if not db.execute('''SELECT 1 FROM run WHERE id = 0''').fetchone():
-            db.execute('''INSERT INTO run (id, run_datetime_iso, profile_id) VALUES (0, '1970-01-01 00:00:00+00:00', 0);''')
-        db.commit()
+        if db.execute("SELECT 1 FROM pragma_table_list('profile')").fetchone():
+            if not db.execute('''SELECT 1 FROM profile WHERE id = 0''').fetchone():
+                db.execute('''INSERT INTO profile (id, profile) VALUES (0, '');''')
+            if not db.execute('''SELECT 1 FROM run WHERE id = 0''').fetchone():
+                db.execute('''INSERT INTO run (id, run_datetime_iso, profile_id) VALUES (0, '1970-01-01 00:00:00+00:00', 0);''')
+            db.commit()
 
     @classmethod
     def _recreate_views(cls, db):
