@@ -1235,7 +1235,7 @@ class Rumar:
                 with FileBlake2b(self._rath) as file_blake2b:
                     tf.addfile(tarinfo, fileobj=file_blake2b)
                     checksum = file_blake2b.digest()
-        logger.log(RETVAL_16, f"=> archive_format: {self.s.archive_format} | compression_level: {self.s.compression_level} | {checksum.hex() if checksum else None}")
+        logger.log(RETVAL_16, f"=> archive_format: {self.s.archive_format.value} | compression_level: {self.s.compression_level} | {checksum.hex() if checksum else None}")
         return checksum
 
     def _create_zipx(self):
