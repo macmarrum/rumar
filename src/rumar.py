@@ -2168,7 +2168,7 @@ class RumarDB:
         self._cur.close()
         self._db.close()
 
-    def get_latest_archive_for_source(self, src_id: int) -> Path | None:
+    def get_latest_archive_for_source(self, src_id: int):
         stmt = dedent('''\
             SELECT bd.bak_dir, s.src_path, b.bak_name, b.mtime, b.id
             FROM backup b 
@@ -2181,12 +2181,12 @@ class RumarDB:
             LIMIT 1
         ''')
         params = (self.profile_id, src_id)
-        latest_archive = reason = None
+        latest_archive = mtime_str = bak_id = None
         for row in execute(self._cur, stmt, params):
             bak_dir, src_path, bak_name, mtime_str, bak_id = row
             if bak_name:
                 latest_archive = Path(bak_dir, src_path, bak_name)
-        logger.debug(f"=> {latest_archive.__str__()!r} {reason!r}")
+        logger.debug(f"=> {latest_archive.__str__()!r} {mtime_str!r} {bak_id}")
         return latest_archive, mtime_str, bak_id
 
     def get_latest_source_lc_reason_x(self, src_id: int):
