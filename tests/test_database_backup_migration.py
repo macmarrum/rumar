@@ -95,7 +95,7 @@ def test_migrate_to_bak_name_and_blob_blake2b(set_up_rumardb):
     # Verify new table structure
     cur.execute("PRAGMA table_info(backup)")
     columns = {row[1] for row in cur.fetchall()}
-    expected_columns = {'id', 'run_id', 'reason', 'bak_dir_id', 'src_id', 'bak_name', 'blake2b', 'del_run_id'}
+    expected_columns = {'id', 'run_id', 'reason', 'bak_dir_id', 'src_id', 'bak_name', 'mtime', 'blake2b', 'del_run_id'}
     assert columns == expected_columns, f"Expected columns {expected_columns}, but got {columns}"
 
 
@@ -146,7 +146,7 @@ def test_migrate_to_blob_blake2b(set_up_rumardb):
     # Verify new table structure
     cur.execute("PRAGMA table_info(backup)")
     columns = {row[1] for row in cur.fetchall()}
-    expected_columns = {'id', 'run_id', 'reason', 'bak_dir_id', 'src_id', 'bak_name', 'blake2b', 'del_run_id'}
+    expected_columns = {'id', 'run_id', 'reason', 'bak_dir_id', 'src_id', 'bak_name', 'mtime', 'blake2b', 'del_run_id'}
     assert columns == expected_columns, f"Expected columns {expected_columns}, but got {columns}"
 
 
@@ -195,7 +195,7 @@ def test_migrate_backup_del_run_id_if_required(set_up_rumardb):
     # Verify new table structure
     cur.execute("PRAGMA table_info(backup)")
     columns = {row[1] for row in cur.fetchall()}
-    expected_columns = {'id', 'run_id', 'reason', 'bak_dir_id', 'src_id', 'bak_name', 'blake2b', 'del_run_id'}
+    expected_columns = {'id', 'run_id', 'reason', 'bak_dir_id', 'src_id', 'bak_name', 'mtime', 'blake2b', 'del_run_id'}
     assert columns == expected_columns, f"Expected columns {expected_columns}, but got {columns}"
 
 
