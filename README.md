@@ -65,8 +65,15 @@ excluded_files_as_glob = ['desktop.ini', '*.exe', '*.msi']
 ["# this profile's name starts with a hash, therefore it will be ignored"]
 source_dir = "this setting won't be loaded"
 
-[rumardb]
-# profile to back up 'rumar.sqlite' itself, e.g., with each `rumar.py c -a`
+[rumar_toml]
+# profile to back up 'rumar.toml', e.g., with each `rumar.py c -a`
+source_dir = '{rumar_config_dir}'
+included_files_as_glob = ['rumar.toml', 'rumar.logging.toml']
+checksum_comparison_if_same_size = true
+db_path = ''
+
+[rumar_sqlite]
+# profile to back up 'rumar.sqlite', e.g., with each `rumar.py c -a`
 source_dir = '{backup_base_dir}'
 included_files_as_glob = ['rumar.sqlite']
 checksum_comparison_if_same_size = true
@@ -94,8 +101,15 @@ excluded_files = ['**\desktop.ini', '**\*.exe', '**\*.msi']
 ["# this profile's name starts with a hash, therefore it will be ignored"]
 source_dir = "this setting won't be loaded"
 
-[rumardb]
-# profile to back up 'rumar.sqlite' itself, e.g., with each `rumar.py c -a`
+[rumar_toml]
+# profile to back up 'rumar.toml', e.g., with each `rumar.py c -a`
+source_dir = '{rumar_config_dir}'
+included_files = ['rumar.toml', 'rumar.logging.toml']
+checksum_comparison_if_same_size = true
+db_path = ''
+
+[rumar_sqlite]
+# profile to back up 'rumar.sqlite', e.g., with each `rumar.py c -a`
 source_dir = '{backup_base_dir}'
 included_files = ['rumar.sqlite']
 checksum_comparison_if_same_size = true
@@ -131,7 +145,7 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
   see also https://docs.python.org/3/library/tarfile.html#supported-tar-formats and https://www.gnu.org/software/tar/manual/html_section/Formats.html
 * **source_dir**: str &nbsp; &nbsp; _used by: create, extract_\
   path to the directory which is to be archived\
-  `{backup_base_dir}` can be used, which is useful in a profile to back up `rumar.sqlite` itself
+  `{rumar_config_dir}`, `{backup_base_dir}` can be used, which is useful in a profile to back up `rumar.toml` or `rumar.sqlite`
 * **included_files**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
   ⚠️ caution: uses **PurePath.full_match(...)**, which is available on Python 3.13 or higher\
   a list of glob patterns, also known as shell-style wildcards, i.e. `** * ? [seq] [!seq]`; `**` means zero or more segments, `*` means a single segment or a part of a segment (as in `My*`)\
@@ -218,7 +232,7 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
 * **db_path**: str = None  _used by: create, extract_\
   path to the rumar database file — used for tracking changes, e.g. deletion of source files, to avoid restoring deleted ones with _**extract**_\
   ⚠️ caution: usually left unset; if so, its value defaults to `{backup_base_dir}/rumar.sqlite`\
-  the following settings can be used in _**db_path**_: `{profile}`, `{backup_base_dir}`, `{backup_dir}`, `{source_dir}`\
+  the following settings can be used in _**db_path**_: `{profile}`, `{backup_base_dir}`, `{backup_dir}`, `{source_dir}`, `{rumar_config_dir}`\
   an empty string (`''`) disables the database
 <!-- settings pydoc end -->
 

@@ -64,6 +64,7 @@ except ImportError:
         print('use Python version >= 3.11 or install the module "tomli"')
         raise
 
+RUMAR = 'rumar'
 me = Path(__file__)
 
 DEBUG_11 = 11
@@ -111,23 +112,6 @@ def log_record_factory(name, level, fn, lno, msg, args, exc_info, func=None, sin
 logging.setLogRecordFactory(log_record_factory)
 
 
-def get_default_path(suffix: str) -> Path:
-    """Returns the same name but with the provided suffix, located in the same directory as the program.
-    If not found, checks in %APPDATA%/ or $XDG_CONFIG_HOME/{path.stem}/.
-    If not found, falls back to the first option.
-    """
-    name = me.with_suffix(suffix).name
-    path = me.parent / name
-    if path.exists():
-        return path
-    else:
-        path_alt = get_appdata() / me.stem / name
-        if path_alt.exists():
-            return path_alt
-        else:
-            return path
-
-
 def get_appdata() -> Path:
     if os.name == 'nt':
         return Path(os.environ['APPDATA'])
@@ -135,6 +119,27 @@ def get_appdata() -> Path:
         return Path(os.environ.get('XDG_CONFIG_HOME', '~/.config')).expanduser()
     else:
         raise RuntimeError(f"unknown os.name: {os.name}")
+
+
+RUMAR_CONFIG_DIR = get_appdata() / RUMAR
+
+
+def get_default_path(suffix: str) -> Path:
+    """Returns 'rumar' with the provided suffix, located in the same directory as the program.
+    If not found, checks in %APPDATA%/ or $XDG_CONFIG_HOME/{path.stem}/.
+    If not found, falls back to the first option.
+    """
+    rumar_path = me.with_name(RUMAR)
+    name = rumar_path.with_suffix(suffix).name
+    path = rumar_path.parent / name
+    if path.exists():
+        return path
+    else:
+        path_alt = RUMAR_CONFIG_DIR / name
+        if path_alt.exists():
+            return path_alt
+        else:
+            return path
 
 
 LOGGING_TOML_DEFAULT = '''\
@@ -331,7 +336,7 @@ class Settings:
     source_dir: str
       used by: create, extract
       path to the directory which is to be archived
-      `{backup_base_dir}` can be used, which is useful in a profile to back up `rumar.sqlite` itself
+      `{rumar_config_dir}`, `{backup_base_dir}` can be used, which is useful in a profile to back up `rumar.toml` or `rumar.sqlite`
     included_files: list[str]
       used by: create, sweep
       ⚠️ caution: uses **PurePath.full_match(...)**, which is available on Python 3.13 or higher
@@ -435,7 +440,7 @@ class Settings:
     db_path: str = None  _used by: create, extract_
       path to the rumar database file — used for tracking changes, e.g. deletion of source files, to avoid restoring deleted ones with _**extract**_
       ⚠️ caution: usually left unset; if so, its value defaults to `{backup_base_dir}/rumar.sqlite`
-      the following settings can be used in _**db_path**_: `{profile}`, `{backup_base_dir}`, `{backup_dir}`, `{source_dir}`
+      the following settings can be used in _**db_path**_: `{profile}`, `{backup_base_dir}`, `{backup_dir}`, `{source_dir}`, `{rumar_config_dir}`
       an empty string (`''`) disables the database
     """
     profile: str
@@ -481,7 +486,7 @@ class Settings:
     def __post_init__(self):
         self._pathlify('backup_base_dir')
         if isinstance(self.source_dir, str) and '{' in self.source_dir:
-            self.source_dir = Path(self.source_dir.replace('{backup_base_dir}', self.backup_base_dir.__str__()))
+            self.source_dir = Path(self.source_dir.replace('{backup_base_dir}', self.backup_base_dir.__str__()).replace('{rumar_config_dir}', RUMAR_CONFIG_DIR.__str__()))
         else:
             self._pathlify('source_dir')
         if self.backup_dir:
@@ -513,6 +518,7 @@ class Settings:
             if '{' in db_path:
                 for name in ('profile', 'backup_base_dir', 'backup_dir', 'source_dir'):
                     db_path = db_path.replace(f"{{{name}}}", getattr(self, name).__str__())
+                db_path = db_path.replace('{rumar_config_dir}', RUMAR_CONFIG_DIR.__str__())
             self.db_path = Path(db_path)
 
     def _dictify(self, attribute_name: str):
