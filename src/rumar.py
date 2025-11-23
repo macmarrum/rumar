@@ -331,6 +331,7 @@ class Settings:
     source_dir: str
       used by: create, extract
       path to the directory which is to be archived
+      `{backup_base_dir}` can be used, which is useful in a profile to back up `rumar.sqlite` itself
     included_files: list[str]
       used by: create, sweep
       ⚠️ caution: uses **PurePath.full_match(...)**, which is available on Python 3.13 or higher
@@ -478,8 +479,11 @@ class Settings:
         return all(isinstance(elem, typ) for elem in seq)
 
     def __post_init__(self):
-        self._pathlify('source_dir')
         self._pathlify('backup_base_dir')
+        if isinstance(self.source_dir, str) and '{' in self.source_dir:
+            self.source_dir = Path(self.source_dir.replace('{backup_base_dir}', self.backup_base_dir.__str__()))
+        else:
+            self._pathlify('source_dir')
         if self.backup_dir:
             self._pathlify('backup_dir')
         else:

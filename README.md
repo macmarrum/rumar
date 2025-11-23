@@ -64,8 +64,17 @@ excluded_files_as_glob = ['desktop.ini', '*.exe', '*.msi']
 
 ["# this profile's name starts with a hash, therefore it will be ignored"]
 source_dir = "this setting won't be loaded"
+
+[rumardb]
+# profile to back up 'rumar.sqlite' itself, e.g., with each `rumar.py c -a`
+source_dir = '{backup_base_dir}'
+included_files_as_glob = ['rumar.sqlite']
+checksum_comparison_if_same_size = true
+archive_format = 'tar.xz'
+compression_level = 4
+db_path = ''
 ```
-#### For Python 3.13 or higher
+#### For Python >= 3.13
 ```toml
 # schema version
 version = 3
@@ -84,6 +93,15 @@ excluded_files = ['**\desktop.ini', '**\*.exe', '**\*.msi']
 
 ["# this profile's name starts with a hash, therefore it will be ignored"]
 source_dir = "this setting won't be loaded"
+
+[rumardb]
+# profile to back up 'rumar.sqlite' itself, e.g., with each `rumar.py c -a`
+source_dir = '{backup_base_dir}'
+included_files = ['rumar.sqlite']
+checksum_comparison_if_same_size = true
+archive_format = 'tar.xz'
+compression_level = 4
+db_path = ''
 ```
 <!-- rumar.toml example end -->
 
@@ -112,7 +130,8 @@ Each profile whose name starts with a hash `#` is ignored when `rumar.toml` is l
 * **tar_format**: Literal[0, 1, 2] = 1 (tarfile.GNU_FORMAT) &nbsp; &nbsp; _used by: create_\
   see also https://docs.python.org/3/library/tarfile.html#supported-tar-formats and https://www.gnu.org/software/tar/manual/html_section/Formats.html
 * **source_dir**: str &nbsp; &nbsp; _used by: create, extract_\
-  path to the directory which is to be archived
+  path to the directory which is to be archived\
+  `{backup_base_dir}` can be used, which is useful in a profile to back up `rumar.sqlite` itself
 * **included_files**: list[str] &nbsp; &nbsp; _used by: create, sweep_\
   ⚠️ caution: uses **PurePath.full_match(...)**, which is available on Python 3.13 or higher\
   a list of glob patterns, also known as shell-style wildcards, i.e. `** * ? [seq] [!seq]`; `**` means zero or more segments, `*` means a single segment or a part of a segment (as in `My*`)\
