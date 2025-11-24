@@ -2440,8 +2440,7 @@ class RumarDB:
               AND reason != 'D') l
         JOIN "source" s ON l.src_id = s.id
         JOIN source_dir sd ON s.src_dir_id = sd.id
-        JOIN backup b ON s.id = b.src_id
-        JOIN run r ON b.run_id = r.id AND r.profile_id = ?
+        JOIN (SELECT DISTINCT b.src_id FROM backup b JOIN run r ON b.run_id = r.id AND r.profile_id = ?) x ON s.id = x.src_id
         ''')
         for row in execute(self._db, query, (self.profile_id,)):
             yield Path(row[0], row[1]), row[2]
