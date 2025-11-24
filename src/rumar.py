@@ -216,9 +216,9 @@ def main(argv: Sequence[str] = None):
     parser_extract.add_argument('--directory', '-C', type=mk_abs_path,
                                 help="path to the base directory used for extraction; profile's source_dir by default")
     parser_extract.add_argument('--overwrite', action=store_true,
-                                help="overwrite target files without asking")
+                                help='overwrite target files without asking')
     parser_extract.add_argument('--meta-diff', action=store_true,
-                                help="overwrite target files without asking if mtime or size differ between backup and target")
+                                help='overwrite target files without asking if mtime or size differ between backup and target')
     # reconcile
     parser_reconcile = subparsers.add_parser(Command.RECONCILE.value, aliases=['r'],
                                              help='reconcile with disk files the DB records that match profile criteria, by marking the missing files as deleted')
@@ -567,11 +567,11 @@ class Settings:
             setattr(self, attribute_name, {re.compile(elem): None for elem in attr})
 
     def __str__(self):
-        return ("{"
+        return ('{'
                 f"profile: {self.profile!r}, "
                 f"backup_dir: {self.backup_dir.__str__()!r}, "
                 f"source_dir: {self.source_dir.__str__()!r}"
-                "}")
+                '}')
 
     def print(self):
         for attrib in vars(self):
@@ -2407,7 +2407,7 @@ class RumarDB:
             logger.warning(f"{params[1:]} not found in the database: {self.s.db_path}")
 
     def mark_bak_id_as_deleted(self, bak_id: int):
-        stmt = "UPDATE backup SET del_run_id = ? WHERE id = ?"
+        stmt = 'UPDATE backup SET del_run_id = ? WHERE id = ?'
         params = (self.run_id, bak_id)
         execute(self._cur, stmt, params)
         self._db.commit()
@@ -2426,7 +2426,7 @@ class RumarDB:
 
     def iter_non_deleted_source_paths(self):
         """For the current profile"""
-        query = dedent("""\
+        query = dedent('''\
         SELECT sd.src_dir, s.src_path, s.id
         FROM (SELECT src_id
               FROM source_lc
@@ -2434,12 +2434,12 @@ class RumarDB:
               AND reason != 'D') l
         JOIN "source" s ON l.src_id = s.id
         JOIN source_dir sd ON s.src_dir_id = sd.id
-        """)
+        ''')
         for row in execute(self._db, query, (self.profile_id,)):
             yield Path(row[0], row[1]), row[2]
 
     def mark_src_id_as_deleted(self, src_id: int):
-        stmt = "INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)"
+        stmt = 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)'
         params = (src_id, OP_REASON_D, self.run_id)
         execute(self._cur, stmt, params)
         self._db.commit()
@@ -2494,7 +2494,7 @@ class BroomDB:
         return mdate.strftime(cls.WEEK_FORMAT)
 
     def _create_table_if_not_exists(self):
-        ddl = dedent(f"""\
+        ddl = dedent(f'''\
             CREATE TABLE IF NOT EXISTS {self._table} (
                 id INTEGER PRIMARY KEY,
                 dirname TEXT NOT NULL,
@@ -2506,7 +2506,7 @@ class BroomDB:
                 w_rm TEXT,
                 m_rm TEXT
             )
-            """)
+            ''')
         self._db.execute(ddl)
 
     def _create_indexes_if_not_exist(self):
