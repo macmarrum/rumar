@@ -1543,20 +1543,22 @@ class Rumar:
         logger.info(f":  {answer=}  {target}")
         return answer in ['y', 'Y']
 
-    def reconcile_backup_files_with_disk(self, top_archive_dir: Path = None):
+    def reconcile_backup_files_with_disk(self, top_archive_dir: Path = None, commit=True):
         """Reconcile with disk files the DB-backup records that match profile criteria, by marking the missing files as deleted"""
         for archive_path, bak_id in self._rdb.iter_non_deleted_backup_paths():
             if top_archive_dir is None or archive_path.is_relative_to(top_archive_dir):
                 if not archive_path.exists():
                     logger.info(f"{self._profile!r} mark as deleted {archive_path.__str__()!r}")
                     self._rdb.mark_bak_id_as_deleted(bak_id)
+        commit and self._rdb.commit()
 
-    def reconcile_source_files_with_disk(self):
+    def reconcile_source_files_with_disk(self, commit=True):
         """Reconcile with disk files the DB-source records that match profile criteria, by marking the missing files as deleted"""
         for source_path, src_id in self._rdb.iter_non_deleted_source_paths():
             if not source_path.exists():
                 logger.info(f"{self._profile!r} mark as deleted {source_path.__str__()!r}")
                 self._rdb.mark_src_id_as_deleted(src_id)
+        commit and self._rdb.commit()
 
     def extract_latest_file_on_disk(self, backup_dir, archive_dir: Path, directory: Path, overwrite: bool, meta_diff: bool,
                                     filenames: list[str] | None = None, archive_file: Path | None = None):
@@ -1721,8 +1723,9 @@ class Rumar:
         db_path = self.s.db_path
         logger.info(f"{profile!r}{'' if db_path else ' SKIP — db_path is empty'}")
         if db_path:
-            self.reconcile_source_files_with_disk()
-            self.reconcile_backup_files_with_disk()
+            self.reconcile_source_files_with_disk(commit=False)
+            self.reconcile_backup_files_with_disk(commit=False)
+            self._rdb.commit()
         self._finalize_profile_changes(identify_and_save_deleted=False)
 
 
@@ -2240,6 +2243,9 @@ class RumarDB:
         execute(self._cur, query, (OP_REASON_D, run_id, profile_id, run_id, OP_REASON_D,))
         self._db.commit()
 
+    def commit(self):
+        self._db.commit()
+
     def close_db(self):
         self._cur.close()
         self._db.close()
@@ -2410,7 +2416,6 @@ class RumarDB:
         stmt = 'UPDATE backup SET del_run_id = ? WHERE id = ?'
         params = (self.run_id, bak_id)
         execute(self._cur, stmt, params)
-        self._db.commit()
 
     def iter_non_deleted_backup_paths(self):
         """For the current profile"""
@@ -2430,10 +2435,12 @@ class RumarDB:
         SELECT sd.src_dir, s.src_path, s.id
         FROM (SELECT src_id
               FROM source_lc
-              WHERE id IN (SELECT max(lc.id) FROM source_lc lc JOIN run r ON lc.run_id = r.id AND r.profile_id = ? GROUP BY lc.src_id)
+              WHERE id IN (SELECT max(id) FROM source_lc GROUP BY src_id)
               AND reason != 'D') l
         JOIN "source" s ON l.src_id = s.id
         JOIN source_dir sd ON s.src_dir_id = sd.id
+        JOIN backup b ON s.id = b.src_id
+        JOIN run r ON b.run_id = r.id AND r.profile_id = ?
         ''')
         for row in execute(self._db, query, (self.profile_id,)):
             yield Path(row[0], row[1]), row[2]
@@ -2442,7 +2449,6 @@ class RumarDB:
         stmt = 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)'
         params = (src_id, OP_REASON_D, self.run_id)
         execute(self._cur, stmt, params)
-        self._db.commit()
 
 
 def execute(cur: sqlite3.Cursor | sqlite3.Connection, stmt: str, params: tuple | None = None, log=logger.debug):
