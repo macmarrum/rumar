@@ -65,14 +65,14 @@ excluded_files_as_glob = ['desktop.ini', '*.exe', '*.msi']
 ["# this profile's name starts with a hash, therefore it will be ignored"]
 source_dir = "this setting won't be loaded"
 
-[rumar_toml]
+[rumar-toml]
 # profile to back up 'rumar.toml', e.g., with each `rumar.py c -a`
 source_dir = '{rumar_config_dir}'
 included_files_as_glob = ['rumar.toml', 'rumar.logging.toml']
 checksum_comparison_if_same_size = true
 db_path = ''
 
-[rumar_sqlite]
+[rumar-sqlite]
 # profile to back up 'rumar.sqlite', e.g., with each `rumar.py c -a`
 source_dir = '{backup_base_dir}'
 included_files_as_glob = ['rumar.sqlite']
@@ -101,14 +101,14 @@ excluded_files = ['**\desktop.ini', '**\*.exe', '**\*.msi']
 ["# this profile's name starts with a hash, therefore it will be ignored"]
 source_dir = "this setting won't be loaded"
 
-[rumar_toml]
+[rumar-toml]
 # profile to back up 'rumar.toml', e.g., with each `rumar.py c -a`
 source_dir = '{rumar_config_dir}'
 included_files = ['rumar.toml', 'rumar.logging.toml']
 checksum_comparison_if_same_size = true
 db_path = ''
 
-[rumar_sqlite]
+[rumar-sqlite]
 # profile to back up 'rumar.sqlite', e.g., with each `rumar.py c -a`
 source_dir = '{backup_base_dir}'
 included_files = ['rumar.sqlite']
