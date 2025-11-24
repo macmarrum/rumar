@@ -1125,7 +1125,7 @@ class Rumar:
                         is_changed = True
                     else:
                         is_changed = False
-                        if self.s.checksum_comparison_if_same_size:
+                        if self.s.checksum_comparison_if_same_size and not S_ISLNK(self._mode):
                             with self._rath.open('rb') as f:
                                 self._rath_checksum = compute_blake2b_checksum(f)
                             self._latest_checksum = self._get_archive_checksum(latest_archive)
