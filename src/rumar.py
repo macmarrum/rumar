@@ -1182,7 +1182,7 @@ class Rumar:
     def _finalize_profile_changes(self, *, identify_and_save_deleted=True):
         if self.s.db_path:
             if identify_and_save_deleted:
-                self._rdb.identify_and_save_deleted()
+                self._rdb.identify_and_save_deleted_source_files()
             self._rdb.close_db()
         self._bdb.close_db()
         self._rdb = None
@@ -2161,9 +2161,7 @@ class RumarDB:
             for filename in filenames:
                 if RX_ARCHIVE_NAME.match(filename):
                     archive_path = Path(basedir, filename)
-                    relative_archive_dir = derive_relative_psx(archive_path.parent, self.s.backup_dir)
-                    file_path = self.s.source_dir / relative_archive_dir
-                    relative_psx = derive_relative_psx(file_path, self.s.source_dir)
+                    relative_psx = derive_relative_psx(archive_path.parent, self.s.backup_dir)
                     checksum_file = Rumar.compose_checksum_file_path(archive_path)
                     try:
                         blake2b_checksum = checksum_file.read_bytes()
@@ -2203,7 +2201,7 @@ class RumarDB:
         execute(self._cur, stmt, params)
         self._db.commit()
 
-    def identify_and_save_deleted(self):
+    def identify_and_save_deleted_source_files(self):
         """
         Inserts a DELETE record for each file in the DB that's no longer available in source_dir files.
         Selects from backup latest src files for profile minus already deleted ones, minus those seen in this run
