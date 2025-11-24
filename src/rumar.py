@@ -649,6 +649,7 @@ class OpReason(Enum):
 
 OP_REASON_C = OpReason.CREATE.name[0]
 OP_REASON_D = OpReason.DELETE.name[0]
+OP_REASON_I = OpReason.INIT.name[0]
 SLASH = '/'
 BACKSLASH = '\\'
 
@@ -1548,7 +1549,7 @@ class Rumar:
         for archive_path, bak_id in self._rdb.iter_non_deleted_backup_paths():
             if top_archive_dir is None or archive_path.is_relative_to(top_archive_dir):
                 if not archive_path.exists():
-                    logger.info(f"{self._profile!r} mark as deleted {archive_path.__str__()!r}")
+                    logger.info(f"{self._profile!r} mark as deleted {archive_path.__str__()!r} {bak_id}")
                     self._rdb.mark_bak_id_as_deleted(bak_id)
         commit and self._rdb.commit()
 
@@ -1556,7 +1557,7 @@ class Rumar:
         """Reconcile with disk files the DB-source records that match profile criteria, by marking the missing files as deleted"""
         for source_path, src_id in self._rdb.iter_non_deleted_source_paths():
             if not source_path.exists():
-                logger.info(f"{self._profile!r} mark as deleted {source_path.__str__()!r}")
+                logger.info(f"{self._profile!r} mark as deleted {source_path.__str__()!r} {src_id}")
                 self._rdb.mark_src_id_as_deleted(src_id)
         commit and self._rdb.commit()
 
@@ -2076,7 +2077,7 @@ class RumarDB:
         """Requires ``self._run_datetime_iso``"""
         cur = self._cur
         if cur.execute('SELECT (SELECT count(*) FROM source_lc) = 0 AND (SELECT count(*) FROM source) > 0').fetchone()[0] == 1:
-            cur.execute('INSERT INTO source_lc (src_id, reason, run_id) SELECT id, ?, ? FROM source', (OpReason.INIT.name[0], self.run_id,))
+            cur.execute(dedent('INSERT INTO source_lc (src_id, reason, run_id) SELECT src_id, ?, min(run_id) FROM backup GROUP BY src_id'), (OP_REASON_I,))
             self._db.commit()
 
     def _load_data_into_memory(self):
