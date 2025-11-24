@@ -2177,9 +2177,10 @@ class RumarDB:
                     sign = op_reason.value
                     reason = op_reason.name
                     logger.info(f"{sign} {relative_psx}  {archive_path.name}  {reason} {archive_path.parent}")
-                    self.save(op_reason, relative_psx, archive_path, blake2b_checksum)
+                    self.save(op_reason, relative_psx, archive_path, blake2b_checksum, commit=False)
+        self._db.commit()
 
-    def save(self, op_reason: OpReason, relative_psx: str, archive_path: Path | None, blake2b_checksum: bytes | None):
+    def save(self, op_reason: OpReason, relative_psx: str, archive_path: Path | None, blake2b_checksum: bytes | None, commit=True):
         # logger.debug(f"{op_reason}, {relative_psx}, {archive_path.name if archive_path else None}, {blake2b_checksum.hex() if blake2b_checksum else None})")
         # source
         src_path = relative_psx
@@ -2193,7 +2194,7 @@ class RumarDB:
         params = (run_id, reason, bak_dir_id, src_id, bak_name, blake2b_checksum)
         execute(self._cur, stmt, params)
         self._backup_to_checksum[(bak_dir_id, src_id, bak_name)] = blake2b_checksum
-        self._db.commit()
+        commit and self._db.commit()
 
     def save_unchanged_or_restored(self, src_id: int):
         stmt = 'INSERT INTO unchanged_or_restored (src_id) VALUES (?)'
