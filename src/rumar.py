@@ -1549,7 +1549,7 @@ class Rumar:
         for archive_path, bak_id in self._rdb.iter_non_deleted_backup_paths():
             if top_archive_dir is None or archive_path.is_relative_to(top_archive_dir):
                 if not archive_path.exists():
-                    logger.info(f"{self._profile!r} mark as deleted {archive_path.__str__()!r} {bak_id}")
+                    logger.info(f"{self._profile!r} mark as deleted {archive_path.__str__()!r}  bak_id: {bak_id}")
                     self._rdb.mark_bak_id_as_deleted(bak_id)
         commit and self._rdb.commit()
 
@@ -1557,7 +1557,7 @@ class Rumar:
         """Reconcile with disk files the DB-source records that match profile criteria, by marking the missing files as deleted"""
         for source_path, src_id in self._rdb.iter_non_deleted_source_paths():
             if not source_path.exists():
-                logger.info(f"{self._profile!r} mark as deleted {source_path.__str__()!r} {src_id}")
+                logger.info(f"{self._profile!r} mark as deleted {source_path.__str__()!r}  src_id: {src_id}")
                 self._rdb.mark_src_id_as_deleted(src_id)
         commit and self._rdb.commit()
 
