@@ -353,7 +353,7 @@ class TestRumarDB:
                 rumardb.mark_backup_as_deleted(archive_rather)
             else:
                 expected.append(archive_rather.as_posix())
-        actual = [path.as_posix() for path in rumardb.iter_non_deleted_archive_paths()]
+        actual = [path.as_posix() for path, _ in rumardb.iter_non_deleted_backup_paths()]
         assert actual == expected
         ## clean up
         db.execute('UPDATE backup SET del_run_id = 0')

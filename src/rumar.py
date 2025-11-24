@@ -219,6 +219,11 @@ def main(argv: Sequence[str] = None):
                                 help="overwrite target files without asking")
     parser_extract.add_argument('--meta-diff', action=store_true,
                                 help="overwrite target files without asking if mtime or size differ between backup and target")
+    # reconcile
+    parser_reconcile = subparsers.add_parser(Command.RECONCILE.value, aliases=['r'],
+                                             help='reconcile with disk files the DB records that match profile criteria, by marking the missing files as deleted')
+    parser_reconcile.set_defaults(func=reconcile)
+    add_profile_args_to_parser(parser_reconcile, required=True)
     # sweep
     parser_sweep = subparsers.add_parser(Command.SWEEP.value, aliases=['s'],
                                          help='sweep old backups that match profile criteria')
@@ -287,6 +292,16 @@ def sweep(args):
             rumar.sweep_profile(profile, is_dry_run=is_dry_run)
 
 
+def reconcile(args):
+    profile_to_settings = make_profile_to_settings_from_toml_path(args.toml)
+    rumar = Rumar(profile_to_settings)
+    if args.all_profiles:
+        rumar.reconcile_for_all_profiles()
+    elif args.profile:
+        for profile in args.profile:
+            rumar.reconcile_for_profile(profile)
+
+
 class RumarFormat(Enum):
     TAR = 'tar'
     TGZ = 'tar.gz'
@@ -300,6 +315,7 @@ class RumarFormat(Enum):
 class Command(Enum):
     CREATE = 'create'
     EXTRACT = 'extract'
+    RECONCILE = 'reconcile'
     SWEEP = 'sweep'
 
 
@@ -437,7 +453,7 @@ class Settings:
       `excluded_files_as_regex = ['/\d\d\d\d-\d\d-01_\d\d,\d\d,\d\d(\.\d{6})?[+-]\d\d,\d\d~\d+(~.+)?\.tar(\.(gz|bz2|xz|zst))?$']`
       it's best when the setting is part of a separate profile, i.e. a copy made for _**sweep**_,
       otherwise _**create**_ will also seek such files to be excluded
-    db_path: str = None  _used by: create, extract_
+    db_path: str = None  _used by: create, extract, reconcile_
       path to the rumar database file — used for tracking changes, e.g. deletion of source files, to avoid restoring deleted ones with _**extract**_
       ⚠️ caution: usually left unset; if so, its value defaults to `{backup_base_dir}/rumar.sqlite`
       the following settings can be used in _**db_path**_: `{profile}`, `{backup_base_dir}`, `{backup_dir}`, `{source_dir}`, `{rumar_config_dir}`
@@ -631,6 +647,7 @@ class OpReason(Enum):
     INIT = '*>'  # for RumarDB
 
 
+OP_REASON_D = OpReason.DELETE.name[0]
 SLASH = '/'
 BACKSLASH = '\\'
 
@@ -1144,7 +1161,7 @@ class Rumar:
                 else:  # file has not changed as compared to the last backup
                     logger.debug(f":== {self._relative_psx}  {latest_mtime_str}  {latest_size} ==: unchanged")
                     self.s.db_path and self._rdb.save_unchanged_or_restored(src_id)
-                if self.s.db_path and self._rdb.get_latest_source_lc_reason_x(src_id) == OpReason.DELETE.name[0]:
+                if self.s.db_path and self._rdb.get_latest_source_lc_reason_x(src_id) == OP_REASON_D:
                     op_reason = OpReason.RESTORE
                     logger.debug(f"{op_reason.value} {self._relative_psx}  {op_reason.name} {rath.parent}")
                     self._rdb.restore_source_lc(src_id)
@@ -1161,9 +1178,9 @@ class Rumar:
         self._rdb = RumarDB(self._profile, self.s, rdb_cache) if self.s.db_path else None
         self._bdb = BroomDB(self._profile, self.s)
 
-    def _finalize_profile_changes(self, *, for_sweep=False):
+    def _finalize_profile_changes(self, *, identify_and_save_deleted=True):
         if self.s.db_path:
-            if not for_sweep:
+            if identify_and_save_deleted:
                 self._rdb.identify_and_save_deleted()
             self._rdb.close_db()
         self._bdb.close_db()
@@ -1526,12 +1543,19 @@ class Rumar:
         return answer in ['y', 'Y']
 
     def reconcile_backup_files_with_disk(self, top_archive_dir: Path = None):
-        """Reconcile backup files with disk files and, in the DB, mark missing as deleted"""
-        for archive_path in self._rdb.iter_non_deleted_archive_paths():
+        """Reconcile with disk files the DB-backup records that match profile criteria, by marking the missing files as deleted"""
+        for archive_path, bak_id in self._rdb.iter_non_deleted_backup_paths():
             if top_archive_dir is None or archive_path.is_relative_to(top_archive_dir):
                 if not archive_path.exists():
-                    logger.info(f"{archive_path} no longer exist - mark as deleted")
-                    self._rdb.mark_backup_as_deleted(archive_path)
+                    logger.info(f"{self._profile!r} mark as deleted {archive_path.__str__()!r}")
+                    self._rdb.mark_bak_id_as_deleted(bak_id)
+
+    def reconcile_source_files_with_disk(self):
+        """Reconcile with disk files the DB-source records that match profile criteria, by marking the missing files as deleted"""
+        for source_path, src_id in self._rdb.iter_non_deleted_source_paths():
+            if not source_path.exists():
+                logger.info(f"{self._profile!r} mark as deleted {source_path.__str__()!r}")
+                self._rdb.mark_src_id_as_deleted(src_id)
 
     def extract_latest_file_on_disk(self, backup_dir, archive_dir: Path, directory: Path, overwrite: bool, meta_diff: bool,
                                     filenames: list[str] | None = None, archive_file: Path | None = None):
@@ -1647,7 +1671,7 @@ class Rumar:
             return
         self.scan_disk_and_mark_archive_files_for_deletion(s)
         self.delete_marked_archive_files(is_dry_run)
-        self._finalize_profile_changes(for_sweep=True)
+        self._finalize_profile_changes(identify_and_save_deleted=False)
 
     def scan_disk_and_mark_archive_files_for_deletion(self, s: Settings):
         archive_format = RumarFormat(s.archive_format).value
@@ -1686,6 +1710,19 @@ class Rumar:
                     logger.error(f"** {path_psx}  ** {ex}")
                 else:
                     self._rdb.mark_backup_as_deleted(path)
+
+    def reconcile_for_all_profiles(self):
+        for profile in self._profile_to_settings:
+            self.reconcile_for_profile(profile)
+
+    def reconcile_for_profile(self, profile: str):
+        self._init_for_profile(profile)
+        db_path = self.s.db_path
+        logger.info(f"{profile!r}{'' if db_path else ' SKIP — db_path is empty'}")
+        if db_path:
+            self.reconcile_source_files_with_disk()
+            self.reconcile_backup_files_with_disk()
+        self._finalize_profile_changes(identify_and_save_deleted=False)
 
 
 class BinaryReader(Protocol):
@@ -2198,10 +2235,9 @@ class RumarDB:
             WHERE b.src_id = lc.src_id
             AND lc.reason = ?
         );''')
-        reason_d = OpReason.DELETE.name[0]
         run_id = self.run_id
         profile_id = self.profile_id
-        execute(self._cur, query, (reason_d, run_id, profile_id, run_id, reason_d,))
+        execute(self._cur, query, (OP_REASON_D, run_id, profile_id, run_id, OP_REASON_D,))
         self._db.commit()
 
     def close_db(self):
@@ -2334,8 +2370,7 @@ class RumarDB:
             AND lc.reason = ?
         );''')
         top_archive_dir_psx = top_archive_dir.as_posix() if top_archive_dir else 'None'
-        reason_d = OpReason.DELETE.name[0]
-        for row in execute(self._cur, query, (self.profile_id, reason_d,)):
+        for row in execute(self._db, query, (self.profile_id, OP_REASON_D,)):
             bak_dir, src_path, bak_name, src_dir = row
             if top_archive_dir and not f"{bak_dir}/{src_path}".startswith(top_archive_dir_psx):
                 continue
@@ -2371,16 +2406,43 @@ class RumarDB:
         if not found:
             logger.warning(f"{params[1:]} not found in the database: {self.s.db_path}")
 
-    def iter_non_deleted_archive_paths(self):
+    def mark_bak_id_as_deleted(self, bak_id: int):
+        stmt = "UPDATE backup SET del_run_id = ? WHERE id = ?"
+        params = (self.run_id, bak_id)
+        execute(self._cur, stmt, params)
+        self._db.commit()
+
+    def iter_non_deleted_backup_paths(self):
+        """For the current profile"""
         query = dedent('''\
-        SELECT bd.bak_dir, s.src_path, b.bak_name
+        SELECT bd.bak_dir, s.src_path, b.bak_name, b.id
         FROM backup b
         JOIN backup_dir bd ON b.bak_dir_id = bd.id
         JOIN "source" s ON b.src_id = s.id
         JOIN run r ON b.run_id = r.id AND r.profile_id = ?
         WHERE del_run_id = 0;''')
-        for row in execute(self._cur, query, (self.profile_id,)):
-            yield Path(*row)
+        for row in execute(self._db, query, (self.profile_id,)):
+            yield Path(row[0], row[1], row[2]), row[3]
+
+    def iter_non_deleted_source_paths(self):
+        """For the current profile"""
+        query = dedent("""\
+        SELECT sd.src_dir, s.src_path, s.id
+        FROM (SELECT src_id
+              FROM source_lc
+              WHERE id IN (SELECT max(lc.id) FROM source_lc lc JOIN run r ON lc.run_id = r.id AND r.profile_id = ? GROUP BY lc.src_id)
+              AND reason != 'D') l
+        JOIN "source" s ON l.src_id = s.id
+        JOIN source_dir sd ON s.src_dir_id = sd.id
+        """)
+        for row in execute(self._db, query, (self.profile_id,)):
+            yield Path(row[0], row[1]), row[2]
+
+    def mark_src_id_as_deleted(self, src_id: int):
+        stmt = "INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)"
+        params = (src_id, OP_REASON_D, self.run_id)
+        execute(self._cur, stmt, params)
+        self._db.commit()
 
 
 def execute(cur: sqlite3.Cursor | sqlite3.Connection, stmt: str, params: tuple | None = None, log=logger.debug):
