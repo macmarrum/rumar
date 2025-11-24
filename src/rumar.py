@@ -2434,14 +2434,10 @@ class RumarDB:
         """For the current profile"""
         query = dedent('''\
         SELECT sd.src_dir, s.src_path, s.id
-        FROM (SELECT src_id
-              FROM source_lc
-              WHERE id IN (SELECT max(id) FROM source_lc GROUP BY src_id)
-              AND reason != 'D') l
-        JOIN "source" s ON l.src_id = s.id
+        FROM "source" s
         JOIN source_dir sd ON s.src_dir_id = sd.id
-        JOIN (SELECT DISTINCT b.src_id FROM backup b JOIN run r ON b.run_id = r.id AND r.profile_id = ?) x ON s.id = x.src_id
-        ''')
+        JOIN (SELECT src_id FROM source_lc WHERE id IN (SELECT max(id) FROM source_lc GROUP BY src_id) AND reason != 'D') l ON s.id = l.src_id
+        JOIN (SELECT DISTINCT b.src_id FROM backup b JOIN run r ON b.run_id = r.id AND r.profile_id = ?) x ON s.id = x.src_id;''')
         for row in execute(self._db, query, (self.profile_id,)):
             yield Path(row[0], row[1]), row[2]
 
