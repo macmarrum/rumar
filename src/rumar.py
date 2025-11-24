@@ -647,6 +647,7 @@ class OpReason(Enum):
     INIT = '*>'  # for RumarDB
 
 
+OP_REASON_C = OpReason.CREATE.name[0]
 OP_REASON_D = OpReason.DELETE.name[0]
 SLASH = '/'
 BACKSLASH = '\\'
@@ -2150,7 +2151,7 @@ class RumarDB:
             execute(self._cur, 'INSERT INTO source (src_dir_id, src_path) VALUES (?, ?)', (src_dir_id, src_path))
             src_id = execute(self._cur, 'SELECT max(id) FROM source').fetchone()[0]
             self._source_to_id[(src_dir_id, src_path)] = src_id
-            execute(self._cur, 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)', (src_id, OpReason.CREATE.name[0], self.run_id,))
+            execute(self._cur, 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)', (src_id, OP_REASON_C, self.run_id,))
             self._db.commit()
         return src_id
 
