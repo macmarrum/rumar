@@ -502,11 +502,21 @@ class Settings:
     def __post_init__(self):
         self._pathlify('backup_base_dir')
         if isinstance(self.source_dir, str) and '{' in self.source_dir:
-            self.source_dir = Path(self.source_dir.replace('{backup_base_dir}', self.backup_base_dir.__str__()).replace('{rumar_config_dir}', RUMAR_CONFIG_DIR.__str__()))
+            self.source_dir = Path(self.source_dir
+                                   .replace('{backup_base_dir}', self.backup_base_dir.__str__())
+                                   .replace('{profile}', self.profile)
+                                   .replace('{rumar_config_dir}', RUMAR_CONFIG_DIR.__str__())
+                                   )
         else:
             self._pathlify('source_dir')
         if self.backup_dir:
-            self._pathlify('backup_dir')
+            if isinstance(self.backup_dir, str) and '{' in self.backup_dir:
+                self.backup_dir = Path(self.backup_dir
+                                       .replace('{backup_base_dir}', self.backup_base_dir.__str__())
+                                       .replace('{profile}', self.profile)
+                                       )
+            else:
+                self._pathlify('backup_dir')
         else:
             self.backup_dir = self.backup_base_dir / self.profile
         self._dictify('included_files')
