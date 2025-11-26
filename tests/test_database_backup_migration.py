@@ -207,6 +207,7 @@ def test_init_source_lc_if_empty(set_up_rumardb):
     cur.executescript('''
         INSERT INTO profile (id, profile) VALUES (1, 'profile');
         INSERT INTO run (id, run_datetime_iso, profile_id) VALUES (1, '2025-07-23 00:00:01+02:00', 1);
+        INSERT INTO run (id, run_datetime_iso, profile_id) VALUES (2, '2025-07-23 00:00:02+02:00', 1);
         INSERT INTO backup_dir (id, bak_dir) VALUES (1, '/path/to/backup/profile');
         INSERT INTO source_dir (id, src_dir) VALUES (1, '/path/to/source');
         INSERT INTO source (id, src_dir_id, src_path) VALUES
@@ -215,7 +216,8 @@ def test_init_source_lc_if_empty(set_up_rumardb):
         INSERT INTO backup (id, run_id, reason, bak_dir_id, src_id, bak_name, blake2b)
         VALUES 
         (1, 1, 'C', 1, 1, '2024-01-01_11,00,00+00,00~1000.tar.gz', X'626ea9f0'),
-        (2, 1, 'U', 1, 1, '2024-01-01_22,00,00+00,00~2000.tar.gz', X'785a0dc3')
+        (2, 2, 'U', 1, 1, '2024-01-01_22,00,00+00,00~2000.tar.gz', X'785a0dc3'),
+        (3, 2, 'C', 1, 2, '2024-01-03_11,00,00+00,00~2000.tar.gz', X'906b1ed4')
         ''')
     db.commit()
     rumardb._load_data_into_memory()
@@ -224,8 +226,8 @@ def test_init_source_lc_if_empty(set_up_rumardb):
     # Verify results
     actual = cur.execute('SELECT * FROM source_lc ORDER BY id').fetchall()
     expected = [
-        (1, 1, 'I', rumardb.run_id),
-        (2, 2, 'I', rumardb.run_id),
+        (1, 1, 'I', 1),
+        (2, 2, 'I', 2),
     ]
     assert actual == expected
     # print()
