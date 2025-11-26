@@ -2118,8 +2118,7 @@ class RumarDB:
         if self._profile_id is None:
             profile = self._profile
             if not (profile_id := self._profile_to_id.get(profile)):
-                execute(self._cur, 'INSERT INTO profile (profile) VALUES (?)', (profile,))
-                profile_id = execute(self._cur, 'SELECT max(id) FROM profile').fetchone()[0]
+                profile_id = execute(self._cur, 'INSERT INTO profile (profile) VALUES (?) RETURNING id', (profile,)).fetchone()[0]
                 self._profile_to_id[profile] = profile_id
             self._profile_id = profile_id
         return self._profile_id
@@ -2130,8 +2129,7 @@ class RumarDB:
             profile_id = self.profile_id
             run_datetime_iso = self._run_datetime_iso
             if not (run_id := self._run_to_id.get((profile_id, run_datetime_iso))):
-                execute(self._cur, 'INSERT INTO run (profile_id, run_datetime_iso) VALUES (?,?)', (profile_id, run_datetime_iso))
-                run_id = execute(self._cur, 'SELECT max(id) FROM run').fetchone()[0]
+                run_id = execute(self._cur, 'INSERT INTO run (profile_id, run_datetime_iso) VALUES (?,?) RETURNING id', (profile_id, run_datetime_iso)).fetchone()[0]
                 self._run_to_id[(profile_id, run_datetime_iso)] = run_id
             self._run_id = run_id
         return self._run_id
@@ -2141,8 +2139,7 @@ class RumarDB:
         if self._src_dir_id is None:
             src_dir = self.s.source_dir.as_posix()
             if not (src_dir_id := self._src_dir_to_id.get(src_dir)):
-                execute(self._cur, 'INSERT INTO source_dir (src_dir) VALUES (?)', (src_dir,))
-                src_dir_id = execute(self._cur, 'SELECT max(id) FROM source_dir').fetchone()[0]
+                src_dir_id = execute(self._cur, 'INSERT INTO source_dir (src_dir) VALUES (?) RETURNING id', (src_dir,)).fetchone()[0]
                 self._src_dir_to_id[src_dir] = src_dir_id
             self._src_dir_id = src_dir_id
         return self._src_dir_id
@@ -2152,8 +2149,7 @@ class RumarDB:
         if self._bak_dir_id is None:
             bak_dir = self.s.backup_dir.as_posix()
             if not (bak_dir_id := self._bak_dir_to_id.get(bak_dir)):
-                execute(self._cur, 'INSERT INTO backup_dir (bak_dir) VALUES (?)', (bak_dir,))
-                bak_dir_id = execute(self._cur, 'SELECT max(id) FROM backup_dir').fetchone()[0]
+                bak_dir_id = execute(self._cur, 'INSERT INTO backup_dir (bak_dir) VALUES (?) RETURNING id', (bak_dir,)).fetchone()[0]
                 self._bak_dir_to_id[bak_dir] = bak_dir_id
             self._bak_dir_id = bak_dir_id
         return self._bak_dir_id
@@ -2162,8 +2158,7 @@ class RumarDB:
         src_path = relative_psx
         src_dir_id = self.src_dir_id
         if not (src_id := self._source_to_id.get((src_dir_id, src_path))) and create_if_missing:
-            execute(self._cur, 'INSERT INTO source (src_dir_id, src_path) VALUES (?, ?)', (src_dir_id, src_path))
-            src_id = execute(self._cur, 'SELECT max(id) FROM source').fetchone()[0]
+            src_id = execute(self._cur, 'INSERT INTO source (src_dir_id, src_path) VALUES (?, ?) RETURNING id', (src_dir_id, src_path)).fetchone()[0]
             self._source_to_id[(src_dir_id, src_path)] = src_id
             execute(self._cur, 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)', (src_id, OP_REASON_C, self.run_id,))
             self._db.commit()
