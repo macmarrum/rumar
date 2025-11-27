@@ -14,6 +14,13 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# Notes for AI Agents
+# This file uses Groovy-like string quotations wherever possible, i.e.,
+# double quotes for f-strings — also when triple: `f"""..."""`,
+# otherwise, single quotes — also when triple: `r'''...'''`,
+# but allows exceptions to avoid escaping quotes in strings.
+# The allowed line length is 300 (aka hard wrap columns).
 import argparse
 import logging
 import logging.config
@@ -170,15 +177,6 @@ handlers = [
 level = "DEBUG_14"
 '''
 
-default_logging_toml_path = get_default_path(suffix='.logging.toml')
-if default_logging_toml_path.exists():
-    # print(f":: load logging config from {default_logging_toml_path}")
-    with default_logging_toml_path.open('rb') as fi:
-        dict_config = tomllib.load(fi)
-else:
-    # print(':: load default logging config')
-    dict_config = tomllib.loads(LOGGING_TOML_DEFAULT)
-logging.config.dictConfig(dict_config)
 logger = logging.getLogger('rumar')
 
 store_true = 'store_true'
@@ -231,7 +229,7 @@ def main(argv: Sequence[str] = None):
     parser_sweep.add_argument('-d', '--dry-run', action=store_true)
     add_profile_args_to_parser(parser_sweep, required=True)
     args = parser.parse_args(argv)
-    load_config_from_logging_toml_if_exists_next_to_settings_toml(args.toml, default_logging_toml_path)
+    load_logging_config(args.toml)
     # pass args to the appropriate function
     args.func(args)
 
@@ -246,11 +244,24 @@ def mk_abs_path(file_path: str) -> Path:
     return Path(file_path).expanduser().absolute()
 
 
-def load_config_from_logging_toml_if_exists_next_to_settings_toml(rumar_toml_path: Path, _default_logging_toml_path: Path):
-    """Load config from logging toml if it exists next to settings toml and is different from the default one"""
-    if (_logging_toml_path := rumar_toml_path.with_suffix('.logging.toml')) != _default_logging_toml_path:
-        with suppress(FileNotFoundError), _logging_toml_path.open('rb') as fi:
-            logging.config.dictConfig(tomllib.load(fi))
+def load_logging_config(rumar_toml_path: Path | None = None):
+    """If ``rumar_toml_path`` is given, load config from ``rumar.logging.toml`` if it exists next to ``rumar.toml``.
+    Otherwise, load config from the default location or ``LOGGING_TOML_DEFAULT``."""
+    if rumar_toml_path:
+        logging_toml_path = rumar_toml_path.with_suffix('.logging.toml')
+        try:
+            with logging_toml_path.open('rb') as fi:
+                logging.config.dictConfig(tomllib.load(fi))
+        except FileNotFoundError:
+            print(f"** logging config not found at {logging_toml_path}", file=sys.stderr)
+    else:
+        default_logging_toml_path = get_default_path(suffix='.logging.toml')
+        try:
+            with default_logging_toml_path.open('rb') as fi:
+                dict_config = tomllib.load(fi)
+        except FileNotFoundError:
+            dict_config = tomllib.loads(LOGGING_TOML_DEFAULT)
+        logging.config.dictConfig(dict_config)
 
 
 def list_profiles(args):
@@ -533,10 +544,8 @@ class Settings:
         # https://stackoverflow.com/questions/71846054/-cast-a-string-to-an-enum-during-instantiation-of-a-dataclass-
         self.archive_format = RumarFormat(self.archive_format or RumarFormat.TGZ)
         self.commands_using_filters = tuple(Command(cmd) for cmd in self.commands_using_filters)
-        try:  # make sure password is bytes
+        if self.password and isinstance(self.password, str):
             self.password = self.password.encode(UTF8)
-        except AttributeError:  # 'bytes' object has no attribute 'encode'
-            pass
         if self.db_path is None:
             self.db_path = self.backup_base_dir / RUMAR_SQLITE
         elif isinstance(self.db_path, str) and self.db_path not in [':memory:', '']:
