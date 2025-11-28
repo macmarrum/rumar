@@ -588,8 +588,8 @@ class Settings:
     def __str__(self):
         return ('{'
                 f"profile: {self.profile!r}, "
-                f"backup_dir: {self.backup_dir.__str__()!r}, "
-                f"source_dir: {self.source_dir.__str__()!r}"
+                f"source_dir: {self.source_dir.__str__()!r} ,"
+                f"backup_dir: {self.backup_dir.__str__()!r}"
                 '}')
 
     def print(self):
