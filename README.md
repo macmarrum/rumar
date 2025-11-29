@@ -2,13 +2,18 @@
 
 **A file-backup utility**
 
-Creates a directory named as the original file, containing a **tar**red copy of the file, optionally compressed.
+Files are backed up as **tar** archives, optionally compressed.
 
-Files are added to the **tar** archive only if they were changed,
-_i.e. modification time is greater as compared to the last archive and size (or checksum) is different._
+Each archive represents a version of the original file and is placed in a directory named as the original file.
 
-The directory containing **tar** files is placed in a mirrored directory tree.
-Each backup is a separate **tar** file.
+Backups are created only if the original files were changed,
+i.e., their modification time and size (or checksum) differ from the last archive.
+
+A single backup version can be restored by extracting the archive into the original directory with regular tools like Windows Explorer, Double Commander, or bsdtar.
+
+`rumar.py extract --profile MyProfile ...` can restore a snapshot of an entire directory tree backed up at a particular point in time.
+
+`rumar.py sweep --profile MyProfile` can remove old backups.`
 
 ![](images/explorer.png)
 
