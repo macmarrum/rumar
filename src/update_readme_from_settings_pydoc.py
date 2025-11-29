@@ -13,7 +13,7 @@ UTF8 = 'UTF-8'
 doc = dedent(Settings.__doc__)
 doc = doc + 'EOF'  # add to the last line for the addition of \ to work globally
 doc = re.compile(r'^(?=\w)', re.M).sub('* ', doc)
-doc = re.compile(r'\n +(used by: .*)', re.M).sub(r' &nbsp; &nbsp; _\1_', doc)
+doc = re.compile(r'\n +(Used by: .*)', re.M).sub(r' &nbsp; &nbsp; _\1_', doc)
 doc = re.compile(r'$(?!\n\*)', re.M).sub(r'\\', doc)
 doc = '\n'.join(doc.splitlines()[3:-1])  # skip profile and '* EOF\'
 doc = re.compile(r'(?<=^\* )(\w+)', re.M).sub(r'**\1**', doc)
