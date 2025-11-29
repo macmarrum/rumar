@@ -32,6 +32,14 @@ A single backup version can be restored by extracting the archive into the origi
 8. Run `python rumar.py create --profile "My Documents"` to create a backup using the profile "My Documents"
 9. Optionally, add the create command to Task Scheduler or cron, to be run at an interval (e.g. each day/night)
 
+### How to reconcile rumar database with files on disk
+
+You might delete some backups manually, or your original files.
+The following command brings the database in sync with the actual files on the disk.
+Maintaining an accurate snapshot at a given point in time is useful for restoring files.
+
+1. Run `python rumar.py reconcile --profile "My Documents"`
+
 ### How to sweep old backups
 
 1. Run `python rumar.py sweep --profile "My Documents" --dry-run` and verify the files to be removed
