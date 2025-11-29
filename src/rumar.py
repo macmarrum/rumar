@@ -105,19 +105,6 @@ logging.addLevelName(DEBUG_15, 'DEBUG_15')
 logging.addLevelName(DEBUG_16, 'DEBUG_16')
 logging.addLevelName(DEBUG_17, 'DEBUG_17')
 
-logging_format_funcName_width = 25
-
-
-def log_record_factory(name, level, fn, lno, msg, args, exc_info, func=None, sinfo=None, **kwargs):
-    """Add 'levelShort' field to LogRecord, to be used in 'format'"""
-    log_record = logging.LogRecord(name, level, fn, lno, msg, args, exc_info, func, sinfo, **kwargs)
-    log_record.levelShort = LEVEL_TO_SHORT.get(level, SHORT_DEFAULT)
-    log_record.funcNameComplementSpace = ' ' * max(logging_format_funcName_width - len(func), 0) if func else ''
-    return log_record
-
-
-logging.setLogRecordFactory(log_record_factory)
-
 
 def get_appdata() -> Path:
     if os.name == 'nt':
@@ -151,9 +138,10 @@ def get_default_path(suffix: str) -> Path:
 
 DEFAULT_RUMAR_LOGGING_TOML = '''\
 version = 1
+func_name_width_with_padding = 25
 
 [formatters.f1]
-format = "{levelShort} {asctime} {funcName}:{funcNameComplementSpace} {msg}"
+format = "{asctime} {levelShort} {funcName}:{funcNamePadding} {message}"
 style = "{"
 validate = true
 
@@ -263,6 +251,16 @@ def load_logging_config(rumar_toml_path: Path | None = None):
             dict_config = tomllib.loads(DEFAULT_RUMAR_LOGGING_TOML)
             print('// load DEFAULT_RUMAR_LOGGING_TOML', file=sys.stderr)
     logging.config.dictConfig(dict_config)
+    func_name_width_with_padding = dict_config.get('func_name_width_with_padding', 25)
+
+    def log_record_factory(name, level, fn, lno, msg, args, exc_info, func=None, sinfo=None, **kwargs):
+        """Add 'levelShort' field to LogRecord, to be used in 'format'"""
+        log_record = logging.LogRecord(name, level, fn, lno, msg, args, exc_info, func, sinfo, **kwargs)
+        log_record.levelShort = LEVEL_TO_SHORT.get(level, SHORT_DEFAULT)
+        log_record.funcNamePadding = ' ' * max(func_name_width_with_padding - len(func), 0) if func else ''
+        return log_record
+
+    logging.setLogRecordFactory(log_record_factory)
 
 
 def list_profiles(args):

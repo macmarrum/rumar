@@ -275,9 +275,10 @@ put a hash `#` in front of `"to_file",` in `[loggers.rumar]`.
 <!-- logging settings begin -->
 ```toml
 version = 1
+func_name_width_with_padding = 25
 
 [formatters.f1]
-format = "{levelShort} {asctime} {funcName}:{funcNameComplementSpace} {msg}"
+format = "{levelShort} {asctime} {funcName}:{funcNamePadding} {message}"
 style = "{"
 validate = true
 
@@ -298,7 +299,7 @@ handlers = [
     "to_console",
     "to_file",
 ]
-level = "DEBUG_14"
+level = "INFO"
 ```
 <!-- logging settings end -->
 More information: <https://docs.python.org/3/library/logging.config.html#logging-config-dictschema>
