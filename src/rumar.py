@@ -105,14 +105,14 @@ logging.addLevelName(DEBUG_15, 'DEBUG_15')
 logging.addLevelName(DEBUG_16, 'DEBUG_16')
 logging.addLevelName(DEBUG_17, 'DEBUG_17')
 
-logging_funcName_format_width = 25
+logging_format_funcName_width = 25
 
 
 def log_record_factory(name, level, fn, lno, msg, args, exc_info, func=None, sinfo=None, **kwargs):
     """Add 'levelShort' field to LogRecord, to be used in 'format'"""
     log_record = logging.LogRecord(name, level, fn, lno, msg, args, exc_info, func, sinfo, **kwargs)
     log_record.levelShort = LEVEL_TO_SHORT.get(level, SHORT_DEFAULT)
-    log_record.funcNameComplementSpace = ' ' * max(logging_funcName_format_width - len(func), 0) if func else ''
+    log_record.funcNameComplementSpace = ' ' * max(logging_format_funcName_width - len(func), 0) if func else ''
     return log_record
 
 
@@ -149,7 +149,7 @@ def get_default_path(suffix: str) -> Path:
             return path
 
 
-LOGGING_TOML_DEFAULT = '''\
+DEFAULT_RUMAR_LOGGING_TOML = '''\
 version = 1
 
 [formatters.f1]
@@ -174,7 +174,7 @@ handlers = [
     "to_console",
     "to_file",
 ]
-level = "DEBUG_14"
+level = "INFO"
 '''
 
 logger = logging.getLogger('rumar')
@@ -247,21 +247,22 @@ def mk_abs_path(file_path: str) -> Path:
 def load_logging_config(rumar_toml_path: Path | None = None):
     """If ``rumar_toml_path`` is given, load config from ``rumar.logging.toml`` if it exists next to ``rumar.toml``.
     Otherwise, load config from the default location or ``LOGGING_TOML_DEFAULT``."""
+    dict_config = None
     if rumar_toml_path:
         logging_toml_path = rumar_toml_path.with_suffix('.logging.toml')
-        try:
-            with logging_toml_path.open('rb') as fi:
-                logging.config.dictConfig(tomllib.load(fi))
-        except FileNotFoundError:
-            print(f"** logging config not found at {logging_toml_path}", file=sys.stderr)
-    else:
+        with suppress(FileNotFoundError), logging_toml_path.open('rb') as fi:
+            dict_config = tomllib.load(fi)
+            print(f"// load logging config from {logging_toml_path.__str__()!r}", file=sys.stderr)
+    if not dict_config:
         default_logging_toml_path = get_default_path(suffix='.logging.toml')
         try:
             with default_logging_toml_path.open('rb') as fi:
                 dict_config = tomllib.load(fi)
+            print(f"// load logging config from {default_logging_toml_path.__str__()!r}", file=sys.stderr)
         except FileNotFoundError:
-            dict_config = tomllib.loads(LOGGING_TOML_DEFAULT)
-        logging.config.dictConfig(dict_config)
+            dict_config = tomllib.loads(DEFAULT_RUMAR_LOGGING_TOML)
+            print('// load DEFAULT_RUMAR_LOGGING_TOML', file=sys.stderr)
+    logging.config.dictConfig(dict_config)
 
 
 def list_profiles(args):

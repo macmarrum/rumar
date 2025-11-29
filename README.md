@@ -277,7 +277,7 @@ put a hash `#` in front of `"to_file",` in `[loggers.rumar]`.
 version = 1
 
 [formatters.f1]
-format = "{levelShort} {asctime}: {funcName:24} {msg}"
+format = "{levelShort} {asctime} {funcName}:{funcNameComplementSpace} {msg}"
 style = "{"
 validate = true
 

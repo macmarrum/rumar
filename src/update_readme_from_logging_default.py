@@ -3,7 +3,7 @@
 
 from pathlib import Path
 
-from rumar import LOGGING_TOML_DEFAULT
+from rumar import DEFAULT_RUMAR_LOGGING_TOML
 
 me = Path(__file__)
 UTF8 = 'UTF-8'
@@ -18,7 +18,7 @@ for line in readme_md_path.read_text(encoding=UTF8).splitlines():
     if line.startswith('<!-- logging settings end -->'):
         is_settings = False
         lines.append('```toml')
-        lines += LOGGING_TOML_DEFAULT.splitlines()
+        lines += DEFAULT_RUMAR_LOGGING_TOML.splitlines()
         lines.append('```')
     if not is_settings:
         lines.append(line)
