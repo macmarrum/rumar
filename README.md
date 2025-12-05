@@ -272,7 +272,9 @@ In version 2 it's _**checksum_comparison_if_same_size**_.
 
 ## Logging settings
 
-Logging is controlled by settings located in `rumar/rumar.logging.toml` inside `$XDG_CONFIG_HOME` (`$HOME/.config` if not set) on POSIX,
+If `--toml` is used, logging settings are loaded from `rumar.logging.toml` if it exists next to the file pointed to by `--toml`.
+Otherwise, logging settings are loaded from the default location or an internal `LOGGING_TOML_DEFAULT`.
+The default location is `rumar/rumar.logging.toml` inside `$XDG_CONFIG_HOME` (`$HOME/.config` if not set) on POSIX,
 or inside `%APPDATA%` on NT (Windows).
 You can copy the below settings to your own file and modify them as needed.
 
