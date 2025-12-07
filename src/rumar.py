@@ -296,10 +296,10 @@ def sweep(args):
     rumar = Rumar(profile_to_settings)
     is_dry_run = args.dry_run or False
     if args.all_profiles:
-        rumar.sweep_all_profiles(is_dry_run=is_dry_run)
+        rumar.sweep_for_all_profiles(is_dry_run=is_dry_run)
     elif args.profile:
         for profile in args.profile:
-            rumar.sweep_profile(profile, is_dry_run=is_dry_run)
+            rumar.sweep_for_profile(profile, is_dry_run=is_dry_run)
 
 
 def reconcile(args):
@@ -1194,7 +1194,9 @@ class Rumar:
         self._finalize_profile_changes()
         return self._created_archives
 
-    def _init_for_profile(self, profile: str):
+    def _init_for_profile(self, profile: str, *, sweep=False):
+        if profile not in self._profile_to_settings:
+            raise ValueError(f"Profile {profile!r} not found")
         self._profile = profile  # for self.s to work
         self._created_archives.clear()
         self.lstat_cache.clear()
@@ -1202,8 +1204,9 @@ class Rumar:
         self._errors.clear()
         rdb_cache = self._db_path_to_rdb_cache.setdefault(self.s.db_path, {}) if isinstance(self.s.db_path, Path) else {}  # [':memory:', '']
         self._rdb = RumarDB(self._profile, self.s, rdb_cache) if self.s.db_path else None
-        self._bdb = BroomDB(self._profile, self.s)
         self._backup_to_bak_id_and_checksum = rdb_cache.get('backup_to_bak_id_and_checksum')
+        if sweep:
+            self._bdb = BroomDB(self._profile, self.s)
 
     def _finalize_profile_changes(self, *, identify_and_save_deleted=True):
         if self.s.db_path:
@@ -1211,7 +1214,7 @@ class Rumar:
                 self._rdb.identify_and_save_deleted_source_files()
             self._rdb.close_db()
             self._backup_to_bak_id_and_checksum = None
-        self._bdb.close_db()
+        self._bdb and self._bdb.close_db()
         self._rdb = None
         self._bdb = None
         self._profile = None  # safeguard so that self.s will complain
@@ -1686,13 +1689,13 @@ class Rumar:
         y, m, d = iso_date_string.split('-')
         return date(int(y), int(m), int(d))
 
-    def sweep_all_profiles(self, *, is_dry_run: bool):
+    def sweep_for_all_profiles(self, *, is_dry_run: bool):
         for profile in self._profile_to_settings:
-            self.sweep_profile(profile, is_dry_run=is_dry_run)
+            self.sweep_for_profile(profile, is_dry_run=is_dry_run)
 
-    def sweep_profile(self, profile, *, is_dry_run: bool):
+    def sweep_for_profile(self, profile, *, is_dry_run: bool):
         logger.info(profile)
-        self._init_for_profile(profile)
+        self._init_for_profile(profile, sweep=True)
         s = self._profile_to_settings[profile]
         if ex := try_to_iterate_dir(s.backup_dir):
             logger.warning(f"SKIP {profile} - {ex}")
