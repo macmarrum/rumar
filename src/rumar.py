@@ -977,6 +977,7 @@ class Rumar:
         self._errors = []
         self._rdb: RumarDB = None  # initiated per profile in _init_for_profile to support db_path per profile
         self._db_path_to_rdb_cache = {}
+        self._backup_to_bak_id_and_checksum = None
         self._bdb: BroomDB = None  # initiated per profile in _init_for_profile to support db_path per profile
         self._rath: Rath = None
         self._relative_psx: str = None
@@ -1129,7 +1130,7 @@ class Rumar:
                         if latest_archive is None:
                             break
                         if not latest_archive.exists():
-                            self._rdb.mark_backup_as_deleted(latest_archive, src_id)
+                            self._rdb.mark_bak_id_as_deleted(latest_bak_id)
                         else:
                             break
                 else:
@@ -1151,34 +1152,35 @@ class Rumar:
                         if self.s.checksum_comparison_if_same_size and not S_ISLNK(self._mode):
                             with self._rath.open('rb') as f:
                                 self._rath_checksum = compute_blake2b_checksum(f)
-                            self._latest_checksum = self._get_archive_checksum(latest_archive)
+                            self._latest_checksum = self._get_archive_checksum(latest_bak_id, latest_archive)
                             is_changed = self._rath_checksum != self._latest_checksum
                             logger.info(f":- {self._relative_psx}  mtime changed, same size, {'checksum CHANGED' if is_changed else 'checksum matches'}  {latest_mtime_str} -> {self._mtime_str}")
                             if not is_changed and latest_bak_id:
                                 self._rdb.set_mtime(latest_bak_id, self._mtime_str)
                         # else:  # different mtime, same size, not instructed to do checksum comparison => no backup
                 if is_changed:  # file changed since last backup
+                    bak_id_and_checksum = self._backup_to_bak_id_and_checksum.get((self._rdb.bak_dir_id, src_id, self._archive_path.name))
+                    bak_id, checksum = bak_id_and_checksum if bak_id_and_checksum else (None, None)
                     if self._archive_path.exists():  # archive already exists - maybe there's no need to create a new one
                         # mark the old backup as deleted to make room for a new one
-                        if self.s.db_path and self._rdb.is_backup_marked_as_active(self._archive_path, src_id):
-                            self._rdb.mark_backup_as_deleted(self._archive_path, src_id)
+                        if self.s.db_path and bak_id and self._rdb.is_bak_id_marked_as_active(bak_id):
+                            self._rdb.mark_bak_id_as_deleted(bak_id)
                         # compare checksums
                         logger.info(f":= {self._relative_psx}  {latest_mtime_str}  {latest_size} =: last backup")
                         if not self._rath_checksum:
                             with self._rath.open('rb') as f:
                                 self._rath_checksum = compute_blake2b_checksum(f)
-                        checksum = self._get_archive_checksum(self._archive_path)
                         if checksum == self._rath_checksum:  # if checksums match, add a record to `backup`
                             logger.info(f"{OpReason.UPDATE.value} {self._relative_psx}  {self._mtime_str}  {self._size} {OpReason.UPDATE.name} {self._archive_dir / '...'}")
                             self.s.db_path and self._rdb.save(OpReason.UPDATE, self._relative_psx, self._archive_path, checksum)
                         else:  # edge case: first must delete the old archive because its name is the same as the to-be-created archive, although checksums differ
                             self._archive_path.unlink()
-                            self.s.db_path and self._rdb.mark_backup_as_deleted(self._archive_path, src_id)
+                            self.s.db_path and bak_id and self._rdb.mark_bak_id_as_deleted(bak_id)
                             self._create(OpReason.UPDATE)
                     else:  # archive_path not found on disk
                         # mark the old backup as deleted to make room for a new one
-                        if self.s.db_path and self._rdb.is_backup_marked_as_active(self._archive_path, src_id):
-                            self._rdb.mark_backup_as_deleted(self._archive_path, src_id)
+                        if self.s.db_path and bak_id and self._rdb.is_bak_id_marked_as_active(bak_id):
+                            self._rdb.mark_bak_id_as_deleted(bak_id)
                         # create a new backup
                         logger.info(f":= {self._relative_psx}  {latest_mtime_str}  {latest_size} =: last backup")
                         self._create(OpReason.UPDATE)
@@ -1201,12 +1203,14 @@ class Rumar:
         rdb_cache = self._db_path_to_rdb_cache.setdefault(self.s.db_path, {}) if isinstance(self.s.db_path, Path) else {}  # [':memory:', '']
         self._rdb = RumarDB(self._profile, self.s, rdb_cache) if self.s.db_path else None
         self._bdb = BroomDB(self._profile, self.s)
+        self._backup_to_bak_id_and_checksum = rdb_cache.get('backup_to_bak_id_and_checksum')
 
     def _finalize_profile_changes(self, *, identify_and_save_deleted=True):
         if self.s.db_path:
             if identify_and_save_deleted:
                 self._rdb.identify_and_save_deleted_source_files()
             self._rdb.close_db()
+            self._backup_to_bak_id_and_checksum = None
         self._bdb.close_db()
         self._rdb = None
         self._bdb = None
@@ -1219,9 +1223,9 @@ class Rumar:
             for e in self._errors:
                 logger.error(e)
 
-    def _get_archive_checksum(self, archive_path: Path):
+    def _get_archive_checksum(self, bak_id: int, archive_path: Path):
         """Gets checksum from .b2 file or from RumarDB. Removes .b2 if zero-size"""
-        if not (latest_checksum := self._rdb.get_blake2b_checksum(archive_path) if self.s.db_path else None):
+        if not (latest_checksum := self._rdb.get_blake2b_checksum(bak_id) if self.s.db_path else None):
             checksum_file = self.compose_checksum_file_path(archive_path)
             try:
                 st = checksum_file.stat()
@@ -1241,7 +1245,7 @@ class Rumar:
                     latest_checksum = checksum_file.read_bytes() if st.st_size == 64 else bytes.fromhex(checksum_file.read_text())
                     if self.s.db_path:
                         # transfer blake2b checksum from .b2 to RumarDB
-                        self._rdb.set_blake2b_checksum(archive_path, latest_checksum)
+                        self._rdb.set_blake2b_checksum(bak_id, latest_checksum)
         return latest_checksum
 
     def _save_checksum_if_big(self, size: int, checksum: bytes, relative_psx: str, archive_dir: Path, mtime_str: str):
@@ -1446,7 +1450,7 @@ class Rumar:
                 directory = self._profile_to_settings[profile].source_dir
             self.extract_for_profile(profile, top_archive_dir, directory, overwrite, meta_diff)
 
-    def extract_for_run(self, run_datetime_iso: str, top_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
+    def extract_for_run(self, profile: str, run_datetime_iso: str, top_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
         """Extract files backed up during a particular run (datetime) as recorded in rumardb
 
         :param run_datetime_iso:
@@ -1455,14 +1459,14 @@ class Rumar:
         :param overwrite: whether to overwrite target files without asking
         :param meta_diff: whether to overwrite target files without asking if mtime or size differ between backup and target
         """
-        run_present = self._rdb.is_run_present(run_datetime_iso)
-        profile = dict(self._rdb.get_run_datetime_isos()).get(run_datetime_iso) if run_present else None
-        logger.info(f"{run_datetime_iso=} {profile=} top_dir={str(top_dir)!r} directory={str(directory)!r} {overwrite=} {meta_diff=}")
-        if not run_present or not profile:
-            logger.warning(f"SKIP {run_datetime_iso!r} - no corresponding profile found")
-            return
+        logger.info(f"{profile=}, {run_datetime_iso=}, top_dir={str(top_dir)!r}, directory={str(directory)!r}, {overwrite=}, {meta_diff=}")
         self._init_for_profile(profile)
+        run_id = self._rdb.get_run_id(run_datetime_iso)
         msgs = []
+        if not run_id:
+            msgs.append(f"SKIP {run_datetime_iso!r} - no corresponding run_id found")
+        if profile != (profile_linked_to_run := self._rdb.get_run_datetime_iso_to_profile().get(run_datetime_iso) if run_id else None):
+            msgs.append(f"SKIP {profile!r} - does not match {profile_linked_to_run!r}, which is linked to {run_datetime_iso!r}")
         if directory and (ex := try_to_iterate_dir(directory)):
             msgs.append(f"SKIP {run_datetime_iso!r} - cannot access target directory - {ex}")
         if top_dir:
@@ -1475,16 +1479,14 @@ class Rumar:
             logger.warning('; '.join(msgs))
             return
         # iter files in top_dir for the run and extract each one
-        for bak_path, src_path in self._rdb.iter_bak_src_paths(run_datetime_iso, relative_top_dir):
-            backup_path = self.s.backup_dir / bak_path
-            original_source_path = self.s.source_dir / src_path
-            if directory:  # different target dir requested
-                relative_target_file = derive_relative_psx(original_source_path, self.s.backup_dir)  # includes validation
-                target_path = directory / relative_target_file
+        for bak_dir, src_dir, src_path, bak_name in self._rdb.iter_paths_as_of_run(run_id, relative_top_dir):
+            backup_path = Path(bak_dir, src_path, bak_name)
+            if directory:  # instead of source_dir
+                target_path = directory / src_path
             else:
-                target_path = original_source_path
+                target_path = Path(src_dir, src_path)
             self.extract_archive(backup_path, target_path, overwrite, meta_diff)
-        self._finalize_profile_changes()
+        self._finalize_profile_changes(identify_and_save_deleted=False)
 
     def extract_for_profile2(self, profile: str, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
         """Extract the lastest version of each file found in backup hierarchy for profile
@@ -1525,7 +1527,7 @@ class Rumar:
                 if filenames:
                     top_archive_dir = Path(basedir)  # the original file, in the mirrored directory tree
                     self.extract_latest_file_on_disk(self.s.backup_dir, top_archive_dir, directory, overwrite, meta_diff, filenames)
-        self._finalize_profile_changes()
+        self._finalize_profile_changes(identify_and_save_deleted=False)
 
     def extract_for_profile(self, profile: str, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
         """Extract the lastest version of each file recorded in the DB for the profile
@@ -1852,80 +1854,97 @@ class RumarDB:
     ddl = {
         'table': {
             'source_dir': dedent('''\
-            CREATE TABLE IF NOT EXISTS source_dir (
-                id INTEGER PRIMARY KEY,
-                src_dir TEXT UNIQUE NOT NULL
-            ) STRICT;'''),
+                CREATE TABLE IF NOT EXISTS source_dir (
+                    id INTEGER PRIMARY KEY,
+                    src_dir TEXT UNIQUE NOT NULL
+                ) STRICT;'''),
             'source': dedent('''\
-            CREATE TABLE IF NOT EXISTS source (
-                id INTEGER PRIMARY KEY,
-                src_dir_id INTEGER NOT NULL REFERENCES source_dir (id),
-                src_path TEXT NOT NULL,
-                CONSTRAINT u_source_src_dir_id_src_path UNIQUE (src_dir_id, src_path)
-            ) STRICT;'''),
+                CREATE TABLE IF NOT EXISTS source (
+                    id INTEGER PRIMARY KEY,
+                    src_dir_id INTEGER NOT NULL REFERENCES source_dir (id),
+                    src_path TEXT NOT NULL,
+                    CONSTRAINT u_source_src_dir_id_src_path UNIQUE (src_dir_id, src_path)
+                ) STRICT;'''),
             'source_lc': dedent('''\
-            CREATE TABLE IF NOT EXISTS source_lc (
-                id INTEGER PRIMARY KEY,
-                src_id INTEGER NOT NULL REFERENCES source (id),
-                reason TEXT NOT NULL,
-                run_id INTEGER NOT NULL REFERENCES run (id),
-                CONSTRAINT u_source_lc_src_id_run_id UNIQUE (src_id, run_id)
-            ) STRICT;'''),
+                CREATE TABLE IF NOT EXISTS source_lc (
+                    id INTEGER PRIMARY KEY,
+                    src_id INTEGER NOT NULL REFERENCES source (id),
+                    reason TEXT NOT NULL,
+                    run_id INTEGER NOT NULL REFERENCES run (id),
+                    CONSTRAINT u_source_lc_src_id_run_id UNIQUE (src_id, run_id)
+                ) STRICT;'''),
             'profile': dedent('''\
-            CREATE TABLE IF NOT EXISTS profile (
-                id INTEGER PRIMARY KEY,
-                profile TEXT UNIQUE NOT NULL
-            ) STRICT;'''),
+                CREATE TABLE IF NOT EXISTS profile (
+                    id INTEGER PRIMARY KEY,
+                    profile TEXT UNIQUE NOT NULL
+                ) STRICT;'''),
             'run': dedent('''\
-            CREATE TABLE IF NOT EXISTS run (
-                id INTEGER PRIMARY KEY,
-                run_datetime_iso TEXT UNIQUE NOT NULL,
-                profile_id INTEGER NOT NULL REFERENCES profile (id)
-            ) STRICT;'''),
+                CREATE TABLE IF NOT EXISTS run (
+                    id INTEGER PRIMARY KEY,
+                    run_datetime_iso TEXT UNIQUE NOT NULL,
+                    profile_id INTEGER NOT NULL REFERENCES profile (id)
+                ) STRICT;'''),
             'backup_dir': dedent('''\
-            CREATE TABLE IF NOT EXISTS backup_dir (
-                id INTEGER PRIMARY KEY,
-                bak_dir TEXT UNIQUE NOT NULL
-            ) STRICT;'''),
+                CREATE TABLE IF NOT EXISTS backup_dir (
+                    id INTEGER PRIMARY KEY,
+                    bak_dir TEXT UNIQUE NOT NULL
+                ) STRICT;'''),
             'backup': dedent('''\
-            CREATE TABLE IF NOT EXISTS backup (
-                id INTEGER PRIMARY KEY,
-                run_id INTEGER NOT NULL REFERENCES run (id),
-                reason TEXT NOT NULL,
-                bak_dir_id INTEGER NOT NULL REFERENCES backup_dir (id),
-                src_id INTEGER NOT NULL REFERENCES source (id),
-                bak_name TEXT,
-                mtime TEXT,
-                blake2b BLOB,
-                del_run_id INTEGER NOT NULL DEFAULT (0) REFERENCES run (id),
-                CONSTRAINT u_bak_dir_id_src_id_bak_name_del_run_id UNIQUE (bak_dir_id, src_id, bak_name, del_run_id)
-            ) STRICT;'''),
+                CREATE TABLE IF NOT EXISTS backup (
+                    id INTEGER PRIMARY KEY,
+                    run_id INTEGER NOT NULL REFERENCES run (id),
+                    reason TEXT NOT NULL,
+                    bak_dir_id INTEGER NOT NULL REFERENCES backup_dir (id),
+                    src_id INTEGER NOT NULL REFERENCES source (id),
+                    bak_name TEXT,
+                    mtime TEXT,
+                    blake2b BLOB,
+                    del_run_id INTEGER NOT NULL DEFAULT (0) REFERENCES run (id),
+                    CONSTRAINT u_bak_dir_id_src_id_bak_name_del_run_id UNIQUE (bak_dir_id, src_id, bak_name, del_run_id)
+                ) STRICT;'''),
             'drop unchanged': 'DROP TABLE IF EXISTS unchanged;',
         },
         'temp': {
             'unchanged_or_restored': dedent('''\
-            CREATE TEMPORARY TABLE unchanged_or_restored (
-                src_id INTEGER PRIMARY KEY
-            ) STRICT;'''),
+                CREATE TEMPORARY TABLE unchanged_or_restored (
+                    src_id INTEGER PRIMARY KEY
+                ) STRICT;'''),
         },
         'indexes': dedent('''\
-        --CREATE INDEX IF NOT EXISTS i_backup_blake2b ON backup (blake2b);
-        CREATE INDEX IF NOT EXISTS i_backup_reason ON backup (reason);'''),
+            DROP INDEX IF EXISTS i_backup_reason;
+        '''),
+        ## IPython: import query_duration; %timeit query_duration.a() # => faster without the indexes
+        # -- Core
+        # -- For SELECT max(id) id FROM backup WHERE del_run_id = 0 GROUP BY src_id
+        # CREATE INDEX IF NOT EXISTS i_backup_del_run_id_src_id_id ON backup (del_run_id, src_id, id);
+        # -- For WHERE src_id = ? AND del_run_id = 0 ORDER BY b.id DESC
+        # CREATE INDEX IF NOT EXISTS i_backup_src_id_del_run_id_id ON backup (src_id, del_run_id, id DESC);
+        # -- For SELECT max(id) id FROM source_lc GROUP BY src_id
+        # CREATE INDEX IF NOT EXISTS i_source_lc_src_id_id ON source_lc (src_id, id DESC);
+        # -- Additional
+        # -- For backup run_id joins
+        # CREATE INDEX IF NOT EXISTS i_backup_run_id ON backup (run_id);
+        # -- For run profile_id joins
+        # CREATE INDEX IF NOT EXISTS i_run_profile_id_id ON run (profile_id, id);
+        # -- For SELECT max(id) id FROM source_lc WHERE run_id <= 63 GROUP BY src_id
+        # CREATE INDEX IF NOT EXISTS i_source_lc_run_id_src_id_id ON source_lc (run_id, src_id, id DESC);
+        # -- For JOIN source_lc lc ON s.id = lc.src_id AND lc.reason != 'D'
+        # CREATE INDEX IF NOT EXISTS i_source_lc_reason_src_id ON source_lc (reason, src_id, id);
         'view': {
             'v_backup': dedent('''\
-            CREATE VIEW IF NOT EXISTS v_backup AS
-            SELECT b.id, b.run_id, r.run_datetime_iso, p.profile, bd.bak_dir, s.src_path, b.bak_name, b.mtime, b.reason, b.del_run_id, b.src_id, ld.run_id src_del_run_id, nullif(lower(hex(blake2b)), '') blake2b
-            FROM backup b
-            JOIN backup_dir bd ON bak_dir_id = bd.id
-            JOIN "source" s ON b.src_id = s.id
-            JOIN run r ON b.run_id = r.id
-            JOIN profile p ON r.profile_id = p.id
-            LEFT JOIN (SELECT * FROM source_lc WHERE id IN (SELECT max(id) FROM source_lc GROUP BY src_id) AND reason = 'D') ld ON b.src_id = ld.src_id;'''),
+                CREATE VIEW IF NOT EXISTS v_backup AS
+                SELECT b.id, b.run_id, r.run_datetime_iso, p.profile, bd.bak_dir, s.src_path, b.bak_name, b.mtime, b.reason, b.del_run_id, b.src_id, ld.run_id src_del_run_id, nullif(lower(hex(blake2b)), '') blake2b
+                FROM backup b
+                JOIN backup_dir bd ON bak_dir_id = bd.id
+                JOIN "source" s ON b.src_id = s.id
+                JOIN run r ON b.run_id = r.id
+                JOIN profile p ON r.profile_id = p.id
+                LEFT JOIN (SELECT * FROM source_lc WHERE id IN (SELECT max(id) FROM source_lc GROUP BY src_id) AND reason = 'D') ld ON b.src_id = ld.src_id;'''),
             'v_run': dedent('''\
-            CREATE VIEW IF NOT EXISTS v_run AS
-            SELECT run.id run_id, profile_id, run_datetime_iso, profile
-            FROM run
-            JOIN profile ON profile_id = profile.id;'''),
+                CREATE VIEW IF NOT EXISTS v_run AS
+                SELECT run.id run_id, profile_id, run_datetime_iso, profile
+                FROM run
+                JOIN profile ON profile_id = profile.id;'''),
         },
     }
 
@@ -1939,7 +1958,7 @@ class RumarDB:
         self._src_dir_to_id = cache.setdefault('src_dir_to_id', {})
         self._source_to_id = cache.setdefault('source_to_id', {})
         self._bak_dir_to_id = cache.setdefault('bak_dir_to_id', {})
-        self._backup_to_checksum = cache.setdefault('backup_to_checksum', {})
+        self._backup_to_bak_id_and_checksum = cache.setdefault('backup_to_bak_id_and_checksum', {})
         db = sqlite3.connect(s.db_path)
         db.execute('PRAGMA foreign_keys = ON')
         self._db = db
@@ -1969,7 +1988,7 @@ class RumarDB:
     def init_run_datetime_iso_anew(self):
         """Generate ``self._run_datetime_iso`` making sure it's unique.\n
         Set ``self._run_id`` to ``None``, so that ``self.run_id`` creates a new value."""
-        while self.is_run_present(run_datetime_iso := self.make_run_datetime_iso()):
+        while self.get_run_id(run_datetime_iso := self.make_run_datetime_iso()):
             sleep(0.25)
         self._run_datetime_iso = run_datetime_iso
         self._run_id = None
@@ -1995,10 +2014,10 @@ class RumarDB:
 
     @staticmethod
     def _insert_zero_to_profile_and_run_tables_if_required(db):
-        if db.execute("SELECT 1 FROM pragma_table_list('profile')").fetchone():
-            if not db.execute('''SELECT 1 FROM profile WHERE id = 0''').fetchone():
+        if db.execute("SELECT 1 FROM pragma_table_list('profile');").fetchone():
+            if not db.execute('''SELECT 1 FROM profile WHERE id = 0;''').fetchone():
                 db.execute('''INSERT INTO profile (id, profile) VALUES (0, '');''')
-            if not db.execute('''SELECT 1 FROM run WHERE id = 0''').fetchone():
+            if not db.execute('''SELECT 1 FROM run WHERE id = 0;''').fetchone():
                 db.execute('''INSERT INTO run (id, run_datetime_iso, profile_id) VALUES (0, '1970-01-01 00:00:00+00:00', 0);''')
             db.commit()
 
@@ -2012,30 +2031,30 @@ class RumarDB:
 
     @classmethod
     def _migrate_backup_del_run_id_if_required(cls, db):
-        if db.execute("SELECT 1 FROM pragma_table_list('backup')").fetchone():
-            if db.execute("SELECT 1 FROM pragma_table_info('backup') WHERE name = 'del_run_id' AND dflt_value IS NOT NULL").fetchone() is None:
+        if db.execute("SELECT 1 FROM pragma_table_list('backup');").fetchone():
+            if db.execute("SELECT 1 FROM pragma_table_info('backup') WHERE name = 'del_run_id' AND dflt_value IS NOT NULL;").fetchone() is None:
                 cls._recreate_backup_via_backup_old(db)
 
     @classmethod
     def _migrate_backup_to_bak_name_if_required(cls, db):
-        for _ in db.execute("SELECT 1 FROM pragma_table_info('backup') WHERE name = 'bak_path'"):
+        for _ in db.execute("SELECT 1 FROM pragma_table_info('backup') WHERE name = 'bak_path';"):
             cls._migrate_to_bak_name_and_blob_blake2b(db)
 
     @classmethod
     def _migrate_to_bak_name_and_blob_blake2b(cls, db):
         cur = db.cursor()
-        cur.execute('DROP VIEW IF EXISTS v_backup')
-        cur.execute('DROP VIEW IF EXISTS v_run')
-        cur.execute('DROP INDEX IF EXISTS i_backup_mtime_iso')
-        cur.execute('DROP INDEX IF EXISTS i_backup_size')
-        cur.execute('ALTER TABLE backup ADD bak_name TEXT')
-        cur.execute('ALTER TABLE backup ADD blake2b_bin BLOB')
-        for row in db.execute('SELECT id, bak_path, blake2b FROM backup'):
+        cur.execute('DROP VIEW IF EXISTS v_backup;')
+        cur.execute('DROP VIEW IF EXISTS v_run;')
+        cur.execute('DROP INDEX IF EXISTS i_backup_mtime_iso;')
+        cur.execute('DROP INDEX IF EXISTS i_backup_size;')
+        cur.execute('ALTER TABLE backup ADD bak_name TEXT;')
+        cur.execute('ALTER TABLE backup ADD blake2b_bin BLOB;')
+        for row in db.execute('SELECT id, bak_path, blake2b FROM backup;'):
             id_ = row[0]
             lst = row[1].rsplit('/', 1)
             bak_name = lst[1] if len(lst) == 2 else lst[0]
             blake2b_as_bytes = bytes.fromhex(row[2]) if row[2] else None
-            cur.execute('UPDATE backup SET bak_name = ?, blake2b_bin = ? WHERE id = ?', (bak_name, blake2b_as_bytes, id_,))
+            cur.execute('UPDATE backup SET bak_name = ?, blake2b_bin = ? WHERE id = ?;', (bak_name, blake2b_as_bytes, id_,))
         db.commit()
         cur.close()
         cls._recreate_backup_via_backup_old(db)
@@ -2043,10 +2062,10 @@ class RumarDB:
     @classmethod
     def _recreate_backup_via_backup_old(cls, db):
         cur = db.cursor()
-        cur.execute('PRAGMA legacy_alter_table = ON')
-        cur.execute('ALTER TABLE backup RENAME TO backup_old')
+        cur.execute('PRAGMA legacy_alter_table = ON;')
+        cur.execute('ALTER TABLE backup RENAME TO backup_old;')
         cur.execute(cls.ddl['table']['backup'])
-        backup_old_cols = [row[0] for row in db.execute("SELECT name FROM pragma_table_info('backup_old')")]
+        backup_old_cols = [row[0] for row in db.execute("SELECT name FROM pragma_table_info('backup_old');")]
         blake2b_col = 'blake2b_bin' if 'blake2b_bin' in backup_old_cols else 'blake2b'
         del_run_id_col = 'IFNULL(del_run_id, 0)' if 'del_run_id' in backup_old_cols else '0'
         cur.execute(dedent(f'''\
@@ -2054,8 +2073,8 @@ class RumarDB:
         SELECT id, run_id, reason, bak_dir_id, src_id, bak_name, {blake2b_col}, {del_run_id_col}
         FROM backup_old
         ORDER BY id;'''))
-        cur.execute('DROP TABLE backup_old')
-        cur.execute('PRAGMA legacy_alter_table = OFF')
+        cur.execute('DROP TABLE backup_old;')
+        cur.execute('PRAGMA legacy_alter_table = OFF;')
         db.commit()
         cur.close()
 
@@ -2074,47 +2093,47 @@ class RumarDB:
     @classmethod
     def _migrate_to_blob_blake2b(cls, db):
         cur = db.cursor()
-        cur.execute('ALTER TABLE backup ADD blake2b_bin BLOB')
-        for row in db.execute('SELECT id, blake2b FROM backup WHERE blake2b IS NOT NULL'):
+        cur.execute('ALTER TABLE backup ADD blake2b_bin BLOB;')
+        for row in db.execute('SELECT id, blake2b FROM backup WHERE blake2b IS NOT NULL;'):
             id_ = row[0]
             blake2b_as_bytes = bytes.fromhex(row[1]) if row[1] else None
-            cur.execute('UPDATE backup SET blake2b_bin = ? WHERE id = ?', (blake2b_as_bytes, id_,))
+            cur.execute('UPDATE backup SET blake2b_bin = ? WHERE id = ?;', (blake2b_as_bytes, id_,))
         db.commit()
         cur.close()
         cls._recreate_backup_via_backup_old(db)
 
     @classmethod
     def _rename_backup_base_dir_for_profile_if_required(cls, db):
-        for _ in db.execute("SELECT 1 FROM pragma_table_list('backup_base_dir_for_profile')"):
-            db.execute('ALTER TABLE backup_base_dir_for_profile RENAME TO backup_dir')
+        for _ in db.execute("SELECT 1 FROM pragma_table_list('backup_base_dir_for_profile');"):
+            db.execute('ALTER TABLE backup_base_dir_for_profile RENAME TO backup_dir;')
             db.commit()
 
     def _alter_backup_add_mtime_if_required(self, db):
-        if db.execute("SELECT 1 FROM pragma_table_list('backup')").fetchone():
-            if db.execute("SELECT 1 FROM pragma_table_info('backup') WHERE name = 'mtime'").fetchone() is None:
-                db.execute('ALTER TABLE backup ADD COLUMN mtime TEXT')
+        if db.execute("SELECT 1 FROM pragma_table_list('backup');").fetchone():
+            if db.execute("SELECT 1 FROM pragma_table_info('backup') WHERE name = 'mtime';").fetchone() is None:
+                db.execute('ALTER TABLE backup ADD COLUMN mtime TEXT;')
                 db.commit()
 
     def _init_source_lc_if_empty(self):
         """Requires ``self._run_datetime_iso``"""
         cur = self._cur
-        if cur.execute('SELECT (SELECT count(*) FROM source_lc) = 0 AND (SELECT count(*) FROM source) > 0').fetchone()[0] == 1:
-            cur.execute(dedent('INSERT INTO source_lc (src_id, reason, run_id) SELECT src_id, ?, min(run_id) FROM backup GROUP BY src_id'), (OP_REASON_I,))
+        if cur.execute('SELECT (SELECT count(*) FROM source_lc) = 0 AND (SELECT count(*) FROM source) > 0;').fetchone()[0] == 1:
+            cur.execute(dedent('INSERT INTO source_lc (src_id, reason, run_id) SELECT src_id, ?, min(run_id) FROM backup GROUP BY src_id;'), (OP_REASON_I,))
             self._db.commit()
 
     def _load_data_into_memory(self):
-        for profile, id_ in execute(self._cur, 'SELECT profile, id FROM profile'):
+        for profile, id_ in execute(self._cur, 'SELECT profile, id FROM profile;'):
             self._profile_to_id[profile] = id_
-        for profile_id, run_datetime_iso, id_ in execute(self._cur, 'SELECT profile_id, run_datetime_iso, id FROM run'):
+        for profile_id, run_datetime_iso, id_ in execute(self._cur, 'SELECT profile_id, run_datetime_iso, id FROM run;'):
             self._run_to_id[(profile_id, run_datetime_iso)] = id_
-        for src_dir, id_ in execute(self._cur, 'SELECT src_dir, id FROM source_dir'):
+        for src_dir, id_ in execute(self._cur, 'SELECT src_dir, id FROM source_dir;'):
             self._src_dir_to_id[src_dir] = id_
-        for src_dir_id, src_path, id_ in execute(self._cur, 'SELECT src_dir_id, src_path, id FROM source'):
+        for src_dir_id, src_path, id_ in execute(self._cur, 'SELECT src_dir_id, src_path, id FROM source;'):
             self._source_to_id[(src_dir_id, src_path)] = id_
-        for bak_dir, id_ in execute(self._cur, 'SELECT bak_dir, id FROM backup_dir'):
+        for bak_dir, id_ in execute(self._cur, 'SELECT bak_dir, id FROM backup_dir;'):
             self._bak_dir_to_id[bak_dir] = id_
-        for bak_dir_id, src_id, bak_name, blake2b_checksum in execute(self._cur, 'SELECT bak_dir_id, src_id, bak_name, blake2b FROM backup'):
-            self._backup_to_checksum[(bak_dir_id, src_id, bak_name)] = blake2b_checksum
+        for bak_dir_id, src_id, bak_name, bak_id, blake2b_checksum in execute(self._cur, 'SELECT bak_dir_id, src_id, bak_name, id, blake2b FROM backup;'):
+            self._backup_to_bak_id_and_checksum[(bak_dir_id, src_id, bak_name)] = (bak_id, blake2b_checksum)
 
     def _print_dicts(self):
         print(str(self.s.db_path))
@@ -2123,14 +2142,14 @@ class RumarDB:
         print(self._src_dir_to_id)
         print(self._source_to_id)
         print(self._bak_dir_to_id)
-        print(self._backup_to_checksum)
+        print(self._backup_to_bak_id_and_checksum)
 
     @property
     def profile_id(self):
         if self._profile_id is None:
             profile = self._profile
             if not (profile_id := self._profile_to_id.get(profile)):
-                profile_id = execute(self._cur, 'INSERT INTO profile (profile) VALUES (?) RETURNING id', (profile,)).fetchone()[0]
+                profile_id = execute(self._cur, 'INSERT INTO profile (profile) VALUES (?) RETURNING id;', (profile,)).fetchone()[0]
                 self._profile_to_id[profile] = profile_id
             self._profile_id = profile_id
         return self._profile_id
@@ -2141,7 +2160,7 @@ class RumarDB:
             profile_id = self.profile_id
             run_datetime_iso = self._run_datetime_iso
             if not (run_id := self._run_to_id.get((profile_id, run_datetime_iso))):
-                run_id = execute(self._cur, 'INSERT INTO run (profile_id, run_datetime_iso) VALUES (?,?) RETURNING id', (profile_id, run_datetime_iso)).fetchone()[0]
+                run_id = execute(self._cur, 'INSERT INTO run (profile_id, run_datetime_iso) VALUES (?,?) RETURNING id;', (profile_id, run_datetime_iso)).fetchone()[0]
                 self._run_to_id[(profile_id, run_datetime_iso)] = run_id
             self._run_id = run_id
         return self._run_id
@@ -2151,7 +2170,7 @@ class RumarDB:
         if self._src_dir_id is None:
             src_dir = self.s.source_dir.as_posix()
             if not (src_dir_id := self._src_dir_to_id.get(src_dir)):
-                src_dir_id = execute(self._cur, 'INSERT INTO source_dir (src_dir) VALUES (?) RETURNING id', (src_dir,)).fetchone()[0]
+                src_dir_id = execute(self._cur, 'INSERT INTO source_dir (src_dir) VALUES (?) RETURNING id;', (src_dir,)).fetchone()[0]
                 self._src_dir_to_id[src_dir] = src_dir_id
             self._src_dir_id = src_dir_id
         return self._src_dir_id
@@ -2161,7 +2180,7 @@ class RumarDB:
         if self._bak_dir_id is None:
             bak_dir = self.s.backup_dir.as_posix()
             if not (bak_dir_id := self._bak_dir_to_id.get(bak_dir)):
-                bak_dir_id = execute(self._cur, 'INSERT INTO backup_dir (bak_dir) VALUES (?) RETURNING id', (bak_dir,)).fetchone()[0]
+                bak_dir_id = execute(self._cur, 'INSERT INTO backup_dir (bak_dir) VALUES (?) RETURNING id;', (bak_dir,)).fetchone()[0]
                 self._bak_dir_to_id[bak_dir] = bak_dir_id
             self._bak_dir_id = bak_dir_id
         return self._bak_dir_id
@@ -2170,9 +2189,9 @@ class RumarDB:
         src_path = relative_psx
         src_dir_id = self.src_dir_id
         if not (src_id := self._source_to_id.get((src_dir_id, src_path))) and create_if_missing:
-            src_id = execute(self._cur, 'INSERT INTO source (src_dir_id, src_path) VALUES (?, ?) RETURNING id', (src_dir_id, src_path)).fetchone()[0]
+            src_id = execute(self._cur, 'INSERT INTO source (src_dir_id, src_path) VALUES (?, ?) RETURNING id;', (src_dir_id, src_path)).fetchone()[0]
             self._source_to_id[(src_dir_id, src_path)] = src_id
-            execute(self._cur, 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)', (src_id, OP_REASON_C, self.run_id,))
+            execute(self._cur, 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?);', (src_id, OP_REASON_C, self.run_id,))
             self._db.commit()
         return src_id
 
@@ -2211,14 +2230,16 @@ class RumarDB:
         bak_dir_id = self.bak_dir_id
         reason = op_reason.name[0]
         bak_name = archive_path.name if archive_path else None
-        stmt = 'INSERT INTO backup (run_id, reason, bak_dir_id, src_id, bak_name, blake2b) VALUES (?, ?, ?, ?, ?, ?)'
+        stmt = 'INSERT INTO backup (run_id, reason, bak_dir_id, src_id, bak_name, blake2b) VALUES (?, ?, ?, ?, ?, ?) RETURNING id;'
         params = (run_id, reason, bak_dir_id, src_id, bak_name, blake2b_checksum)
-        execute(self._cur, stmt, params)
-        self._backup_to_checksum[(bak_dir_id, src_id, bak_name)] = blake2b_checksum
+        bak_id = None
+        for row in execute(self._cur, stmt, params):
+            bak_id = row[0]
+        self._backup_to_bak_id_and_checksum[(bak_dir_id, src_id, bak_name)] = (bak_id, blake2b_checksum)
         commit and self._db.commit()
 
     def save_unchanged_or_restored(self, src_id: int):
-        stmt = 'INSERT INTO unchanged_or_restored (src_id) VALUES (?)'
+        stmt = 'INSERT INTO unchanged_or_restored (src_id) VALUES (?);'
         params = (src_id,)
         execute(self._cur, stmt, params)
         self._db.commit()
@@ -2230,32 +2251,32 @@ class RumarDB:
         i.e.: changed, unchanged and restored files. The result is a list of newly deleted src files.
         """
         query = dedent('''\
-        INSERT INTO source_lc (src_id, reason, run_id)
-        SELECT src_id, ?, ?
-        FROM backup b
-        JOIN ( -- latest src files for profile
-            SELECT max(backup.id) id
-            FROM backup
-            JOIN run ON run.id = backup.run_id AND run.profile_id = ?
-            GROUP BY src_id
-        ) x ON b.id = x.id
-        WHERE b.run_id != ? -- minus src files changed in this run
-        AND NOT EXISTS ( -- minus src files not changed in this run
-            SELECT 1
-            FROM unchanged_or_restored u
-            WHERE b.src_id = u.src_id
-        )
-        AND NOT EXISTS ( -- minus src files already deleted
-            SELECT 1
-            FROM source_lc lc
-            JOIN ( -- latest src_id version
-                SELECT max(id) id
-                FROM source_lc
+            INSERT INTO source_lc (src_id, reason, run_id)
+            SELECT src_id, ?, ?
+            FROM backup b
+            JOIN ( -- latest src files for profile
+                SELECT max(backup.id) id
+                FROM backup
+                JOIN run ON run.id = backup.run_id AND run.profile_id = ?
                 GROUP BY src_id
-            ) x ON lc.id = x.id
-            WHERE b.src_id = lc.src_id
-            AND lc.reason = ?
-        );''')
+            ) x ON b.id = x.id
+            WHERE b.run_id != ? -- minus src files changed in this run
+            AND NOT EXISTS ( -- minus src files not changed in this run
+                SELECT 1
+                FROM unchanged_or_restored u
+                WHERE b.src_id = u.src_id
+            )
+            AND NOT EXISTS ( -- minus src files already deleted
+                SELECT 1
+                FROM source_lc lc
+                JOIN ( -- latest src_id version
+                    SELECT max(id) id
+                    FROM source_lc
+                    GROUP BY src_id
+                ) x ON lc.id = x.id
+                WHERE b.src_id = lc.src_id
+                AND lc.reason = ?
+            );''')
         run_id = self.run_id
         profile_id = self.profile_id
         execute(self._cur, query, (OP_REASON_D, run_id, profile_id, run_id, OP_REASON_D,))
@@ -2275,11 +2296,9 @@ class RumarDB:
             JOIN run r ON r.id = b.run_id AND r.profile_id = ? 
             JOIN backup_dir bd ON b.bak_dir_id = bd.id 
             JOIN "source" s ON b.src_id = s.id
-            WHERE src_id = ?
-            AND del_run_id = 0
+            WHERE src_id = ? AND del_run_id = 0
             ORDER BY b.id DESC
-            LIMIT 1
-        ''')
+            LIMIT 1;''')
         params = (self.profile_id, src_id)
         latest_archive = mtime_str = bak_id = None
         for row in execute(self._cur, stmt, params):
@@ -2293,28 +2312,39 @@ class RumarDB:
         stmt = dedent('''\
             SELECT reason
             FROM source_lc
-            WHERE id = (SELECT max(id) FROM source_lc WHERE src_id = ?)
-        ''')
+            WHERE id = (SELECT max(id) FROM source_lc WHERE src_id = ?);''')
         reason_x = None
         for row in execute(self._cur, stmt, (src_id,)):
             reason_x = row[0]
         return reason_x
 
     def restore_source_lc(self, src_id):
-        stmt = 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)'
+        stmt = 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?);'
         params = (src_id, OpReason.RESTORE.name[0], self.run_id)
         execute(self._cur, stmt, params)
         self._db.commit()
 
-    def get_blake2b_checksum(self, archive_path: Path) -> bytes | None:
+    def get_blake2b_checksum(self, bak_id: int) -> bytes | None:
+        for row in execute(self._cur, 'SELECT blake2b FROM backup WHERE id = ?;', (bak_id,)):
+            return row[0]
+        return None
+
+    def get_blake2b_checksum_for_path(self, archive_path: Path) -> bytes | None:
         if bak_dir_id := self.bak_dir_id:
             src_path = derive_relative_psx(archive_path.parent, self.s.backup_dir)
             src_id = self._source_to_id[(self.src_dir_id, src_path)]
             bak_name = archive_path.name
-            return self._backup_to_checksum.get((bak_dir_id, src_id, bak_name))
+            bak_id_and_checksum = self._backup_to_bak_id_and_checksum.get((bak_dir_id, src_id, bak_name))
+            if not bak_id_and_checksum:
+                return None
+            else:
+                return bak_id_and_checksum[1]
         return None
 
-    def set_blake2b_checksum(self, archive_path: Path, blake2b_checksum: bytes):
+    def set_blake2b_checksum(self, bak_id: int, blake2b_checksum: bytes):
+        execute(self._cur, 'UPDATE backup SET blake2b = ? WHERE id = ?;', (blake2b_checksum, bak_id,))
+
+    def set_blake2b_checksum_for_path(self, archive_path: Path, blake2b_checksum: bytes):
         bak_dir = self.s.backup_dir.as_posix()
         bak_dir_id = self.bak_dir_id
         src_dir_id = self.src_dir_id
@@ -2322,77 +2352,78 @@ class RumarDB:
         src_id = self._source_to_id[(src_dir_id, src_path)]
         bak_name = archive_path.name
         key = (bak_dir_id, src_id, bak_name)
-        old_blake2b_checksum = self._backup_to_checksum[key]
+        bak_id, old_blake2b_checksum = self._backup_to_bak_id_and_checksum[key]
         if old_blake2b_checksum and old_blake2b_checksum != blake2b_checksum:
             raise ValueError(f"({bak_dir}, {src_path}, {bak_name}) already in backup with a different blake2b_checksum: {old_blake2b_checksum}")
-        self._db.execute('UPDATE backup SET blake2b = ? WHERE bak_dir_id = ? AND src_id = ? AND bak_name = ?', (blake2b_checksum, bak_dir_id, src_id, bak_name))
+        self._db.execute('UPDATE backup SET blake2b = ? WHERE id = ?;', (blake2b_checksum, bak_id))
         self._db.commit()
-        self._backup_to_checksum[key] = blake2b_checksum
+        self._backup_to_bak_id_and_checksum[key] = (bak_id, blake2b_checksum)
 
     def set_mtime(self, bak_id: int, mtime_str: str):
-        self._db.execute('UPDATE backup SET mtime = ? WHERE id = ?', (mtime_str, bak_id))
+        self._db.execute('UPDATE backup SET mtime = ? WHERE id = ?;', (mtime_str, bak_id))
         self._db.commit()
 
-    def is_run_present(self, run_datetime_iso):
-        for _, _run_datetime_iso in self._run_to_id:
+    def get_run_id(self, run_datetime_iso):
+        for (_, _run_datetime_iso), run_id in self._run_to_id.items():
             if _run_datetime_iso == run_datetime_iso:
-                return True
-        return False
+                return run_id
+        return None
 
-    def get_run_datetime_isos(self, profile: str = None):
-        where = f"WHERE profile = '{profile}'" if profile else ''
+    def get_run_datetime_iso_to_profile(self, profile: str = None):
+        and_profile = f"AND profile = '{profile}'" if profile else ''
         query = dedent(f"""\
         SELECT run_datetime_iso, profile
         FROM run
-        JOIN profile ON profile_id = profile.id
-        {where}
-        ORDER BY 1""")
-        return self._db.execute(query).fetchall()
+        JOIN profile ON profile_id = profile.id {and_profile}
+        ORDER BY 1;""")
+        return dict(self._db.execute(query).fetchall())
 
     def iter_path_for_run(self, top_archive_dir):
         query = dedent(f"""\
         SELECT 
         """)
 
-    def iter_bak_src_paths(self, run_datetime_iso: str, relative_top_dir: str = None):
+    def iter_paths_as_of_run(self, run_id: int, relative_top_dir: str = None):
+        """Yields, as of run_id, latest available backups and their source files, if the source files aren't marked as deleted"""
         if relative_top_dir:
-            and_src_path_like = 'AND s.src_path LIKE ?'
-            params = (run_datetime_iso, f"{relative_top_dir}/%")
+            where_src_path_like = '\nWHERE s.src_path LIKE ?'
+            params = (run_id, run_id, f"{relative_top_dir}/%")
         else:
-            and_src_path_like = ''
-            params = (run_datetime_iso,)
+            where_src_path_like = ''
+            params = (run_id, run_id,)
         query = dedent(f"""\
-        SELECT s.src_path
-        FROM backup b
-        JOIN run r ON b.run_id = r.id
-        JOIN source s ON b.src_id = s.id
-        WHERE r.run_datetime_iso = ?
-        {and_src_path_like}
-        """)
+            SELECT bd.bak_dir, sd.src_dir, s.src_path, b.bak_name
+            FROM "source" s
+            JOIN source_dir sd ON s.src_dir_id = sd.id
+            JOIN source_lc lc ON s.id = lc.src_id AND lc.reason != 'D' -- not deleted
+            JOIN (SELECT max(id) id FROM source_lc WHERE run_id <= ? GROUP BY src_id) lx ON lc.id = lx.id -- recorded before or at the run
+            JOIN backup b ON s.id = b.src_id
+            JOIN (SELECT max(id) id FROM backup WHERE run_id <= ? AND del_run_id = 0) bx ON b.id = bx.id -- latest not deleted as of the run
+            JOIN backup_dir bd ON b.bak_dir_id = bd.id {where_src_path_like};""")
         for row in self._db.execute(query, params):
-            yield row[0]
+            yield row
 
     def iter_latest_archives_and_targets(self, top_archive_dir: Path = None, directory: Path = None):
         query = dedent('''\
-        SELECT bd.bak_dir, s.src_path, b.bak_name, sd.src_dir
-        FROM backup b
-        JOIN backup_dir bd ON b.bak_dir_id = bd.id 
-        JOIN "source" s ON b.src_id = s.id
-        JOIN source_dir sd ON s.src_dir_id = sd.id
-        JOIN ( -- latest backup files for the profile, excluding deleted ones
-            SELECT max(b.id) id
+            SELECT bd.bak_dir, s.src_path, b.bak_name, sd.src_dir
             FROM backup b
-            JOIN run r ON b.run_id = r.id AND r.profile_id = ?
-            AND b.del_run_id = 0  -- exclude deleted backup files
-            GROUP BY b.src_id
-        ) x ON b.id = x.id
-        WHERE NOT EXISTS ( -- ignore src files whose latest version is deleted
-            SELECT 1
-            FROM source_lc lc
-            JOIN (SELECT max(id) id FROM source_lc GROUP BY src_id) x on lc.id = x.id
-            WHERE b.src_id = lc.src_id
-            AND lc.reason = ?
-        );''')
+            JOIN backup_dir bd ON b.bak_dir_id = bd.id 
+            JOIN "source" s ON b.src_id = s.id
+            JOIN source_dir sd ON s.src_dir_id = sd.id
+            JOIN ( -- latest backup files for the profile, excluding deleted ones
+                SELECT max(b.id) id
+                FROM backup b
+                JOIN run r ON b.run_id = r.id AND r.profile_id = ?
+                AND b.del_run_id = 0  -- exclude deleted backup files
+                GROUP BY b.src_id
+            ) x ON b.id = x.id
+            WHERE NOT EXISTS ( -- ignore src files whose latest version is deleted
+                SELECT 1
+                FROM source_lc lc
+                JOIN (SELECT max(id) id FROM source_lc GROUP BY src_id) x on lc.id = x.id
+                WHERE b.src_id = lc.src_id
+                AND lc.reason = ?
+            );''')
         top_archive_dir_psx = top_archive_dir.as_posix() if top_archive_dir else 'None'
         for row in execute(self._db, query, (self.profile_id, OP_REASON_D,)):
             bak_dir, src_path, bak_name, src_dir = row
@@ -2401,70 +2432,62 @@ class RumarDB:
             _directory = directory or Path(src_dir)
             yield Path(bak_dir, src_path, bak_name), _directory / src_path
 
-    def is_backup_marked_as_active(self, archive_path: Path, src_id: int):
-        if not src_id:
-            archive_dir = archive_path.parent
-            relative_psx = derive_relative_psx(archive_dir, self.s.backup_dir)
-            src_id = self._source_to_id[(self.src_dir_id, relative_psx)]
-        params = (self.bak_dir_id, src_id, archive_path.name)
-        if execute(self._cur, 'SELECT del_run_id FROM backup WHERE bak_dir_id = ? AND src_id = ? AND bak_name = ? AND del_run_id = 0', params).fetchone():
+    def is_bak_id_marked_as_active(self, bak_id: int):
+        params = (bak_id,)
+        for _ in execute(self._cur, 'SELECT 1 FROM backup WHERE id = ? AND del_run_id = 0;', params):
             return True
         return False
 
     def mark_backup_as_deleted(self, archive_path: Path, src_id: int = None):
         if not src_id:
-            archive_dir = archive_path.parent
-            relative_psx = derive_relative_psx(archive_dir, self.s.backup_dir)
+            relative_psx = derive_relative_psx(archive_path.parent, self.s.backup_dir)
             src_id = self._source_to_id[(self.src_dir_id, relative_psx)]
-        params = (self.run_id, self.bak_dir_id, src_id, archive_path.name)
-        found = False
-        if src_id:
-            execute(cur := self._db.cursor(), dedent('''\
-                UPDATE backup
-                SET del_run_id = ?
-                WHERE bak_dir_id = ? AND src_id = ? AND bak_name = ?;'''), params)
-            if cur.rowcount > 0:
-                self._db.commit()
-                found = True
-            cur.close()
-        if not found:
-            logger.warning(f"{params[1:]} not found in the database: {self.s.db_path}")
+        key = (self.bak_dir_id, src_id, archive_path.name)
+        bak_id_and_checksum = self._backup_to_bak_id_and_checksum[key]
+        if not bak_id_and_checksum:
+            logger.warning(f"{key} not found in the database: {self.s.db_path}")
+            return False
+        params = (self.run_id, bak_id_and_checksum[0])
+        cur = self._db.cursor()
+        execute(cur, 'UPDATE backup SET del_run_id = ? WHERE id = ?;', params)
+        cur.close()
+        return True
 
     def mark_bak_id_as_deleted(self, bak_id: int):
-        stmt = 'UPDATE backup SET del_run_id = ? WHERE id = ?'
         params = (self.run_id, bak_id)
-        execute(self._cur, stmt, params)
+        execute(self._cur, 'UPDATE backup SET del_run_id = ? WHERE id = ?;', params)
 
     def iter_non_deleted_backup_paths(self):
         """For the current profile"""
         query = dedent('''\
-        SELECT bd.bak_dir, s.src_path, b.bak_name, b.id
-        FROM backup b
-        JOIN backup_dir bd ON b.bak_dir_id = bd.id
-        JOIN "source" s ON b.src_id = s.id
-        JOIN run r ON b.run_id = r.id AND r.profile_id = ?
-        WHERE del_run_id = 0;''')
+            SELECT bd.bak_dir, s.src_path, b.bak_name, b.id
+            FROM backup b
+            JOIN backup_dir bd ON b.bak_dir_id = bd.id
+            JOIN "source" s ON b.src_id = s.id
+            JOIN run r ON b.run_id = r.id AND r.profile_id = ?
+            WHERE del_run_id = 0;''')
         for row in execute(self._db, query, (self.profile_id,)):
             yield Path(row[0], row[1], row[2]), row[3]
 
     def iter_non_deleted_source_paths(self):
         """For the current profile"""
         query = dedent('''\
-        SELECT sd.src_dir, s.src_path, s.id
-        FROM "source" s
-        JOIN source_dir sd ON s.src_dir_id = sd.id
-        JOIN (SELECT src_id FROM source_lc WHERE id IN (SELECT max(id) FROM source_lc GROUP BY src_id) AND reason != 'D') l ON s.id = l.src_id
-        JOIN (SELECT DISTINCT b.src_id FROM backup b JOIN run r ON b.run_id = r.id AND r.profile_id = ?) x ON s.id = x.src_id;''')
+            SELECT sd.src_dir, s.src_path, s.id
+            FROM "source" s
+            JOIN source_dir sd ON s.src_dir_id = sd.id
+            JOIN (SELECT src_id FROM source_lc WHERE id IN (SELECT max(id) FROM source_lc GROUP BY src_id) AND reason != 'D') l ON s.id = l.src_id
+            JOIN (SELECT DISTINCT b.src_id FROM backup b JOIN run r ON b.run_id = r.id AND r.profile_id = ?) x ON s.id = x.src_id;''')
         for row in execute(self._db, query, (self.profile_id,)):
             yield Path(row[0], row[1]), row[2]
 
     def mark_src_id_as_deleted(self, src_id: int):
-        stmt = 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)'
+        stmt = 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?);'
         params = (src_id, OP_REASON_D, self.run_id)
         execute(self._cur, stmt, params)
 
 
 def execute(cur: sqlite3.Cursor | sqlite3.Connection, stmt: str, params: tuple | None = None, log=logger.debug):
+    """:param cur: sqlite3.Cursor or sqlite3.Connection but not for INSERT, UPDATE, DELETE (AttributeError: 'sqlite3.Connection' object has no attribute 'rowcount')"""
     stmt_for_log = stmt.rstrip()
     if params:
         stmt_for_log = stmt_for_log.replace('?', '%r') % params

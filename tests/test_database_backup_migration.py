@@ -41,7 +41,7 @@ def set_up_rumardb():
     rumardb._src_dir_to_id.clear()
     rumardb._source_to_id.clear()
     rumardb._bak_dir_to_id.clear()
-    rumardb._backup_to_checksum.clear()
+    rumardb._backup_to_bak_id_and_checksum.clear()
 
 
 def test_migrate_to_bak_name_and_blob_blake2b(set_up_rumardb):

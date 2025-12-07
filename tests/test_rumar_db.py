@@ -80,7 +80,7 @@ def _set_up_rumar():
     #     ('source_dir', '_src_dir_to_id'),
     #     ('source', '_source_to_id'),
     #     ('backup_dir', '_bak_dir_to_id'),
-    #     ('backup', '_backup_to_checksum'),
+    #     ('backup', '_backup_to_bak_id_and_checksum'),
     # ]:
     #     print(f"\n{table}:")
     #     for row in db.execute(f'SELECT * FROM {table}'):
@@ -122,7 +122,7 @@ def _tear_down_rumar(d):
     rumardb._src_dir_to_id.clear()
     rumardb._source_to_id.clear()
     rumardb._bak_dir_to_id.clear()
-    rumardb._backup_to_checksum.clear()
+    rumardb._backup_to_bak_id_and_checksum.clear()
 
 
 @pytest.fixture(scope='class')
@@ -156,7 +156,7 @@ class TestRumarDB:
         archive_rathers = data['archive_rathers']
         checksums = data['checksums']
         for i in range(len(checksums)):
-            assert checksums[i] == rumardb.get_blake2b_checksum(archive_rathers[i])
+            assert checksums[i] == rumardb.get_blake2b_checksum_for_path(archive_rathers[i])
 
     def test_set_blake2b_checksum_when_not_yet_in_backup(self, set_up_rumar):
         d = set_up_rumar
@@ -167,15 +167,15 @@ class TestRumarDB:
         relative_p = data['relative_ps'][0]
         ## verify in RumarDB the initial state of checksum is NULL
         assert (src_id := rumardb.get_src_id(relative_p)) is not None
-        assert rumardb._backup_to_checksum[(rumardb.bak_dir_id, src_id, archive_path.name)] is None
+        assert rumardb._backup_to_bak_id_and_checksum[(rumardb.bak_dir_id, src_id, archive_path.name)] == (1, None)
         ## test methods to set and get checksum
         input_checksum = bytes.fromhex('a1b2c3d4')
-        rumardb.set_blake2b_checksum(archive_path, input_checksum)
+        rumardb.set_blake2b_checksum_for_path(archive_path, input_checksum)
         actual_checksum = None
         for row in db.execute('SELECT blake2b FROM backup WHERE id = (SELECT max(id) FROM backup WHERE src_id = ?)', (src_id,)):
             actual_checksum = row[0]
-        assert actual_checksum == input_checksum, 'set_blake2b_checksum() failed to do its job'
-        assert rumardb.get_blake2b_checksum(archive_path) == input_checksum
+        assert actual_checksum == input_checksum, 'set_blake2b_checksum_for_path() failed to do its job'
+        assert rumardb.get_blake2b_checksum_for_path(archive_path) == input_checksum
 
     def test_set_blake2b_checksum_when_already_in_backup(self, set_up_rumar):
         d = set_up_rumar
@@ -185,7 +185,7 @@ class TestRumarDB:
         rx_already_in_backup = re.compile(r'.+ already in backup with a different blake2b_checksum: .+')
         input_checksum = bytes.fromhex('b2c3d4e5')
         with pytest.raises(ValueError, match=rx_already_in_backup):
-            rumardb.set_blake2b_checksum(archive_path, input_checksum)
+            rumardb.set_blake2b_checksum_for_path(archive_path, input_checksum)
 
     def test_iter_latest_archives_and_targets_no_deleted_and_no_top_archive_dir_and_no_directory(self, set_up_rumar):
         d = set_up_rumar
