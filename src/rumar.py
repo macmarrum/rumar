@@ -184,6 +184,7 @@ def main(argv: Sequence[str] = None):
     parser_list = subparsers.add_parser('list-profiles', aliases=['l'], help='List profiles')
     parser_list.set_defaults(func=list_profiles)
     add_profile_args_to_parser(parser_list, required=False)
+    parser_list.add_argument('-r', '--runs', action='store_true', help='List run IDs and times for the selected profile')
     # create
     parser_create = subparsers.add_parser(Command.CREATE.value, aliases=['c'], help='Create a backup of each file that matches profile criteria, if the file changed')
     parser_create.set_defaults(func=create)
@@ -254,10 +255,18 @@ def load_logging_config(rumar_toml_path: Path | None = None):
 
 def list_profiles(args):
     profile_to_settings = make_profile_to_settings_from_toml_path(args.toml)
+    rumar = Rumar(profile_to_settings)
     for profile, settings in profile_to_settings.items():
         if args.profile and profile not in args.profile:
             continue
         print(f"{settings}")
+        if args.runs:
+            db_path = profile_to_settings[profile].db_path
+            if db_path not in [':memory:', '']:
+                print(' run_id | run_datetime_iso')
+                for run_id, run_datetime_iso in rumar.iter_runs(profile):
+                    print(f" {run_id:6} | {run_datetime_iso}")
+
 
 
 def create(args):
@@ -1745,6 +1754,13 @@ class Rumar:
             self._rdb.commit()
         self._finalize_profile_changes(identify_and_save_deleted=False)
 
+    def iter_runs(self, profile):
+        self._init_for_profile(profile)
+        if self.s.db_path:
+            for run_id, run_datetime_iso in self._rdb.iter_runs():
+                yield run_id, run_datetime_iso
+        self._finalize_profile_changes(identify_and_save_deleted=False)
+
 
 class BinaryReader(Protocol):
     def read(self, __n: int = ...) -> bytes:
@@ -2476,6 +2492,10 @@ class RumarDB:
         stmt = 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?);'
         params = (src_id, OP_REASON_D, self.run_id)
         execute(self._cur, stmt, params)
+
+    def iter_runs(self):
+        for row in execute(self._cur, 'SELECT id, run_datetime_iso FROM run WHERE profile_id= ? ORDER BY 1;',(self.profile_id,)):
+            yield row[0], row[1]
 
 
 def execute(cur: sqlite3.Cursor | sqlite3.Connection, stmt: str, params: tuple | None = None, log=logger.debug):
