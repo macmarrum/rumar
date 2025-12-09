@@ -178,41 +178,30 @@ RX_ARCHIVE_NAME = re.compile(r'^\d\d\d\d-\d\d-\d\d_\d\d,\d\d,\d\d(?:\.\d\d\d\d\d
 
 def main(argv: Sequence[str] = None):
     parser = argparse.ArgumentParser()
-    parser.add_argument('-t', '--toml', type=mk_abs_path, default=get_default_path(suffix='.toml'),
-                        help=('path to settings; '
-                              'by default rumar.toml in the same directory as rumar.py or in %%APPDIR%%\\rumar\\ (on NT), ${XDG_CONFIG_HOME:-$HOME/.config}/rumar/ (on POSIX)'))
+    parser.add_argument('-t', '--toml', type=mk_abs_path, default=get_default_path(suffix='.toml'), help=('path to settings; by default rumar.toml in the same directory as rumar.py or in %%APPDIR%%\\rumar\\ (on NT), ${XDG_CONFIG_HOME:-$HOME/.config}/rumar/ (on POSIX)'))
     subparsers = parser.add_subparsers(dest='action', required=True, help='actions work on profile(s) defined in settings (TOML)')
     # list profiles
-    parser_list = subparsers.add_parser('list-profiles', aliases=['l'],
-                                        help='list profiles')
+    parser_list = subparsers.add_parser('list-profiles', aliases=['l'], help='list profiles')
     parser_list.set_defaults(func=list_profiles)
     add_profile_args_to_parser(parser_list, required=False)
     # create
-    parser_create = subparsers.add_parser(Command.CREATE.value, aliases=['c'],
-                                          help='create a backup of each file that matches profile criteria, if the file changed')
+    parser_create = subparsers.add_parser(Command.CREATE.value, aliases=['c'], help='create a backup of each file that matches profile criteria, if the file changed')
     parser_create.set_defaults(func=create)
     add_profile_args_to_parser(parser_create, required=True)
     # extract
-    parser_extract = subparsers.add_parser(Command.EXTRACT.value, aliases=['x'],
-                                           help='extract [to source_dir | --target-dir] the latest backup of each file [in backup_dir | --archive-dir]')
+    parser_extract = subparsers.add_parser(Command.EXTRACT.value, aliases=['x'], help='extract [to source_dir | --target-dir] the latest backup of each file [in backup_dir | --archive-dir]')
     parser_extract.set_defaults(func=extract)
     add_profile_args_to_parser(parser_extract, required=True)
-    parser_extract.add_argument('--top-archive-dir', type=Path,
-                                help='path to a top directory from which to extract the latest backups, recursively; all other backups in backup_dir are ignored')
-    parser_extract.add_argument('--directory', '-C', type=mk_abs_path,
-                                help="path to the base directory used for extraction; profile's source_dir by default")
-    parser_extract.add_argument('--overwrite', action=store_true,
-                                help='overwrite target files without asking')
-    parser_extract.add_argument('--meta-diff', action=store_true,
-                                help='overwrite target files without asking if mtime or size differ between backup and target')
+    parser_extract.add_argument('--top-archive-dir', type=Path, help='path to a top directory from which to extract the latest backups, recursively; all other backups in backup_dir are ignored')
+    parser_extract.add_argument('--directory', '-C', type=mk_abs_path, help="path to the base directory used for extraction; profile's source_dir by default")
+    parser_extract.add_argument('--overwrite', action=store_true, help='overwrite target files without asking')
+    parser_extract.add_argument('--meta-diff', action=store_true, help='overwrite target files without asking if mtime or size differ between backup and target')
     # reconcile
-    parser_reconcile = subparsers.add_parser(Command.RECONCILE.value, aliases=['r'],
-                                             help='reconcile with disk files the DB records that match profile criteria, by marking the missing files as deleted')
+    parser_reconcile = subparsers.add_parser(Command.RECONCILE.value, aliases=['r'], help='reconcile with disk files the DB records that match profile criteria, by marking the missing files as deleted')
     parser_reconcile.set_defaults(func=reconcile)
     add_profile_args_to_parser(parser_reconcile, required=True)
     # sweep
-    parser_sweep = subparsers.add_parser(Command.SWEEP.value, aliases=['s'],
-                                         help='sweep old backups that match profile criteria')
+    parser_sweep = subparsers.add_parser(Command.SWEEP.value, aliases=['s'], help='sweep old backups that match profile criteria')
     parser_sweep.set_defaults(func=sweep)
     parser_sweep.add_argument('-d', '--dry-run', action=store_true)
     add_profile_args_to_parser(parser_sweep, required=True)
