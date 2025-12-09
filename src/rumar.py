@@ -1189,7 +1189,7 @@ class Rumar:
                     op_reason = OpReason.RESTORE
                     logger.debug(f"{op_reason.value} {self._relative_psx}  {op_reason.name} {rath.parent}")
                     self._rdb.restore_source_lc(src_id)
-        self._finalize_profile_changes()
+        self._finalize_for_profile()
         return self._created_archives
 
     def _init_for_profile(self, profile: str, *, sweep=False):
@@ -1206,7 +1206,7 @@ class Rumar:
         if sweep:
             self._bdb = BroomDB(self._profile, self.s)
 
-    def _finalize_profile_changes(self, *, identify_and_save_deleted=True):
+    def _finalize_for_profile(self, *, identify_and_save_deleted=True):
         if self.s.db_path:
             if identify_and_save_deleted:
                 self._rdb.identify_and_save_deleted_source_files()
@@ -1487,7 +1487,7 @@ class Rumar:
             else:
                 target_path = Path(src_dir, src_path)
             self.extract_archive(backup_path, target_path, overwrite, meta_diff)
-        self._finalize_profile_changes(identify_and_save_deleted=False)
+        self._finalize_for_profile(identify_and_save_deleted=False)
 
     def extract_for_profile2(self, profile: str, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
         """Extract the lastest version of each file found in backup hierarchy for profile
@@ -1528,7 +1528,7 @@ class Rumar:
                 if filenames:
                     top_archive_dir = Path(basedir)  # the original file, in the mirrored directory tree
                     self.extract_latest_file_on_disk(self.s.backup_dir, top_archive_dir, directory, overwrite, meta_diff, filenames)
-        self._finalize_profile_changes(identify_and_save_deleted=False)
+        self._finalize_for_profile(identify_and_save_deleted=False)
 
     def extract_for_profile(self, profile: str, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
         """Extract the lastest version of each file recorded in the DB for the profile
@@ -1555,7 +1555,7 @@ class Rumar:
         self.reconcile_backup_files_with_disk(top_archive_dir)
         for archive_file, target_file in self._rdb.iter_latest_archives_and_targets(top_archive_dir, directory):
             self.extract_archive(archive_file, target_file, overwrite, meta_diff)
-        self._finalize_profile_changes()
+        self._finalize_for_profile()
 
     @staticmethod
     def _confirm_extraction_into_directory(directory: Path, top_archive_dir: Path, backup_dir: Path):
@@ -1700,7 +1700,7 @@ class Rumar:
             return
         self.scan_disk_and_mark_archive_files_for_deletion(s)
         self.delete_marked_archive_files(is_dry_run)
-        self._finalize_profile_changes(identify_and_save_deleted=False)
+        self._finalize_for_profile(identify_and_save_deleted=False)
 
     def scan_disk_and_mark_archive_files_for_deletion(self, s: Settings):
         archive_format = RumarFormat(s.archive_format).value
@@ -1752,14 +1752,14 @@ class Rumar:
             self.reconcile_source_files_with_disk(commit=False)
             self.reconcile_backup_files_with_disk(commit=False)
             self._rdb.commit()
-        self._finalize_profile_changes(identify_and_save_deleted=False)
+        self._finalize_for_profile(identify_and_save_deleted=False)
 
     def iter_runs(self, profile):
         self._init_for_profile(profile)
         if self.s.db_path:
             for run_id, run_datetime_iso in self._rdb.iter_runs():
                 yield run_id, run_datetime_iso
-        self._finalize_profile_changes(identify_and_save_deleted=False)
+        self._finalize_for_profile(identify_and_save_deleted=False)
 
 
 class BinaryReader(Protocol):
