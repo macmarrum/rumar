@@ -1458,16 +1458,16 @@ class Rumar:
                 directory = self._profile_to_settings[profile].source_dir
             self.extract_for_profile(profile, top_archive_dir, directory, overwrite, meta_diff)
 
-    def extract_for_run(self, profile: str, run_id: int, top_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
+    def extract_for_run(self, profile: str, run_id: int, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
         """Extract files backed up during a particular run (datetime) as recorded in rumardb
         :param profile:
         :param run_id:
-        :param top_dir: (optional) limit files to be extracted to the top dir; can be relative; in the backup tree if absolute - all files for the run_datetime_iso if missing
+        :param top_archive_dir: (optional) limit files to be extracted to the top dir; can be relative; in the backup tree if absolute - all files for the run_datetime_iso if missing
         :param directory: (optional) target directory - settings.source_dir if missing
         :param overwrite: whether to overwrite target files without asking
         :param meta_diff: whether to overwrite target files without asking if mtime or size differ between backup and target
         """
-        logger.info(f"{profile=}, {run_id=}, top_dir={str(top_dir)!r}, directory={str(directory)!r}, {overwrite=}, {meta_diff=}")
+        logger.info(f"{profile=}, {run_id=}, top_archive_dir={str(top_archive_dir)!r}, directory={str(directory)!r}, {overwrite=}, {meta_diff=}")
         self._init_for_profile(profile)
         msgs = []
         profile_linked_to_run = None
@@ -1486,11 +1486,11 @@ class Rumar:
         if msgs:
             logger.warning('; '.join(msgs))
             return
-        self._reconcile_and_extract_for_run(run_id, top_dir, directory, overwrite, meta_diff)
+        self._reconcile_and_extract_for_run(run_id, top_archive_dir, directory, overwrite, meta_diff)
         self._finalize_for_profile(identify_and_save_deleted=False)
 
     def _reconcile_and_extract_for_run(self, run_id: int, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
-        """Iter files in top_dir for the run and extract each one"""
+        """Iter files in top_archive_dir for the run and extract each one"""
         if top_archive_dir:
             if not top_archive_dir.is_absolute():
                 top_archive_dir = self.s.source_dir / top_archive_dir
