@@ -186,7 +186,7 @@ def main(argv: Sequence[str] = None):
     add_profile_args_to_parser(parser_list, required=False)
     parser_list.add_argument('-r', '--runs', action='store_true', help='List run IDs and times for the selected profile')
     # create
-    parser_create = subparsers.add_parser(Command.CREATE.value, aliases=['c'], help='Create a backup of each file that matches profile criteria, if the file changed')
+    parser_create = subparsers.add_parser(Command.CREATE.value, aliases=['c'], help='Create a backup of each file that matches profile criteria, if the file changed, and reconcile source files')
     parser_create.set_defaults(func=create)
     add_profile_args_to_parser(parser_create, required=True)
     # extract
@@ -202,6 +202,8 @@ def main(argv: Sequence[str] = None):
     parser_reconcile = subparsers.add_parser(Command.RECONCILE.value, aliases=['r'], help='Reconcile DB records with backup and source files on the disk by marking the missing files as deleted; limit to matching profile(s)')
     parser_reconcile.set_defaults(func=reconcile)
     add_profile_args_to_parser(parser_reconcile, required=True)
+    parser_reconcile.add_argument('-s', '--source-files-only', action='store_true')
+    parser_reconcile.add_argument('-b', '--backup-files-only', action='store_true')
     # sweep
     parser_sweep = subparsers.add_parser(Command.SWEEP.value, aliases=['s'], help='Sweep old backups that match profile criteria')
     parser_sweep.set_defaults(func=sweep)
@@ -269,7 +271,6 @@ def list_profiles(args):
                     print(f" {run_id:6} | {run_datetime_iso}")
 
 
-
 def create(args):
     profile_to_settings = make_profile_to_settings_from_toml_path(args.toml)
     rumar = Rumar(profile_to_settings)
@@ -308,13 +309,26 @@ def sweep(args):
 
 
 def reconcile(args):
+    if hasattr(args, 'source_files_only') and hasattr(args, 'backup_files_only'):
+        if args.source_files_only and args.backup_files_only:
+            logger.error('Both -s and -b options are given. Please specify only one or none of them.')
+            return
+        if not args.source_files_only and not args.backup_files_only:
+            args.source_files = True
+            args.backup_files = True
+        elif args.source_files_only:
+            args.source_files = True
+            args.backup_files = False
+        elif args.backup_files_only:
+            args.source_files = False
+            args.backup_files = True
     profile_to_settings = make_profile_to_settings_from_toml_path(args.toml)
     rumar = Rumar(profile_to_settings)
     if args.all_profiles:
-        rumar.reconcile_for_all_profiles()
+        rumar.reconcile_for_all_profiles(args.source_files, args.backup_files)
     elif args.profile:
         for profile in args.profile:
-            rumar.reconcile_for_profile(profile)
+            rumar.reconcile_for_profile(profile, args.source_files, args.backup_files)
 
 
 class RumarFormat(Enum):
@@ -1759,17 +1773,20 @@ class Rumar:
                 else:
                     self._rdb.mark_backup_as_deleted(path)
 
-    def reconcile_for_all_profiles(self):
+    def reconcile_for_all_profiles(self, source_files: bool, backup_files: bool):
         for profile in self._profile_to_settings:
-            self.reconcile_for_profile(profile)
+            self.reconcile_for_profile(profile, source_files, backup_files)
 
-    def reconcile_for_profile(self, profile: str):
+    def reconcile_for_profile(self, profile: str, source_files: bool, backup_files: bool):
+        if not (source_files or backup_files):
+            return
         self._init_for_profile(profile)
         db_path = self.s.db_path
-        logger.info(f"{profile!r}{'' if db_path else ' SKIP — db_path is empty'}")
+        _do_source_files_do_backup_files = f", {source_files=}, {backup_files=}"
+        logger.info(f"{profile!r}{_do_source_files_do_backup_files if db_path else ' SKIP — db_path is empty'}")
         if db_path:
-            self.reconcile_source_files_with_disk(commit=False)
-            self.reconcile_backup_files_with_disk(commit=False)
+            source_files and self.reconcile_source_files_with_disk(commit=False)
+            backup_files and self.reconcile_backup_files_with_disk(commit=False)
             self._rdb.commit()
         self._finalize_for_profile(identify_and_save_deleted=False)
 
