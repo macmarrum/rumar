@@ -120,7 +120,7 @@ def _tear_down_rumar(rumar: Rumar, rumardb: RumarDB):
     rumar.lstat_cache.clear()
     rumardb.close_db()
     rumardb._profile_to_id.clear()
-    rumardb._run_to_id.clear()
+    rumardb._profile_run_to_id.clear()
     rumardb._src_dir_to_id.clear()
     rumardb._source_to_id.clear()
     rumardb._bak_dir_to_id.clear()

@@ -76,7 +76,7 @@ def _set_up_rumar():
     # print("\n### Database Tables ###")
     # for table, dictionary in [
     #     ('profile', '_profile_to_id'),
-    #     ('run', '_run_to_id'),
+    #     ('run', '_profile_run_to_id'),
     #     ('source_dir', '_src_dir_to_id'),
     #     ('source', '_source_to_id'),
     #     ('backup_dir', '_bak_dir_to_id'),
@@ -118,7 +118,7 @@ def _tear_down_rumar(d):
     db.commit()
     rumardb.close_db()
     rumardb._profile_to_id.clear()
-    rumardb._run_to_id.clear()
+    rumardb._profile_run_to_id.clear()
     rumardb._src_dir_to_id.clear()
     rumardb._source_to_id.clear()
     rumardb._bak_dir_to_id.clear()

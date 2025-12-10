@@ -197,6 +197,7 @@ def main(argv: Sequence[str] = None):
     parser_extract.add_argument('--directory', '-C', type=mk_abs_path, help="Path to the base directory used for extraction; profile's source_dir by default")
     parser_extract.add_argument('--overwrite', action=store_true, help='Overwrite target files without asking')
     parser_extract.add_argument('--meta-diff', action=store_true, help='Overwrite target files without asking if mtime or size differ between backup and target')
+    parser_extract.add_argument('-r', '--run-id', type=int, help='Extract the last backup(s) as of run_id or earlier')
     # reconcile
     parser_reconcile = subparsers.add_parser(Command.RECONCILE.value, aliases=['r'], help='Reconcile with disk files the DB records that match profile criteria, by marking the missing files as deleted')
     parser_reconcile.set_defaults(func=reconcile)
@@ -282,6 +283,12 @@ def create(args):
 def extract(args):
     profile_to_settings = make_profile_to_settings_from_toml_path(args.toml)
     rumar = Rumar(profile_to_settings)
+    if args.run_id:
+        if args.all_profiles or len(args.profile) > 1:
+            logger.error('Extracting the latest backup(s) as of run_id or earlier is not supported for multiple profiles. Specify a single one.')
+            return
+        for profile in args.profile:  # args.profile is a list
+            rumar.extract_for_run(profile, args.run_id, args.top_archive_dir, args.directory, args.overwrite, args.meta_diff)
     if args.all_profiles:
         rumar.extract_for_all_profiles(args.top_archive_dir, args.directory, args.overwrite, args.meta_diff)
     elif args.profile:
@@ -1451,25 +1458,31 @@ class Rumar:
                 directory = self._profile_to_settings[profile].source_dir
             self.extract_for_profile(profile, top_archive_dir, directory, overwrite, meta_diff)
 
-    def extract_for_run(self, profile: str, run_datetime_iso: str, top_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
+    def extract_for_run(self, profile: str, run_id: int, top_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
         """Extract files backed up during a particular run (datetime) as recorded in rumardb
-
-        :param run_datetime_iso:
+        :param profile:
+        :param run_id:
         :param top_dir: (optional) limit files to be extracted to the top dir; can be relative; in the backup tree if absolute - all files for the run_datetime_iso if missing
         :param directory: (optional) target directory - settings.source_dir if missing
         :param overwrite: whether to overwrite target files without asking
         :param meta_diff: whether to overwrite target files without asking if mtime or size differ between backup and target
         """
-        logger.info(f"{profile=}, {run_datetime_iso=}, top_dir={str(top_dir)!r}, directory={str(directory)!r}, {overwrite=}, {meta_diff=}")
+        logger.info(f"{profile=}, {run_id=}, top_dir={str(top_dir)!r}, directory={str(directory)!r}, {overwrite=}, {meta_diff=}")
         self._init_for_profile(profile)
-        run_id = self._rdb.get_run_id(run_datetime_iso)
         msgs = []
-        if not run_id:
-            msgs.append(f"SKIP {run_datetime_iso!r} - no corresponding run_id found")
-        if profile != (profile_linked_to_run := self._rdb.get_run_datetime_iso_to_profile().get(run_datetime_iso) if run_id else None):
-            msgs.append(f"SKIP {profile!r} - does not match {profile_linked_to_run!r}, which is linked to {run_datetime_iso!r}")
+        profile_linked_to_run = None
+        rdb_cache = self._db_path_to_rdb_cache[self.s.db_path]
+        for (_profile_id, _), _run_id in rdb_cache['profile_run_to_id'].items():
+            if _run_id == run_id:
+                for profile, profile_id in rdb_cache['profile_to_id'].items():
+                    if _profile_id == profile_id:
+                        profile_linked_to_run = profile
+                        break
+                break
+        if profile != profile_linked_to_run:
+            msgs.append(f"SKIP {profile!r} - does not match {profile_linked_to_run!r}, which is linked to {run_id!r}")
         if directory and (ex := try_to_iterate_dir(directory)):
-            msgs.append(f"SKIP {run_datetime_iso!r} - cannot access target directory - {ex}")
+            msgs.append(f"SKIP {run_id!r} - cannot access target directory - {ex}")
         if top_dir:
             if not top_dir.is_absolute():
                 top_dir = self.s.source_dir / top_dir
@@ -1479,7 +1492,11 @@ class Rumar:
         if msgs:
             logger.warning('; '.join(msgs))
             return
-        # iter files in top_dir for the run and extract each one
+        self._extract_for_run(run_id, relative_top_dir, directory, overwrite, meta_diff)
+        self._finalize_for_profile(identify_and_save_deleted=False)
+
+    def _extract_for_run(self, run_id: int, relative_top_dir: str | None, directory: Path | None, overwrite: bool, meta_diff: bool):
+        """Iter files in top_dir for the run and extract each one"""
         for bak_dir, src_dir, src_path, bak_name in self._rdb.iter_paths_as_of_run(run_id, relative_top_dir):
             backup_path = Path(bak_dir, src_path, bak_name)
             if directory:  # instead of source_dir
@@ -1487,7 +1504,6 @@ class Rumar:
             else:
                 target_path = Path(src_dir, src_path)
             self.extract_archive(backup_path, target_path, overwrite, meta_diff)
-        self._finalize_for_profile(identify_and_save_deleted=False)
 
     def extract_for_profile2(self, profile: str, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
         """Extract the lastest version of each file found in backup hierarchy for profile
@@ -1962,7 +1978,7 @@ class RumarDB:
         self._profile = profile
         self.s = s
         self._profile_to_id = cache.setdefault('profile_to_id', {})
-        self._run_to_id = cache.setdefault('run_to_id', {})
+        self._profile_run_to_id = cache.setdefault('profile_run_to_id', {})
         self._src_dir_to_id = cache.setdefault('src_dir_to_id', {})
         self._source_to_id = cache.setdefault('source_to_id', {})
         self._bak_dir_to_id = cache.setdefault('bak_dir_to_id', {})
@@ -2133,7 +2149,7 @@ class RumarDB:
         for profile, id_ in execute(self._cur, 'SELECT profile, id FROM profile;'):
             self._profile_to_id[profile] = id_
         for profile_id, run_datetime_iso, id_ in execute(self._cur, 'SELECT profile_id, run_datetime_iso, id FROM run;'):
-            self._run_to_id[(profile_id, run_datetime_iso)] = id_
+            self._profile_run_to_id[(profile_id, run_datetime_iso)] = id_
         for src_dir, id_ in execute(self._cur, 'SELECT src_dir, id FROM source_dir;'):
             self._src_dir_to_id[src_dir] = id_
         for src_dir_id, src_path, id_ in execute(self._cur, 'SELECT src_dir_id, src_path, id FROM source;'):
@@ -2146,7 +2162,7 @@ class RumarDB:
     def _print_dicts(self):
         print(str(self.s.db_path))
         print(self._profile_to_id)
-        print(self._run_to_id)
+        print(self._profile_run_to_id)
         print(self._src_dir_to_id)
         print(self._source_to_id)
         print(self._bak_dir_to_id)
@@ -2167,9 +2183,9 @@ class RumarDB:
         if self._run_id is None:
             profile_id = self.profile_id
             run_datetime_iso = self._run_datetime_iso
-            if not (run_id := self._run_to_id.get((profile_id, run_datetime_iso))):
+            if not (run_id := self._profile_run_to_id.get((profile_id, run_datetime_iso))):
                 run_id = execute(self._cur, 'INSERT INTO run (profile_id, run_datetime_iso) VALUES (?,?) RETURNING id;', (profile_id, run_datetime_iso)).fetchone()[0]
-                self._run_to_id[(profile_id, run_datetime_iso)] = run_id
+                self._profile_run_to_id[(profile_id, run_datetime_iso)] = run_id
             self._run_id = run_id
         return self._run_id
 
@@ -2372,7 +2388,7 @@ class RumarDB:
         self._db.commit()
 
     def get_run_id(self, run_datetime_iso):
-        for (_, _run_datetime_iso), run_id in self._run_to_id.items():
+        for (_, _run_datetime_iso), run_id in self._profile_run_to_id.items():
             if _run_datetime_iso == run_datetime_iso:
                 return run_id
         return None
