@@ -264,7 +264,7 @@ def list_profiles(args):
             db_path = profile_to_settings[profile].db_path
             if db_path not in [':memory:', '']:
                 print(' run_id | run_datetime_iso')
-                for run_id, run_datetime_iso in rumar.iter_runs(profile):
+                for run_id, run_datetime_iso in rumar.iter_runs_with_active_files(profile):
                     print(f" {run_id:6} | {run_datetime_iso}")
 
 
@@ -1754,10 +1754,10 @@ class Rumar:
             self._rdb.commit()
         self._finalize_for_profile(identify_and_save_deleted=False)
 
-    def iter_runs(self, profile):
+    def iter_runs_with_active_files(self, profile):
         self._init_for_profile(profile)
         if self.s.db_path:
-            for run_id, run_datetime_iso in self._rdb.iter_runs():
+            for run_id, run_datetime_iso in self._rdb.iter_runs_with_active_files():
                 yield run_id, run_datetime_iso
         self._finalize_for_profile(identify_and_save_deleted=False)
 
@@ -2493,8 +2493,17 @@ class RumarDB:
         params = (src_id, OP_REASON_D, self.run_id)
         execute(self._cur, stmt, params)
 
-    def iter_runs(self):
-        for row in execute(self._cur, 'SELECT id, run_datetime_iso FROM run WHERE profile_id= ? ORDER BY 1;',(self.profile_id,)):
+    def iter_runs_with_active_files(self):
+        stmt = dedent('''
+            SELECT id, run_datetime_iso
+            FROM run
+            WHERE profile_id = ?
+            AND (
+                id IN (SELECT run_id FROM backup WHERE del_run_id = 0)
+                OR id IN (SELECT run_id FROM source_lc WHERE reason != 'D')
+            )
+            ORDER BY 1;''')
+        for row in execute(self._cur, stmt, (self.profile_id,)):
             yield row[0], row[1]
 
 
