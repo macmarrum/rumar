@@ -190,7 +190,7 @@ def main(argv: Sequence[str] = None):
     parser_create.set_defaults(func=create)
     add_profile_args_to_parser(parser_create, required=True)
     # extract
-    parser_extract = subparsers.add_parser(Command.EXTRACT.value, aliases=['x'], help='Extract [to source_dir | --target-dir] the latest backup of each file [in backup_dir | --archive-dir]')
+    parser_extract = subparsers.add_parser(Command.EXTRACT.value, aliases=['x'], help='Reconcile backups and extract [to source_dir | --target-dir] the latest backup of each file [in backup_dir | --archive-dir]')
     parser_extract.set_defaults(func=extract)
     add_profile_args_to_parser(parser_extract, required=True)
     parser_extract.add_argument('--top-archive-dir', type=Path, help='Path to a top directory from which to extract the latest backups, recursively; all other backups in backup_dir are ignored')
@@ -199,7 +199,7 @@ def main(argv: Sequence[str] = None):
     parser_extract.add_argument('--meta-diff', action=store_true, help='Overwrite target files without asking if mtime or size differ between backup and target')
     parser_extract.add_argument('-r', '--run-id', type=int, help='Extract the last backup(s) as of run_id or earlier')
     # reconcile
-    parser_reconcile = subparsers.add_parser(Command.RECONCILE.value, aliases=['r'], help='Reconcile with disk files the DB records that match profile criteria, by marking the missing files as deleted')
+    parser_reconcile = subparsers.add_parser(Command.RECONCILE.value, aliases=['r'], help='Reconcile DB records with backup and source files on the disk by marking the missing files as deleted; limit to matching profile(s)')
     parser_reconcile.set_defaults(func=reconcile)
     add_profile_args_to_parser(parser_reconcile, required=True)
     # sweep
