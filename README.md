@@ -7,14 +7,14 @@ Files are backed up as **tar** archives, optionally compressed.
 Each archive represents a version of the original file and is placed in a directory named as the original file,
 in a mirrored directory tree.
 
-Backups are created only if the original files were changed,
+Backups are created only if the original files have been changed,
 i.e., their modification time and size (or checksum) differ from the last archive.
 
-A single backup version can be restored by extracting its respective archive into the original directory using standard tools like Windows Explorer, Double Commander, or bsdtar.
+A single version can be restored from backup by extracting its respective archive using standard tools like Windows Explorer, Double Commander, or bsdtar.
 
-`rumar.py extract --profile MyProfile ...` can restore a snapshot of an entire directory tree backed up at a particular point in time.
+**rumar extract** can restore a snapshot of an entire directory tree as of a particular point in time.
 
-`rumar.py sweep --profile MyProfile` can remove old archives, keeping a specified number of file backups per month and/or week and/or day.
+**rumar sweep** can remove old archives, keeping a specified number of file backups per month and/or week and/or day.
 
 ![](images/explorer.png)
 
@@ -26,28 +26,35 @@ A single backup version can be restored by extracting its respective archive int
 1. Install [Python](https://www.python.org/downloads/) (at least 3.10)
 2. Download [rumar.py](https://raw.githubusercontent.com/macmarrum/rumar/main/src/rumar.py)
 3. Download [rumar.toml](https://raw.githubusercontent.com/macmarrum/rumar/main/examples/rumar.toml) to the same directory as `rumar.py`
-4. Edit `rumar.toml` and adapt it to your needs – see [settings details](#settings-details)
+4. Edit `rumar.toml` and adapt it to your needs — see [settings details](#settings-details)
 5. Open a console/terminal (e.g. PowerShell) and change to the directory containing `rumar.py`
 6. If your installed Python version is below 3.11, run `python -m pip install tomli` to install the module [tomli](https://pypi.org/project/tomli/)
-7. Run `python rumar.py list-profiles` → you should see your profile name(s) printed in the console
-8. Run `python rumar.py create --profile "My Documents"` to create a backup using the profile "My Documents"
-9. Optionally, add the create command to Task Scheduler or cron, to be run at an interval (e.g. each day/night)
+7. Run `python rumar.py list-profiles` — you should see your profile name(s) printed in the console
+8. Run `python rumar.py create --profile "My Profile"` to execute a backup using the profile "My Profile"
+9. Optionally, add the backup command to Task Scheduler or cron, to be run at an interval (e.g. each day/night)
 
-### How to reconcile rumar database with files on disk
+See more options by running
+- `python rumar.py create --help`
 
-You might delete some backups manually, or your original files.
-The following command brings the database in sync with the actual files on the disk.
-Maintaining an accurate snapshot at a given point in time is useful for restoring files.
+### How to restore a snapshot
 
-1. Run `python rumar.py reconcile --profile "My Documents"`
+1. Run `python rumar.py list-profiles --profile "My Profile" --runs` — to get **run_id** and **run_datetime_iso** for the profile "My Profile"
+2. Run `python rumar.py extract --profile "My Profile" --run-id 123` to restore the backup as of the run_id 123 to the source directory
+
+See more options by running
+- `python rumar.py list-profiles --help`
+- `python rumar.py extract --help`
 
 ### How to sweep old backups
 
-1. Run `python rumar.py sweep --profile "My Documents" --dry-run` and verify the files to be removed
-2. Run `python rumar.py sweep --profile "My Documents"` to remove old backups
+1. Run `python rumar.py sweep --profile "My Profile" --dry-run` and verify the files to be removed
+2. Run `python rumar.py sweep --profile "My Profile"` to remove old backups
 3. Optionally, add the sweep command to Task Scheduler or cron, to be run at an interval (e.g. each day/night)
 
 Note: when `--dry-run` is used, **rumar.py** counts the backup files and selects those to be removed based on settings, but no files are actually deleted.
+
+See more options by running
+- `python rumar.py sweep --help`
 
 ## Settings
 
