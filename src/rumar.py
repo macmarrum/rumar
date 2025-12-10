@@ -179,7 +179,7 @@ RX_ARCHIVE_NAME = re.compile(r'^\d\d\d\d-\d\d-\d\d_\d\d,\d\d,\d\d(?:\.\d\d\d\d\d
 def main(argv: Sequence[str] = None):
     parser = argparse.ArgumentParser()
     parser.add_argument('-t', '--toml', type=mk_abs_path, default=get_default_path(suffix='.toml'), help=('Path to settings; by default rumar.toml in the same directory as rumar.py or in %%APPDIR%%\\rumar\\ (on NT), ${XDG_CONFIG_HOME:-$HOME/.config}/rumar/ (on POSIX)'))
-    subparsers = parser.add_subparsers(dest='action', required=True, help='Actions work on profile(s) defined in settings (TOML)')
+    subparsers = parser.add_subparsers(dest='command', required=True, help='Commands work on profile(s) defined in settings (TOML)')
     # list profiles
     parser_list = subparsers.add_parser('list-profiles', aliases=['l'], help='List profiles')
     parser_list.set_defaults(func=list_profiles)
