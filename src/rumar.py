@@ -1483,20 +1483,21 @@ class Rumar:
             msgs.append(f"SKIP {profile!r} - does not match {profile_linked_to_run!r}, which is linked to {run_id!r}")
         if directory and (ex := try_to_iterate_dir(directory)):
             msgs.append(f"SKIP {run_id!r} - cannot access target directory - {ex}")
-        if top_dir:
-            if not top_dir.is_absolute():
-                top_dir = self.s.source_dir / top_dir
-            relative_top_dir = derive_relative_psx(top_dir, self.s.source_dir)  # includes validation
-        else:
-            relative_top_dir = None  # no filtering
         if msgs:
             logger.warning('; '.join(msgs))
             return
-        self._extract_for_run(run_id, relative_top_dir, directory, overwrite, meta_diff)
+        self._reconcile_and_extract_for_run(run_id, top_dir, directory, overwrite, meta_diff)
         self._finalize_for_profile(identify_and_save_deleted=False)
 
-    def _extract_for_run(self, run_id: int, relative_top_dir: str | None, directory: Path | None, overwrite: bool, meta_diff: bool):
+    def _reconcile_and_extract_for_run(self, run_id: int, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
         """Iter files in top_dir for the run and extract each one"""
+        if top_archive_dir:
+            if not top_archive_dir.is_absolute():
+                top_archive_dir = self.s.source_dir / top_archive_dir
+            relative_top_dir = derive_relative_psx(top_archive_dir, self.s.source_dir)  # includes validation
+        else:
+            relative_top_dir = None  # no filtering
+        self.reconcile_backup_files_with_disk(top_archive_dir)
         for bak_dir, src_dir, src_path, bak_name in self._rdb.iter_paths_as_of_run(run_id, relative_top_dir):
             backup_path = Path(bak_dir, src_path, bak_name)
             if directory:  # instead of source_dir
