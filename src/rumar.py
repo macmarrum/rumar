@@ -1547,8 +1547,7 @@ class Rumar:
         self._finalize_for_profile(identify_and_save_deleted=False)
 
     def extract_for_profile(self, profile: str, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
-        """Extract the lastest version of each file recorded in the DB for the profile
-        """
+        """Extract the lastest version of each file recorded in the DB for the profile"""
         self._init_for_profile(profile)
         _directory = directory or self.s.source_dir
         msgs = []
@@ -1568,10 +1567,13 @@ class Rumar:
             return
         if not self._confirm_extraction_into_directory(_directory, top_archive_dir, self.s.backup_dir):
             return
+        self._reconcile_and_extract_latest_for_profile(top_archive_dir, directory, overwrite, meta_diff)
+        self._finalize_for_profile()
+
+    def _reconcile_and_extract_latest_for_profile(self, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
         self.reconcile_backup_files_with_disk(top_archive_dir)
         for archive_file, target_file in self._rdb.iter_latest_archives_and_targets(top_archive_dir, directory):
             self.extract_archive(archive_file, target_file, overwrite, meta_diff)
-        self._finalize_for_profile()
 
     @staticmethod
     def _confirm_extraction_into_directory(directory: Path, top_archive_dir: Path, backup_dir: Path):
