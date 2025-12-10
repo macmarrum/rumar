@@ -1129,15 +1129,20 @@ class Rumar:
     def create_for_profile(self, profile: str):
         """Create a backup for the specified profile
         """
-        logger.info(f"{profile=}")
+        logger.info(f"{profile!r}")
         self._init_for_profile(profile)
         errors = []
         for d in [self.s.source_dir, self.s.backup_base_dir]:
             if ex := try_to_iterate_dir(d):
                 errors.append(str(ex))
         if errors:
-            logger.warning(f"SKIP {profile} - {'; '.join(errors)}")
+            logger.warning(f"SKIP {profile!r} - {'; '.join(errors)}")
             return None
+        self._create_for_profile()
+        self._finalize_for_profile()
+        return self._created_archives
+
+    def _create_for_profile(self):
         for rath in self.source_files:
             self._set_rath_and_friends(rath)
             if self.s.db_path and (src_id := self._rdb.get_src_id(self._relative_psx)) is None:
@@ -1210,8 +1215,6 @@ class Rumar:
                     op_reason = OpReason.RESTORE
                     logger.debug(f"{op_reason.value} {self._relative_psx}  {op_reason.name} {rath.parent}")
                     self._rdb.restore_source_lc(src_id)
-        self._finalize_for_profile()
-        return self._created_archives
 
     def _init_for_profile(self, profile: str, *, sweep=False):
         if profile not in self._profile_to_settings:
