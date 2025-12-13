@@ -1151,8 +1151,8 @@ class Rumar:
                     continue
                 else:  # file is already in the database (was backed up before)
                     while True:
-                        latest_archive, latest_mtime_str_db, latest_bak_id = self._rdb.get_latest_archive_for_source(src_id)
-                        logger.info(f"{self._relative_psx!r}, {src_id=}, latest_archive.name={latest_archive.name if latest_archive else None!r}, {latest_mtime_str_db=}, {latest_bak_id=}")
+                        latest_archive, latest_db_mtime_str, latest_bak_id = self._rdb.get_latest_archive_for_source(src_id)
+                        logger.debug(f"{self._profile!r} DEBUG  {self._relative_psx!r} {src_id=} latest_archive.name={latest_archive.name if latest_archive else None!r} {latest_db_mtime_str=} {latest_bak_id=}")
                         if latest_archive is None:
                             break
                         if not latest_archive.exists():
@@ -1162,13 +1162,13 @@ class Rumar:
                             break
             else:
                 latest_archive = find_last_file_in_dir(self._archive_dir, RX_ARCHIVE_SUFFIX)
-                latest_mtime_str_db = latest_bak_id = None
+                latest_db_mtime_str = latest_bak_id = None
             if not latest_archive:
                 self._create(OpReason.UPDATE)
                 continue
             # check if file changed since last backup
             latest_mtime_str, latest_size = self.derive_mtime_size(latest_archive)
-            latest_mtime_str = latest_mtime_str_db or latest_mtime_str
+            latest_mtime_str = latest_db_mtime_str or latest_mtime_str
             latest_mtime_dt = self.calc_mtime_dt(latest_mtime_str)
             is_changed = False
             if self._mtime_dt != latest_mtime_dt:
@@ -1181,7 +1181,7 @@ class Rumar:
                             self._rath_checksum = compute_blake2b_checksum(f)
                         self._latest_checksum = self._get_archive_checksum(latest_bak_id, latest_archive)
                         is_changed = self._rath_checksum != self._latest_checksum
-                        logger.info(f":- {self._relative_psx}  mtime changed, same size, {'checksum CHANGED' if is_changed else 'checksum matches'}  {latest_mtime_str} -> {self._mtime_str}")
+                        logger.info(f"{self._profile!r} INFORM {self._relative_psx!r}  mtime changed, same size, {'checksum CHANGED' if is_changed else 'checksum matches'}  {latest_mtime_str} -> {self._mtime_str}")
                         if not is_changed and latest_bak_id and self.s.db_path:
                             self._rdb.set_mtime(latest_bak_id, self._mtime_str)
                     # else:  # different mtime, same size, not instructed to do checksum comparison => no backup
@@ -1193,34 +1193,34 @@ class Rumar:
                 if self._archive_path.exists():  # archive already exists - maybe there's no need to create a new one
                     # mark the old backup as deleted to make room for a new one
                     if self.s.db_path and bak_id and self._rdb.is_bak_id_marked_as_active(bak_id):
-                        logger.info(f"{self._profile!r} {OpReason.DELETE} {self._archive_path.__str__()!r}  bak_id: {bak_id}")
+                        logger.info(f"{self._profile!r} {OpReason.DELETE} {self._archive_path.__str__()!r}  {bak_id=}")
                         self._rdb.mark_bak_id_as_deleted(bak_id)
                     # compare checksums
-                    logger.info(f":= {self._relative_psx}  {latest_mtime_str}  {latest_size} =: last backup")
+                    logger.info(f"{self._profile!r} INFORM {self._relative_psx!r}  {latest_mtime_str}  {latest_size} =: last backup")
                     if not self._rath_checksum:
                         with self._rath.open('rb') as f:
                             self._rath_checksum = compute_blake2b_checksum(f)
                     if checksum == self._rath_checksum:  # if checksums match, add a record to `backup`
-                        logger.info(f"{self._profile!r} {OpReason.UPDATE} {self._relative_psx}  {self._mtime_str}  {self._size}  {self._archive_dir / '...'}")
+                        logger.info(f"{self._profile!r} {OpReason.UPDATE} {self._relative_psx!r}  {self._mtime_str}  {self._size}  {self._archive_dir / '...'}")
                         self.s.db_path and self._rdb.save(OpReason.UPDATE, self._relative_psx, self._archive_path, checksum)
                     else:  # edge case: first must delete the old archive because its name is the same as the to-be-created archive, although checksums differ
-                        logger.info(f"{self._profile!r} unlink and {OpReason.DELETE} {self._archive_path.__str__()!r}  bak_id: {bak_id}")
+                        logger.info(f"{self._profile!r} REMOVE and {OpReason.DELETE} {self._archive_path.__str__()!r}  {bak_id=}")
                         self._archive_path.unlink()
                         self.s.db_path and bak_id and self._rdb.mark_bak_id_as_deleted(bak_id)
                         self._create(OpReason.UPDATE)
                 else:  # archive_path not found on disk
                     # mark the old backup as deleted to make room for a new one
                     if self.s.db_path and bak_id and self._rdb.is_bak_id_marked_as_active(bak_id):
-                        logger.info(f"{self._profile!r} {OpReason.DELETE} {self._archive_path.__str__()!r}  bak_id: {bak_id}")
+                        logger.info(f"{self._profile!r} {OpReason.DELETE} {self._archive_path.__str__()!r}  {bak_id=}")
                         self._rdb.mark_bak_id_as_deleted(bak_id)
                     # create a new backup
-                    logger.info(f":= {self._relative_psx}  {latest_mtime_str}  {latest_size} =: last backup")
+                    logger.info(f"{self._profile!r} INFORM {self._relative_psx!r}  {latest_mtime_str}  {latest_size} =: last backup")
                     self._create(OpReason.UPDATE)
             else:  # file has not changed as compared to the last backup
-                logger.debug(f":== {self._relative_psx}  {latest_mtime_str}  {latest_size} ==: unchanged")
+                logger.debug(f"{self._profile!r} INFORM {self._relative_psx!r}  {latest_mtime_str}  {latest_size} ==: unchanged")
                 self.s.db_path and self._rdb.save_unchanged_or_restored(src_id)
             if self.s.db_path and self._rdb.get_latest_source_lc_reason_x(src_id) == REASON_D:
-                logger.debug(f"{self._profile!r} {OpReason.RESTORE} {self._relative_psx}  {rath.parent}")
+                logger.debug(f"{self._profile!r} {OpReason.RESTORE} {self._relative_psx!r}  {rath.parent}")
                 self._rdb.restore_source_lc(src_id)
 
     def _init_for_profile(self, profile: str, *, sweep=False):
@@ -1309,7 +1309,7 @@ class Rumar:
 
     def _create(self, op_reason: OpReason):
         """:return: useful for tests"""
-        logger.info(f"{self._profile!r} {op_reason} {self._relative_psx}  {self._mtime_str}  {self._size}  {self._archive_dir / '...'}")
+        logger.info(f"{self._profile!r} {op_reason} {self._relative_psx!r}  {self._mtime_str}  {self._size}  {self._archive_dir / '...'}")
         self._archive_dir.mkdir(parents=True, exist_ok=True)
         match self.s.archive_format:
             case RumarFormat.ZIPX:
@@ -1344,7 +1344,7 @@ class Rumar:
                 with FileBlake2b(self._rath) as file_blake2b:
                     tf.addfile(tarinfo, fileobj=file_blake2b)
                     checksum = file_blake2b.digest()
-        logger.log(RETVAL_16, f"=> archive_format: {self.s.archive_format.value} | compression_level: {self.s.compression_level} | {checksum.hex() if checksum else None}")
+        logger.log(RETVAL_16, f"{self._profile!r} DEBUG  => archive_format: {self.s.archive_format.value} | compression_level: {self.s.compression_level} | {checksum.hex() if checksum else None}")
         return checksum
 
     def _create_zipx(self):
@@ -1363,7 +1363,7 @@ class Rumar:
                 fo.write(zipped_chunk)
         checksum = file_blake2b.digest() if file_blake2b else None
         file_blake2b and file_blake2b.close()
-        logger.log(RETVAL_16, f"=> zip_compression_method: {self.s.zip_compression_method} | compression_level: {self.s.compression_level} | {checksum.hex() if checksum else None}")
+        logger.log(RETVAL_16, f"{self._profile!r} DEBUG  => zip_compression_method: {self.s.zip_compression_method} | compression_level: {self.s.compression_level} | {checksum.hex() if checksum else None}")
         return checksum
 
     def _call_create_and_verify_checksum_before_and_after_unless_lnk(self, _create: Callable):
@@ -1392,11 +1392,11 @@ class Rumar:
             is_archive_created_lst[0] = False
             self._archive_path.unlink(missing_ok=True)
             if attempt == attempt_limit:
-                message = f"File changed during the archival process {self._relative_psx} - tried {attempt_limit} times - skip"
+                message = f"File changed during the archival process {self._relative_psx!r} - tried {attempt_limit} times - skip"
                 self._errors.append(message)
                 logging.error(message)
                 return True
-            message = f"File changed during the archival process {self._relative_psx} - attempt {attempt} of {attempt_limit}"
+            message = f"File changed during the archival process {self._relative_psx!r} - attempt {attempt} of {attempt_limit}"
             logger.warning(message)
             # refresh stat_result and try again
             self._set_rath_and_friends(self._rath, afresh=True)
