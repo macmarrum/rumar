@@ -199,11 +199,12 @@ def main(argv: Sequence[str] = None):
     parser_extract.add_argument('--meta-diff', action=store_true, help='Overwrite target files without asking if mtime or size differ between backup and target')
     parser_extract.add_argument('-r', '--run-id', type=int, help='Extract the last backup(s) as of run_id or earlier')
     # reconcile
-    parser_reconcile = subparsers.add_parser(Command.RECONCILE.value, aliases=['r'], help='Reconcile DB records with backup and source files on the disk by marking the missing files as deleted; limit to matching profile(s)')
+    parser_reconcile = subparsers.add_parser(Command.RECONCILE.value, aliases=['r'], help='Reconcile the database with the disk')
     parser_reconcile.set_defaults(func=reconcile)
     add_profile_args_to_parser(parser_reconcile, required=True)
-    parser_reconcile.add_argument('-s', '--source-files-only', action='store_true')
-    parser_reconcile.add_argument('-b', '--backup-files-only', action='store_true')
+    parser_reconcile.add_argument('-s', '--src-records-with-disk', action=store_true, help='Mark missing source records as deleted in the database, based on what\'s found on the disk. Note: Done as part of the create command')
+    parser_reconcile.add_argument('-b', '--bak-records-with-disk', action=store_true, help='Mark missing backup records as deleted in the database, based on what\'s found on the disk. Note: Done as part of the extract command')
+    parser_reconcile.add_argument('-d', '--disk-with-bak-records', action=store_true, help='Put missing backup records into the database, based on what\'s found on the disk. Note: An initial load is done as part of the first run')
     # sweep
     parser_sweep = subparsers.add_parser(Command.SWEEP.value, aliases=['s'], help='Sweep old backups that match profile criteria')
     parser_sweep.set_defaults(func=sweep)
@@ -309,26 +310,16 @@ def sweep(args):
 
 
 def reconcile(args):
-    if hasattr(args, 'source_files_only') and hasattr(args, 'backup_files_only'):
-        if args.source_files_only and args.backup_files_only:
-            logger.error('Both -s and -b options are given. Please specify only one or none of them.')
-            return
-        if not args.source_files_only and not args.backup_files_only:
-            args.source_files = True
-            args.backup_files = True
-        elif args.source_files_only:
-            args.source_files = True
-            args.backup_files = False
-        elif args.backup_files_only:
-            args.source_files = False
-            args.backup_files = True
+    if not (args.src_records_with_disk or args.bak_records_with_disk or args.disk_with_bak_records):
+        print('None of -s, -b, -d options are given. Please specify at least one.', file=sys.stderr)
+        return
     profile_to_settings = make_profile_to_settings_from_toml_path(args.toml)
     rumar = Rumar(profile_to_settings)
     if args.all_profiles:
-        rumar.reconcile_for_all_profiles(args.source_files, args.backup_files)
+        rumar.reconcile_for_all_profiles(args.src_records_with_disk, args.bak_records_with_disk, args.disk_with_bak_records)
     elif args.profile:
         for profile in args.profile:
-            rumar.reconcile_for_profile(profile, args.source_files, args.backup_files)
+            rumar.reconcile_for_profile(profile, args.src_records_with_disk, args.bak_records_with_disk, args.disk_with_bak_records)
 
 
 class RumarFormat(Enum):
@@ -686,6 +677,7 @@ class OpReason(Enum):
     UPDATE = 'U'  # '~>'
     DELETE = 'D'  # 'x>'
     INIT = 'I'  # '*>'  # for RumarDB
+    PUT = 'P'
 
     def __str__(self):
         return self._name_
@@ -1525,7 +1517,7 @@ class Rumar:
             relative_top_dir = derive_relative_psx(top_archive_dir, self.s.source_dir)  # includes validation
         else:
             relative_top_dir = None  # no filtering
-        self.reconcile_backup_files_with_disk(top_archive_dir)
+        self.reconcile_backup_records_with_disk(top_archive_dir)
         for bak_dir, src_dir, src_path, bak_name in self._rdb.iter_paths_as_of_run(run_id, relative_top_dir):
             backup_path = Path(bak_dir, src_path, bak_name)
             if directory:  # instead of source_dir
@@ -1600,7 +1592,7 @@ class Rumar:
         self._finalize_for_profile()
 
     def _reconcile_and_extract_latest_for_profile(self, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
-        self.reconcile_backup_files_with_disk(top_archive_dir)
+        self.reconcile_backup_records_with_disk(top_archive_dir)
         for archive_file, target_file in self._rdb.iter_latest_archives_and_targets(top_archive_dir, directory):
             self.extract_archive(archive_file, target_file, overwrite, meta_diff)
 
@@ -1616,16 +1608,16 @@ class Rumar:
         logger.info(f":  {answer=}  {target}")
         return answer in ['y', 'Y']
 
-    def reconcile_backup_dir_with_db(self, top_archive_dir: Path | None = None, commit=True):
+    def put_missing_archives_into_database(self, top_archive_dir: Path | None = None, commit=True):
         """Like save_initial_state_for_profile but on an existing state"""
         backup_rath = Rath(self.s.backup_dir, lstat_cache=self.lstat_cache)
         for archive_rath in iter_all_files(backup_rath):
             if (top_archive_dir is None or archive_rath.is_relative_to(top_archive_dir)) and RX_ARCHIVE_SUFFIX.search(archive_rath.name):
                 if not self._rdb.get_bak_id_and_blake2b_checksum_for_path(archive_rath)[0]:
-                    self._rdb.save_initial_state_for_archive(archive_rath)
+                    self._rdb.save_state_for_archive(OpReason.PUT, archive_rath)
         commit and self._rdb.commit()
 
-    def reconcile_backup_files_with_disk(self, top_archive_dir: Path = None, commit=True):
+    def reconcile_backup_records_with_disk(self, top_archive_dir: Path = None, commit=True):
         """Reconcile with disk files the DB-backup records that match profile criteria, by marking the missing files as deleted"""
         for archive_path, bak_id in self._rdb.iter_non_deleted_backup_paths():
             if top_archive_dir is None or archive_path.is_relative_to(top_archive_dir):
@@ -1634,7 +1626,7 @@ class Rumar:
                     self._rdb.mark_bak_id_as_deleted(bak_id)
         commit and self._rdb.commit()
 
-    def reconcile_source_files_with_disk(self, commit=True):
+    def reconcile_source_records_with_disk(self, commit=True):
         """Reconcile with disk files the DB-source records that match profile criteria, by marking the missing files as deleted"""
         for source_path, src_id in self._rdb.iter_non_deleted_source_paths():
             if not source_path.exists():
@@ -1796,21 +1788,21 @@ class Rumar:
                 else:
                     self._rdb.mark_backup_as_deleted(path)
 
-    def reconcile_for_all_profiles(self, source_files: bool, backup_files: bool):
+    def reconcile_for_all_profiles(self, src_records_with_disk: bool, bak_records_with_disk: bool, disk_with_bak_records: bool):
         for profile in self._profile_to_settings:
-            self.reconcile_for_profile(profile, source_files, backup_files)
+            self.reconcile_for_profile(profile, src_records_with_disk, bak_records_with_disk, disk_with_bak_records)
 
-    def reconcile_for_profile(self, profile: str, source_files: bool, backup_files: bool):
-        if not (source_files or backup_files):
+    def reconcile_for_profile(self, profile: str, src_records_with_disk: bool, bak_records_with_disk: bool, disk_with_bak_records: bool):
+        if not (src_records_with_disk or bak_records_with_disk or disk_with_bak_records):
             return
         self._init_for_profile(profile)
         db_path = self.s.db_path
-        _do_source_files_do_backup_files = f", {source_files=}, {backup_files=}"
-        logger.info(f"{profile!r}{_do_source_files_do_backup_files if db_path else ' SKIP — db_path is empty'}")
+        _bool_args = f", {src_records_with_disk=}, {bak_records_with_disk=}, {disk_with_bak_records=}"
+        logger.info(f"{profile!r}{_bool_args if db_path else ' SKIP — db_path is empty'}")
         if db_path:
-            source_files and self.reconcile_source_files_with_disk(commit=False)
-            backup_files and self.reconcile_backup_files_with_disk(commit=False)
-            backup_files and self.reconcile_backup_dir_with_db(commit=False)
+            src_records_with_disk and self.reconcile_source_records_with_disk(commit=False)
+            bak_records_with_disk and self.reconcile_backup_records_with_disk(commit=False)
+            disk_with_bak_records and self.put_missing_archives_into_database(commit=False)
             self._rdb.commit()
         self._finalize_for_profile(identify_and_mark_deleted=False)
 
@@ -2028,7 +2020,10 @@ class RumarDB:
         self._source_to_id = cache.setdefault('source_to_id', {})
         self._bak_dir_to_id = cache.setdefault('bak_dir_to_id', {})
         self._backup_to_bak_id_and_checksum = cache.setdefault('backup_to_bak_id_and_checksum', {})
-        db = sqlite3.connect(s.db_path)
+        if PY_VER >= (3, 12):
+            db = sqlite3.connect(s.db_path, autocommit=False)
+        else:
+            db = sqlite3.connect(s.db_path)
         db.execute('PRAGMA foreign_keys = ON')
         self._db = db
         self._cur = db.cursor()
@@ -2270,10 +2265,10 @@ class RumarDB:
             for filename in filenames:
                 if RX_ARCHIVE_NAME.match(filename):
                     archive_path = Path(basedir, filename)
-                    self.save_initial_state_for_archive(archive_path)
+                    self.save_state_for_archive(OpReason.INIT, archive_path)
         self._db.commit()
 
-    def save_initial_state_for_archive(self, archive_path: Path):
+    def save_state_for_archive(self, reason: OpReason, archive_path: Path):
         checksum_file = Rumar.compose_checksum_file_path(archive_path)
         try:
             blake2b_checksum = checksum_file.read_bytes()
@@ -2286,8 +2281,8 @@ class RumarDB:
             blake2b_checksum = None
             logger.debug(f">> {e}: {checksum_file.__str__()!r}")
         relative_psx = derive_relative_psx(archive_path.parent, self.s.backup_dir)
-        logger.info(f"{self._profile!r} {OpReason.INIT} {relative_psx}  {archive_path.name}")
-        self.save(OpReason.INIT, relative_psx, archive_path, blake2b_checksum, commit=False)
+        logger.info(f"{self._profile!r} {reason} {relative_psx}  {archive_path.name}")
+        self.save(reason, relative_psx, archive_path, blake2b_checksum, commit=False)
 
     def save(self, reason: OpReason, relative_psx: str, archive_path: Path | None, blake2b_checksum: bytes | None, commit=True):
         # logger.debug(f"{reason}, {relative_psx}, {archive_path.name if archive_path else None}, {blake2b_checksum.hex() if blake2b_checksum else None})")

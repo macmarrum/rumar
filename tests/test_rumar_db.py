@@ -374,7 +374,7 @@ class TestRumarDB:
             else:
                 expected_deleted.append(archive_rather.as_path())
         ## run the method under test
-        rumar.reconcile_backup_files_with_disk()
+        rumar.reconcile_backup_records_with_disk()
         ## get the data for validation
         actual_deleted = []
         actual_intact = []
