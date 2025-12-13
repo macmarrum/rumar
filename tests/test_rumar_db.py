@@ -156,7 +156,7 @@ class TestRumarDB:
         archive_rathers = data['archive_rathers']
         checksums = data['checksums']
         for i in range(len(checksums)):
-            assert checksums[i] == rumardb.get_blake2b_checksum_for_path(archive_rathers[i])
+            assert rumardb.get_bak_id_and_blake2b_checksum_for_path(archive_rathers[i])[1] == checksums[i]
 
     def test_set_blake2b_checksum_when_not_yet_in_backup(self, set_up_rumar):
         d = set_up_rumar
@@ -175,7 +175,7 @@ class TestRumarDB:
         for row in db.execute('SELECT blake2b FROM backup WHERE id = (SELECT max(id) FROM backup WHERE src_id = ?)', (src_id,)):
             actual_checksum = row[0]
         assert actual_checksum == input_checksum, 'set_blake2b_checksum_for_path() failed to do its job'
-        assert rumardb.get_blake2b_checksum_for_path(archive_path) == input_checksum
+        assert rumardb.get_bak_id_and_blake2b_checksum_for_path(archive_path)[1] == input_checksum
 
     def test_set_blake2b_checksum_when_already_in_backup(self, set_up_rumar):
         d = set_up_rumar

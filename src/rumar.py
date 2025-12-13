@@ -1614,6 +1614,15 @@ class Rumar:
         logger.info(f":  {answer=}  {target}")
         return answer in ['y', 'Y']
 
+    def reconcile_backup_dir_with_db(self, top_archive_dir: Path | None = None, commit=True):
+        """Like save_initial_state_for_profile but on an existing state"""
+        backup_rath = Rath(self.s.backup_dir, lstat_cache=self.lstat_cache)
+        for archive_rath in iter_all_files(backup_rath):
+            if (top_archive_dir is None or archive_rath.is_relative_to(top_archive_dir)) and RX_ARCHIVE_SUFFIX.search(archive_rath.name):
+                if not self._rdb.get_bak_id_and_blake2b_checksum_for_path(archive_rath)[0]:
+                    self._rdb.save_initial_state_for_archive(archive_rath)
+        commit and self._rdb.commit()
+
     def reconcile_backup_files_with_disk(self, top_archive_dir: Path = None, commit=True):
         """Reconcile with disk files the DB-backup records that match profile criteria, by marking the missing files as deleted"""
         for archive_path, bak_id in self._rdb.iter_non_deleted_backup_paths():
@@ -1799,6 +1808,7 @@ class Rumar:
         if db_path:
             source_files and self.reconcile_source_files_with_disk(commit=False)
             backup_files and self.reconcile_backup_files_with_disk(commit=False)
+            backup_files and self.reconcile_backup_dir_with_db(commit=False)
             self._rdb.commit()
         self._finalize_for_profile(identify_and_mark_deleted=False)
 
@@ -2040,7 +2050,7 @@ class RumarDB:
         self.init_run_datetime_iso_anew()
         self._init_source_lc_if_empty()
         if not self._profile_id:
-            self._save_initial_state()
+            self.save_initial_state_for_profile()
 
     def init_run_datetime_iso_anew(self):
         """Generate ``self._run_datetime_iso`` making sure it's unique.\n
@@ -2252,30 +2262,33 @@ class RumarDB:
             self._db.commit()
         return src_id
 
-    def _save_initial_state(self):
+    def save_initial_state_for_profile(self):
         """Walks the current profile's ``backup_dir`` and saves each source's archive, whether the source file currently exists or not"""
         for basedir, dirnames, filenames in os.walk(self.s.backup_dir):
             for filename in filenames:
                 if RX_ARCHIVE_NAME.match(filename):
                     archive_path = Path(basedir, filename)
-                    relative_psx = derive_relative_psx(archive_path.parent, self.s.backup_dir)
-                    checksum_file = Rumar.compose_checksum_file_path(archive_path)
-                    try:
-                        blake2b_checksum = checksum_file.read_bytes()
-                        typ = 'bytes'
-                        if len(blake2b_checksum) > 64:
-                            blake2b_checksum = bytes.fromhex(blake2b_checksum.decode())
-                            typ = 'hex'
-                        logger.debug(f">> read checksum [{typ}] from {checksum_file.__str__()!r}")
-                    except FileNotFoundError as e:
-                        blake2b_checksum = None
-                        logger.debug(f">> {e}: {checksum_file.__str__()!r}")
-                    op_reason = OpReason.INIT
-                    sign = op_reason.value
-                    reason = op_reason.name
-                    logger.info(f"{sign} {relative_psx}  {archive_path.name}  {reason} {archive_path.parent}")
-                    self.save(op_reason, relative_psx, archive_path, blake2b_checksum, commit=False)
+                    self.save_initial_state_for_archive(archive_path)
         self._db.commit()
+
+    def save_initial_state_for_archive(self, archive_path: Path):
+        checksum_file = Rumar.compose_checksum_file_path(archive_path)
+        try:
+            blake2b_checksum = checksum_file.read_bytes()
+            typ = 'bytes'
+            if len(blake2b_checksum) > 64:
+                blake2b_checksum = bytes.fromhex(blake2b_checksum.decode())
+                typ = 'hex'
+            logger.debug(f">> read checksum [{typ}] from {checksum_file.__str__()!r}")
+        except FileNotFoundError as e:
+            blake2b_checksum = None
+            logger.debug(f">> {e}: {checksum_file.__str__()!r}")
+        op_reason = OpReason.INIT
+        sign = op_reason.value
+        reason = op_reason.name
+        relative_psx = derive_relative_psx(archive_path.parent, self.s.backup_dir)
+        logger.info(f"{sign} {relative_psx}  {archive_path.name}  {reason} {archive_path.parent}")
+        self.save(op_reason, relative_psx, archive_path, blake2b_checksum, commit=False)
 
     def save(self, op_reason: OpReason, relative_psx: str, archive_path: Path | None, blake2b_checksum: bytes | None, commit=True):
         # logger.debug(f"{op_reason}, {relative_psx}, {archive_path.name if archive_path else None}, {blake2b_checksum.hex() if blake2b_checksum else None})")
@@ -2386,17 +2399,15 @@ class RumarDB:
             return row[0]
         return None
 
-    def get_blake2b_checksum_for_path(self, archive_path: Path) -> bytes | None:
+    def get_bak_id_and_blake2b_checksum_for_path(self, archive_path: Path) -> tuple[int, bytes] | tuple[None, None]:
         if bak_dir_id := self.bak_dir_id:
             src_path = derive_relative_psx(archive_path.parent, self.s.backup_dir)
-            src_id = self._source_to_id[(self.src_dir_id, src_path)]
+            if not (src_id := self._source_to_id.get((self.src_dir_id, src_path))):
+                return None, None
             bak_name = archive_path.name
-            bak_id_and_checksum = self._backup_to_bak_id_and_checksum.get((bak_dir_id, src_id, bak_name))
-            if not bak_id_and_checksum:
-                return None
-            else:
-                return bak_id_and_checksum[1]
-        return None
+            if bak_id_and_checksum := self._backup_to_bak_id_and_checksum.get((bak_dir_id, src_id, bak_name)):
+                return bak_id_and_checksum
+        return None, None
 
     def set_blake2b_checksum(self, bak_id: int, blake2b_checksum: bytes):
         execute(self._cur, 'UPDATE backup SET blake2b = ? WHERE id = ?;', (blake2b_checksum, bak_id,))
