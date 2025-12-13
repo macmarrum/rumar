@@ -917,6 +917,9 @@ def find_sep(g: str) -> str:
 
 
 def derive_relative_psx(path: Path, base_path: Path, with_leading_slash=False) -> str:
+    """Uses ``path.relative_to(base_path)``
+    :raises ValueError: if path is not int the subpath of base_path
+    """
     return f"{'/' if with_leading_slash else ''}{path.relative_to(base_path).as_posix()}"
 
 

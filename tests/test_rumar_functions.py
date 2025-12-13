@@ -6,7 +6,7 @@ from textwrap import dedent
 
 import pytest
 
-from rumar import find_matching_abs_fglob_path, Settings, RX_ARCHIVE_NAME, find_on_disk_last_file_in_directory, absolutopathlify
+from rumar import find_matching_abs_fglob_path, Settings, RX_ARCHIVE_NAME, find_on_disk_last_file_in_directory, absolutopathlify, derive_relative_psx
 from utils import make_absolute_path
 
 
@@ -105,3 +105,15 @@ def test_find_on_disk_last_file_in_directory__without_nonzero_check():
     expected = directory / files[-1]
     actual = find_on_disk_last_file_in_directory(directory, files, RX_ARCHIVE_NAME, nonzero=False)
     assert actual == expected, f"Expected {expected}, but got {actual}"
+
+
+def test_derive_relative_psx():
+    archive_path = Path('/backup/dir/AA/2024-08-03_07,23,10.700584+02,00~622.tar.gz')
+    relative_psx = derive_relative_psx(archive_path, Path('/backup/dir'), with_leading_slash=True)
+    assert relative_psx == '/AA/2024-08-03_07,23,10.700584+02,00~622.tar.gz'
+
+
+def test_derive_relative_psx_should_raise_exception():
+    archive_path = Path('/backup/dir-other/AA/2024-08-03_07,23,10.700584+02,00~622.tar.gz')
+    with pytest.raises(ValueError):
+        derive_relative_psx(archive_path, Path('/backup/dir'), with_leading_slash=True)
