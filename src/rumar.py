@@ -1186,7 +1186,9 @@ class Rumar:
                             self._rdb.set_mtime(latest_bak_id, self._mtime_str)
                     # else:  # different mtime, same size, not instructed to do checksum comparison => no backup
             if is_changed:  # file changed since last backup
-                bak_id_and_checksum = self._backup_to_bak_id_and_checksum.get((self._rdb.bak_dir_id, src_id, self._archive_path.name))
+                bak_id_and_checksum = None
+                if self.s.db_path:
+                    bak_id_and_checksum = self._backup_to_bak_id_and_checksum.get((self._rdb.bak_dir_id, src_id, self._archive_path.name))
                 bak_id, checksum = bak_id_and_checksum if bak_id_and_checksum else (None, None)
                 if self._archive_path.exists():  # archive already exists - maybe there's no need to create a new one
                     # mark the old backup as deleted to make room for a new one
