@@ -7,7 +7,7 @@ from textwrap import dedent
 
 import pytest
 
-from rumar import Rumar, make_profile_to_settings_from_toml_text, OpReason
+from rumar import Rumar, make_profile_to_settings_from_toml_text, REASON_D, OpReason
 from utils import Rather
 
 
@@ -61,16 +61,15 @@ def _set_up_rumar():
     relative_ps: list[str] = []
     archive_rathers: list[Rather] = []
     checksums: list[bytes] = []
-    reason = OpReason.CREATE
     Rather.BASE_PATH = None
     for rather in rathers:
         rumar._set_rath_and_friends(rather)
         archive_rather = Rather(rumar._archive_path, lstat_cache=rumar.lstat_cache, mtime=rumar._mtime, content='x' * rumar._size)
-        reasons.append(reason)
+        reasons.append(OpReason.CREATE)
         relative_ps.append(rumar._relative_psx)
         archive_rathers.append(archive_rather)
         checksums.append(rather.checksum)
-        rumardb.save(reason, rumar._relative_psx, archive_rather, rather.checksum)
+        rumardb.save(OpReason.CREATE, rumar._relative_psx, archive_rather, rather.checksum)
     Rather.BASE_PATH = BASE_PATH
     # db = rumardb._db
     # print("\n### Database Tables ###")
@@ -147,7 +146,7 @@ class TestRumarDB:
             blake2b = data['checksums'][i]  # bytes | None
             if blake2b is not None:
                 blake2b = blake2b.hex()  # str
-            assert actual == (rumar.s.profile, reason.name[0], bak_dir, relative_p, archive_path.name, blake2b)
+            assert actual == (rumar.s.profile, reason.value, bak_dir, relative_p, archive_path.name, blake2b)
 
     def test_get_blake2b_checksum(self, set_up_rumar):
         d = set_up_rumar
@@ -233,7 +232,7 @@ class TestRumarDB:
         src_id = 1
         rumardb.init_run_datetime_iso_anew()
         db = rumardb._db
-        db.execute('INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)', (src_id, OpReason.DELETE.name[0], rumardb.run_id,))
+        db.execute('INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?)', (src_id, REASON_D, rumardb.run_id,))
         db.commit()
         ## add another backup for file #2 (index 1)
         i = 1
@@ -335,7 +334,7 @@ class TestRumarDB:
         expected_deleted = input_not_unchanged
         expected_deleted.remove(rumardb.get_src_id(relative_ps[1]))
         actual_deleted = []
-        for row in db.execute('SELECT src_id FROM source_lc WHERE reason = ?', (OpReason.DELETE.name[0],)):
+        for row in db.execute('SELECT src_id FROM source_lc WHERE reason = ?', (REASON_D,)):
             actual_deleted.append(row[0])
         ## clean up for next tests
         db.execute('DELETE FROM unchanged_or_restored')

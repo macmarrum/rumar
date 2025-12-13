@@ -681,16 +681,21 @@ def verify_and_remove_version(toml_dict):
 
 class OpReason(Enum):
     """like in CRUD + INIT (for RumarDB initial state)"""
-    CREATE = '+>'
-    RESTORE = 'o>'
-    UPDATE = '~>'
-    DELETE = 'x>'
-    INIT = '*>'  # for RumarDB
+    CREATE = 'C'  # '+>'
+    RESTORE = 'R'  # 'o>'
+    UPDATE = 'U'  # '~>'
+    DELETE = 'D'  # 'x>'
+    INIT = 'I'  # '*>'  # for RumarDB
+
+    def __str__(self):
+        return self._name_
 
 
-OP_REASON_C = OpReason.CREATE.name[0]
-OP_REASON_D = OpReason.DELETE.name[0]
-OP_REASON_I = OpReason.INIT.name[0]
+REASON_C = OpReason.CREATE.value
+REASON_R = OpReason.RESTORE.value
+REASON_U = OpReason.UPDATE.value
+REASON_D = OpReason.DELETE.value
+REASON_I = OpReason.INIT.value
 SLASH = '/'
 BACKSLASH = '\\'
 
@@ -1202,7 +1207,7 @@ class Rumar:
                         with self._rath.open('rb') as f:
                             self._rath_checksum = compute_blake2b_checksum(f)
                     if checksum == self._rath_checksum:  # if checksums match, add a record to `backup`
-                        logger.info(f"{OpReason.UPDATE.value} {self._relative_psx}  {self._mtime_str}  {self._size} {OpReason.UPDATE.name} {self._archive_dir / '...'}")
+                        logger.info(f"{self._profile!r} {OpReason.UPDATE} {self._relative_psx}  {self._mtime_str}  {self._size}  {self._archive_dir / '...'}")
                         self.s.db_path and self._rdb.save(OpReason.UPDATE, self._relative_psx, self._archive_path, checksum)
                     else:  # edge case: first must delete the old archive because its name is the same as the to-be-created archive, although checksums differ
                         logger.info(f"{self._profile!r} unlink and mark as deleted {self._archive_path.__str__()!r}  bak_id: {bak_id}")
@@ -1220,9 +1225,8 @@ class Rumar:
             else:  # file has not changed as compared to the last backup
                 logger.debug(f":== {self._relative_psx}  {latest_mtime_str}  {latest_size} ==: unchanged")
                 self.s.db_path and self._rdb.save_unchanged_or_restored(src_id)
-            if self.s.db_path and self._rdb.get_latest_source_lc_reason_x(src_id) == OP_REASON_D:
-                op_reason = OpReason.RESTORE
-                logger.debug(f"{op_reason.value} {self._relative_psx}  {op_reason.name} {rath.parent}")
+            if self.s.db_path and self._rdb.get_latest_source_lc_reason_x(src_id) == REASON_D:
+                logger.debug(f"{self._profile!r} {OpReason.RESTORE} {self._relative_psx}  {rath.parent}")
                 self._rdb.restore_source_lc(src_id)
 
     def _init_for_profile(self, profile: str, *, sweep=False):
@@ -1311,9 +1315,7 @@ class Rumar:
 
     def _create(self, op_reason: OpReason):
         """:return: useful for tests"""
-        sign = op_reason.value
-        reason = op_reason.name
-        logger.info(f"{sign} {self._relative_psx}  {self._mtime_str}  {self._size} {reason} {self._archive_dir / '...'}")
+        logger.info(f"{self._profile!r} {op_reason} {self._relative_psx}  {self._mtime_str}  {self._size}  {self._archive_dir / '...'}")
         self._archive_dir.mkdir(parents=True, exist_ok=True)
         match self.s.archive_format:
             case RumarFormat.ZIPX:
@@ -1324,7 +1326,7 @@ class Rumar:
         if is_archive_created:
             self._created_archives[self._archive_path] = self._rath_checksum
             if self.s.db_path:
-                self._rdb.save(op_reason, self._relative_psx, self._archive_path, self._rath_checksum)
+                self._rdb.save(OpReason.INIT, self._relative_psx, self._archive_path, self._rath_checksum)
             else:
                 checksum_file = self.compose_checksum_file_path(self._archive_path)
                 try:
@@ -2185,7 +2187,7 @@ class RumarDB:
         """Requires ``self._run_datetime_iso``"""
         cur = self._cur
         if cur.execute('SELECT (SELECT count(*) FROM source_lc) = 0 AND (SELECT count(*) FROM source) > 0;').fetchone()[0] == 1:
-            cur.execute(dedent('INSERT INTO source_lc (src_id, reason, run_id) SELECT src_id, ?, min(run_id) FROM backup GROUP BY src_id;'), (OP_REASON_I,))
+            cur.execute(dedent('INSERT INTO source_lc (src_id, reason, run_id) SELECT src_id, ?, min(run_id) FROM backup GROUP BY src_id;'), (REASON_I,))
             self._db.commit()
 
     def _load_data_into_memory(self):
@@ -2258,7 +2260,7 @@ class RumarDB:
         if not (src_id := self._source_to_id.get((src_dir_id, src_path))) and create_if_missing:
             src_id = execute(self._cur, 'INSERT INTO source (src_dir_id, src_path) VALUES (?, ?) RETURNING id;', (src_dir_id, src_path)).fetchone()[0]
             self._source_to_id[(src_dir_id, src_path)] = src_id
-            execute(self._cur, 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?);', (src_id, OP_REASON_C, self.run_id,))
+            execute(self._cur, 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?);', (src_id, REASON_C, self.run_id,))
             self._db.commit()
         return src_id
 
@@ -2283,25 +2285,21 @@ class RumarDB:
         except FileNotFoundError as e:
             blake2b_checksum = None
             logger.debug(f">> {e}: {checksum_file.__str__()!r}")
-        op_reason = OpReason.INIT
-        sign = op_reason.value
-        reason = op_reason.name
         relative_psx = derive_relative_psx(archive_path.parent, self.s.backup_dir)
-        logger.info(f"{sign} {relative_psx}  {archive_path.name}  {reason} {archive_path.parent}")
-        self.save(op_reason, relative_psx, archive_path, blake2b_checksum, commit=False)
+        logger.info(f"{self._profile!r} {OpReason.INIT} {relative_psx}  {archive_path.name}")
+        self.save(OpReason.INIT, relative_psx, archive_path, blake2b_checksum, commit=False)
 
-    def save(self, op_reason: OpReason, relative_psx: str, archive_path: Path | None, blake2b_checksum: bytes | None, commit=True):
-        # logger.debug(f"{op_reason}, {relative_psx}, {archive_path.name if archive_path else None}, {blake2b_checksum.hex() if blake2b_checksum else None})")
+    def save(self, reason: OpReason, relative_psx: str, archive_path: Path | None, blake2b_checksum: bytes | None, commit=True):
+        # logger.debug(f"{reason}, {relative_psx}, {archive_path.name if archive_path else None}, {blake2b_checksum.hex() if blake2b_checksum else None})")
         # source
         src_path = relative_psx
         src_id = self.get_src_id(src_path, create_if_missing=True)
         # backup
         run_id = self.run_id
         bak_dir_id = self.bak_dir_id
-        reason = op_reason.name[0]
         bak_name = archive_path.name if archive_path else None
         stmt = 'INSERT INTO backup (run_id, reason, bak_dir_id, src_id, bak_name, blake2b) VALUES (?, ?, ?, ?, ?, ?) RETURNING id;'
-        params = (run_id, reason, bak_dir_id, src_id, bak_name, blake2b_checksum)
+        params = (run_id, reason.value, bak_dir_id, src_id, bak_name, blake2b_checksum)
         bak_id = None
         for row in execute(self._cur, stmt, params):
             bak_id = row[0]
@@ -2349,7 +2347,7 @@ class RumarDB:
             );''')
         run_id = self.run_id
         profile_id = self.profile_id
-        execute(self._cur, query, (OP_REASON_D, run_id, profile_id, run_id, OP_REASON_D,))
+        execute(self._cur, query, (REASON_D, run_id, profile_id, run_id, REASON_D,))
         self._db.commit()
 
     def commit(self):
@@ -2390,7 +2388,7 @@ class RumarDB:
 
     def restore_source_lc(self, src_id):
         stmt = 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?);'
-        params = (src_id, OpReason.RESTORE.name[0], self.run_id)
+        params = (src_id, REASON_R, self.run_id)
         execute(self._cur, stmt, params)
         self._db.commit()
 
@@ -2493,7 +2491,7 @@ class RumarDB:
                 AND lc.reason = ?
             );''')
         top_archive_dir_psx = top_archive_dir.as_posix() if top_archive_dir else 'None'
-        for row in execute(self._db, query, (self.profile_id, OP_REASON_D,)):
+        for row in execute(self._db, query, (self.profile_id, REASON_D,)):
             bak_dir, src_path, bak_name, src_dir = row
             if top_archive_dir and not f"{bak_dir}/{src_path}".startswith(top_archive_dir_psx):
                 continue
@@ -2550,7 +2548,7 @@ class RumarDB:
 
     def mark_src_id_as_deleted(self, src_id: int):
         stmt = 'INSERT INTO source_lc (src_id, reason, run_id) VALUES (?, ?, ?);'
-        params = (src_id, OP_REASON_D, self.run_id)
+        params = (src_id, REASON_D, self.run_id)
         execute(self._cur, stmt, params)
 
     def iter_runs_with_active_files(self):
