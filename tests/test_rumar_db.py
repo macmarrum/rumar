@@ -324,7 +324,7 @@ class TestRumarDB:
         actual_unchanged = [row[0] for row in db.execute('SELECT src_id FROM unchanged_or_restored')]
         assert actual_unchanged == expected_unchanged
         ## call the method under test
-        rumardb.identify_and_save_deleted_source_files()
+        rumardb.identify_and_mark_source_files_as_deleted_for_run()
         # print data for manual debugging
         # print()
         # for table in ['unchanged_or_restored', 'source_lc']:

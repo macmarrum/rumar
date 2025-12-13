@@ -1230,10 +1230,10 @@ class Rumar:
         if sweep:
             self._bdb = BroomDB(self._profile, self.s)
 
-    def _finalize_for_profile(self, *, identify_and_save_deleted=True):
+    def _finalize_for_profile(self, *, identify_and_mark_deleted=True):
         if self.s.db_path:
-            if identify_and_save_deleted:
-                self._rdb.identify_and_save_deleted_source_files()
+            if identify_and_mark_deleted:
+                self._rdb.identify_and_mark_source_files_as_deleted_for_run()
             self._rdb.close_db()
             self._backup_to_bak_id_and_checksum = None
         self._bdb and self._bdb.close_db()
@@ -1504,7 +1504,7 @@ class Rumar:
             logger.warning('; '.join(msgs))
             return
         self._reconcile_and_extract_for_run(run_id, top_archive_dir, directory, overwrite, meta_diff)
-        self._finalize_for_profile(identify_and_save_deleted=False)
+        self._finalize_for_profile(identify_and_mark_deleted=False)
 
     def _reconcile_and_extract_for_run(self, run_id: int, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
         """Iter files in top_archive_dir for the run and extract each one"""
@@ -1562,7 +1562,7 @@ class Rumar:
                 if filenames:
                     top_archive_dir = Path(basedir)  # the original file, in the mirrored directory tree
                     self.extract_latest_file_on_disk(self.s.backup_dir, top_archive_dir, directory, overwrite, meta_diff, filenames)
-        self._finalize_for_profile(identify_and_save_deleted=False)
+        self._finalize_for_profile(identify_and_mark_deleted=False)
 
     def extract_for_profile(self, profile: str, top_archive_dir: Path | None, directory: Path | None, overwrite: bool, meta_diff: bool):
         """Extract the lastest version of each file recorded in the DB for the profile"""
@@ -1736,7 +1736,7 @@ class Rumar:
             return
         self.scan_disk_and_mark_archive_files_for_deletion(s)
         self.delete_marked_archive_files(is_dry_run)
-        self._finalize_for_profile(identify_and_save_deleted=False)
+        self._finalize_for_profile(identify_and_mark_deleted=False)
 
     def scan_disk_and_mark_archive_files_for_deletion(self, s: Settings):
         archive_format = RumarFormat(s.archive_format).value
@@ -1791,14 +1791,14 @@ class Rumar:
             source_files and self.reconcile_source_files_with_disk(commit=False)
             backup_files and self.reconcile_backup_files_with_disk(commit=False)
             self._rdb.commit()
-        self._finalize_for_profile(identify_and_save_deleted=False)
+        self._finalize_for_profile(identify_and_mark_deleted=False)
 
     def iter_runs_with_active_files(self, profile):
         self._init_for_profile(profile)
         if self.s.db_path:
             for run_id, run_datetime_iso in self._rdb.iter_runs_with_active_files():
                 yield run_id, run_datetime_iso
-        self._finalize_for_profile(identify_and_save_deleted=False)
+        self._finalize_for_profile(identify_and_mark_deleted=False)
 
 
 class BinaryReader(Protocol):
@@ -2292,11 +2292,11 @@ class RumarDB:
         execute(self._cur, stmt, params)
         self._db.commit()
 
-    def identify_and_save_deleted_source_files(self):
+    def identify_and_mark_source_files_as_deleted_for_run(self):
         """
         Inserts a DELETE record for each file in the DB that's no longer available in source_dir files.
-        Selects from backup latest src files for profile minus already deleted ones, minus those seen in this run
-        i.e.: changed, unchanged and restored files. The result is a list of newly deleted src files.
+        Selects from backup latest src files for profile minus already deleted ones, minus those seen in this run,
+        i.e., changed, unchanged and restored files. The result is a list of newly deleted src files.
         """
         query = dedent('''\
             INSERT INTO source_lc (src_id, reason, run_id)
