@@ -1145,76 +1145,82 @@ class Rumar:
     def _create_for_profile(self):
         for rath in self.source_files:
             self._set_rath_and_friends(rath)
-            if self.s.db_path and (src_id := self._rdb.get_src_id(self._relative_psx)) is None:
-                self._create(OpReason.CREATE)
-            else:  # file is already in the database (was backed up before)
-                if self.s.db_path:
+            if self.s.db_path:
+                if (src_id := self._rdb.get_src_id(self._relative_psx)) is None:
+                    self._create(OpReason.CREATE)
+                    continue
+                else:  # file is already in the database (was backed up before)
                     while True:
-                        latest_archive, latest_mtime_str_2, latest_bak_id = self._rdb.get_latest_archive_for_source(src_id)
+                        latest_archive, latest_mtime_str_db, latest_bak_id = self._rdb.get_latest_archive_for_source(src_id)
+                        logger.info(f"{self._relative_psx!r}, {src_id=}, latest_archive.name={latest_archive.name if latest_archive else None!r}, {latest_mtime_str_db=}, {latest_bak_id=}")
                         if latest_archive is None:
                             break
                         if not latest_archive.exists():
+                            logger.info(f"{self._profile!r} mark as deleted {latest_archive.__str__()!r}  bak_id: {latest_bak_id}")
                             self._rdb.mark_bak_id_as_deleted(latest_bak_id)
                         else:
                             break
+            else:
+                latest_archive = find_last_file_in_dir(self._archive_dir, RX_ARCHIVE_SUFFIX)
+                latest_mtime_str_db = latest_bak_id = None
+            if not latest_archive:
+                self._create(OpReason.UPDATE)
+                continue
+            # check if file changed since last backup
+            latest_mtime_str, latest_size = self.derive_mtime_size(latest_archive)
+            latest_mtime_str = latest_mtime_str_db or latest_mtime_str
+            latest_mtime_dt = self.calc_mtime_dt(latest_mtime_str)
+            is_changed = False
+            if self._mtime_dt != latest_mtime_dt:
+                if self._size != latest_size:
+                    is_changed = True
                 else:
-                    latest_archive = find_last_file_in_dir(self._archive_dir, RX_ARCHIVE_SUFFIX)
-                    latest_mtime_str_2 = latest_bak_id = None
-                if not latest_archive:
-                    self._create(OpReason.UPDATE)
-                    continue
-                # check if file changed since last backup
-                latest_mtime_str, latest_size = self.derive_mtime_size(latest_archive)
-                latest_mtime_str = latest_mtime_str_2 or latest_mtime_str
-                latest_mtime_dt = self.calc_mtime_dt(latest_mtime_str)
-                is_changed = False
-                if self._mtime_dt != latest_mtime_dt:
-                    if self._size != latest_size:
-                        is_changed = True
-                    else:
-                        is_changed = False
-                        if self.s.checksum_comparison_if_same_size and not S_ISLNK(self._mode):
-                            with self._rath.open('rb') as f:
-                                self._rath_checksum = compute_blake2b_checksum(f)
-                            self._latest_checksum = self._get_archive_checksum(latest_bak_id, latest_archive)
-                            is_changed = self._rath_checksum != self._latest_checksum
-                            logger.info(f":- {self._relative_psx}  mtime changed, same size, {'checksum CHANGED' if is_changed else 'checksum matches'}  {latest_mtime_str} -> {self._mtime_str}")
-                            if not is_changed and latest_bak_id:
-                                self._rdb.set_mtime(latest_bak_id, self._mtime_str)
-                        # else:  # different mtime, same size, not instructed to do checksum comparison => no backup
-                if is_changed:  # file changed since last backup
-                    bak_id_and_checksum = self._backup_to_bak_id_and_checksum.get((self._rdb.bak_dir_id, src_id, self._archive_path.name))
-                    bak_id, checksum = bak_id_and_checksum if bak_id_and_checksum else (None, None)
-                    if self._archive_path.exists():  # archive already exists - maybe there's no need to create a new one
-                        # mark the old backup as deleted to make room for a new one
-                        if self.s.db_path and bak_id and self._rdb.is_bak_id_marked_as_active(bak_id):
-                            self._rdb.mark_bak_id_as_deleted(bak_id)
-                        # compare checksums
-                        logger.info(f":= {self._relative_psx}  {latest_mtime_str}  {latest_size} =: last backup")
-                        if not self._rath_checksum:
-                            with self._rath.open('rb') as f:
-                                self._rath_checksum = compute_blake2b_checksum(f)
-                        if checksum == self._rath_checksum:  # if checksums match, add a record to `backup`
-                            logger.info(f"{OpReason.UPDATE.value} {self._relative_psx}  {self._mtime_str}  {self._size} {OpReason.UPDATE.name} {self._archive_dir / '...'}")
-                            self.s.db_path and self._rdb.save(OpReason.UPDATE, self._relative_psx, self._archive_path, checksum)
-                        else:  # edge case: first must delete the old archive because its name is the same as the to-be-created archive, although checksums differ
-                            self._archive_path.unlink()
-                            self.s.db_path and bak_id and self._rdb.mark_bak_id_as_deleted(bak_id)
-                            self._create(OpReason.UPDATE)
-                    else:  # archive_path not found on disk
-                        # mark the old backup as deleted to make room for a new one
-                        if self.s.db_path and bak_id and self._rdb.is_bak_id_marked_as_active(bak_id):
-                            self._rdb.mark_bak_id_as_deleted(bak_id)
-                        # create a new backup
-                        logger.info(f":= {self._relative_psx}  {latest_mtime_str}  {latest_size} =: last backup")
+                    is_changed = False
+                    if self.s.checksum_comparison_if_same_size and not S_ISLNK(self._mode):
+                        with self._rath.open('rb') as f:
+                            self._rath_checksum = compute_blake2b_checksum(f)
+                        self._latest_checksum = self._get_archive_checksum(latest_bak_id, latest_archive)
+                        is_changed = self._rath_checksum != self._latest_checksum
+                        logger.info(f":- {self._relative_psx}  mtime changed, same size, {'checksum CHANGED' if is_changed else 'checksum matches'}  {latest_mtime_str} -> {self._mtime_str}")
+                        if not is_changed and latest_bak_id and self.s.db_path:
+                            self._rdb.set_mtime(latest_bak_id, self._mtime_str)
+                    # else:  # different mtime, same size, not instructed to do checksum comparison => no backup
+            if is_changed:  # file changed since last backup
+                bak_id_and_checksum = self._backup_to_bak_id_and_checksum.get((self._rdb.bak_dir_id, src_id, self._archive_path.name))
+                bak_id, checksum = bak_id_and_checksum if bak_id_and_checksum else (None, None)
+                if self._archive_path.exists():  # archive already exists - maybe there's no need to create a new one
+                    # mark the old backup as deleted to make room for a new one
+                    if self.s.db_path and bak_id and self._rdb.is_bak_id_marked_as_active(bak_id):
+                        logger.info(f"{self._profile!r} mark as deleted {self._archive_path.__str__()!r}  bak_id: {bak_id}")
+                        self._rdb.mark_bak_id_as_deleted(bak_id)
+                    # compare checksums
+                    logger.info(f":= {self._relative_psx}  {latest_mtime_str}  {latest_size} =: last backup")
+                    if not self._rath_checksum:
+                        with self._rath.open('rb') as f:
+                            self._rath_checksum = compute_blake2b_checksum(f)
+                    if checksum == self._rath_checksum:  # if checksums match, add a record to `backup`
+                        logger.info(f"{OpReason.UPDATE.value} {self._relative_psx}  {self._mtime_str}  {self._size} {OpReason.UPDATE.name} {self._archive_dir / '...'}")
+                        self.s.db_path and self._rdb.save(OpReason.UPDATE, self._relative_psx, self._archive_path, checksum)
+                    else:  # edge case: first must delete the old archive because its name is the same as the to-be-created archive, although checksums differ
+                        logger.info(f"{self._profile!r} unlink and mark as deleted {self._archive_path.__str__()!r}  bak_id: {bak_id}")
+                        self._archive_path.unlink()
+                        self.s.db_path and bak_id and self._rdb.mark_bak_id_as_deleted(bak_id)
                         self._create(OpReason.UPDATE)
-                else:  # file has not changed as compared to the last backup
-                    logger.debug(f":== {self._relative_psx}  {latest_mtime_str}  {latest_size} ==: unchanged")
-                    self.s.db_path and self._rdb.save_unchanged_or_restored(src_id)
-                if self.s.db_path and self._rdb.get_latest_source_lc_reason_x(src_id) == OP_REASON_D:
-                    op_reason = OpReason.RESTORE
-                    logger.debug(f"{op_reason.value} {self._relative_psx}  {op_reason.name} {rath.parent}")
-                    self._rdb.restore_source_lc(src_id)
+                else:  # archive_path not found on disk
+                    # mark the old backup as deleted to make room for a new one
+                    if self.s.db_path and bak_id and self._rdb.is_bak_id_marked_as_active(bak_id):
+                        logger.info(f"{self._profile!r} mark as deleted {self._archive_path.__str__()!r}  bak_id: {bak_id}")
+                        self._rdb.mark_bak_id_as_deleted(bak_id)
+                    # create a new backup
+                    logger.info(f":= {self._relative_psx}  {latest_mtime_str}  {latest_size} =: last backup")
+                    self._create(OpReason.UPDATE)
+            else:  # file has not changed as compared to the last backup
+                logger.debug(f":== {self._relative_psx}  {latest_mtime_str}  {latest_size} ==: unchanged")
+                self.s.db_path and self._rdb.save_unchanged_or_restored(src_id)
+            if self.s.db_path and self._rdb.get_latest_source_lc_reason_x(src_id) == OP_REASON_D:
+                op_reason = OpReason.RESTORE
+                logger.debug(f"{op_reason.value} {self._relative_psx}  {op_reason.name} {rath.parent}")
+                self._rdb.restore_source_lc(src_id)
 
     def _init_for_profile(self, profile: str, *, sweep=False):
         if profile not in self._profile_to_settings:
