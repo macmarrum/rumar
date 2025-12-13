@@ -1980,10 +1980,11 @@ class RumarDB:
         'view': {
             'v_backup': dedent('''\
                 CREATE VIEW IF NOT EXISTS v_backup AS
-                SELECT b.id, b.run_id, r.run_datetime_iso, p.profile, bd.bak_dir, s.src_path, b.bak_name, b.mtime, b.reason, b.del_run_id, b.src_id, ld.run_id src_del_run_id, nullif(lower(hex(blake2b)), '') blake2b
+                SELECT b.id bak_id, b.run_id, r.run_datetime_iso, p.profile, s.src_path, b.bak_name, b.mtime, b.reason, b.del_run_id, b.src_id, ld.run_id src_del_run_id, sd.id src_dir_id, bd.id bak_dir_id, nullif(lower(hex(b.blake2b)), '') blake2b, sd.src_dir, bd.bak_dir
                 FROM backup b
                 JOIN backup_dir bd ON bak_dir_id = bd.id
                 JOIN "source" s ON b.src_id = s.id
+                JOIN source_dir sd ON s.src_dir_id = sd.id
                 JOIN run r ON b.run_id = r.id
                 JOIN profile p ON r.profile_id = p.id
                 LEFT JOIN (SELECT * FROM source_lc WHERE id IN (SELECT max(id) FROM source_lc GROUP BY src_id) AND reason = 'D') ld ON b.src_id = ld.src_id;'''),
