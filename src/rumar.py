@@ -680,7 +680,7 @@ class OpReason(Enum):
     PUT = 'P'
 
     def __str__(self):
-        return self._name_
+        return 'mark as DELETED' if self._name_ == 'DELETE' else self._name_
 
 
 REASON_C = OpReason.CREATE.value
@@ -1156,7 +1156,7 @@ class Rumar:
                         if latest_archive is None:
                             break
                         if not latest_archive.exists():
-                            logger.info(f"{self._profile!r} mark as deleted {latest_archive.__str__()!r}  bak_id: {latest_bak_id}")
+                            logger.info(f"{self._profile!r} {OpReason.DELETE} {latest_archive.__str__()!r}  bak_id: {latest_bak_id}")
                             self._rdb.mark_bak_id_as_deleted(latest_bak_id)
                         else:
                             break
@@ -1191,7 +1191,7 @@ class Rumar:
                 if self._archive_path.exists():  # archive already exists - maybe there's no need to create a new one
                     # mark the old backup as deleted to make room for a new one
                     if self.s.db_path and bak_id and self._rdb.is_bak_id_marked_as_active(bak_id):
-                        logger.info(f"{self._profile!r} mark as deleted {self._archive_path.__str__()!r}  bak_id: {bak_id}")
+                        logger.info(f"{self._profile!r} {OpReason.DELETE} {self._archive_path.__str__()!r}  bak_id: {bak_id}")
                         self._rdb.mark_bak_id_as_deleted(bak_id)
                     # compare checksums
                     logger.info(f":= {self._relative_psx}  {latest_mtime_str}  {latest_size} =: last backup")
@@ -1202,14 +1202,14 @@ class Rumar:
                         logger.info(f"{self._profile!r} {OpReason.UPDATE} {self._relative_psx}  {self._mtime_str}  {self._size}  {self._archive_dir / '...'}")
                         self.s.db_path and self._rdb.save(OpReason.UPDATE, self._relative_psx, self._archive_path, checksum)
                     else:  # edge case: first must delete the old archive because its name is the same as the to-be-created archive, although checksums differ
-                        logger.info(f"{self._profile!r} unlink and mark as deleted {self._archive_path.__str__()!r}  bak_id: {bak_id}")
+                        logger.info(f"{self._profile!r} unlink and {OpReason.DELETE} {self._archive_path.__str__()!r}  bak_id: {bak_id}")
                         self._archive_path.unlink()
                         self.s.db_path and bak_id and self._rdb.mark_bak_id_as_deleted(bak_id)
                         self._create(OpReason.UPDATE)
                 else:  # archive_path not found on disk
                     # mark the old backup as deleted to make room for a new one
                     if self.s.db_path and bak_id and self._rdb.is_bak_id_marked_as_active(bak_id):
-                        logger.info(f"{self._profile!r} mark as deleted {self._archive_path.__str__()!r}  bak_id: {bak_id}")
+                        logger.info(f"{self._profile!r} {OpReason.DELETE} {self._archive_path.__str__()!r}  bak_id: {bak_id}")
                         self._rdb.mark_bak_id_as_deleted(bak_id)
                     # create a new backup
                     logger.info(f":= {self._relative_psx}  {latest_mtime_str}  {latest_size} =: last backup")
@@ -1622,7 +1622,7 @@ class Rumar:
         for archive_path, bak_id in self._rdb.iter_non_deleted_backup_paths():
             if top_archive_dir is None or archive_path.is_relative_to(top_archive_dir):
                 if not archive_path.exists():
-                    logger.info(f"{self._profile!r} mark as deleted {archive_path.__str__()!r}  bak_id: {bak_id}")
+                    logger.info(f"{self._profile!r} {OpReason.DELETE} {archive_path.__str__()!r}  bak_id: {bak_id}")
                     self._rdb.mark_bak_id_as_deleted(bak_id)
         commit and self._rdb.commit()
 
@@ -1630,7 +1630,7 @@ class Rumar:
         """Reconcile with disk files the DB-source records that match profile criteria, by marking the missing files as deleted"""
         for source_path, src_id in self._rdb.iter_non_deleted_source_paths():
             if not source_path.exists():
-                logger.info(f"{self._profile!r} mark as deleted {source_path.__str__()!r}  src_id: {src_id}")
+                logger.info(f"{self._profile!r} {OpReason.DELETE} {source_path.__str__()!r}  src_id: {src_id}")
                 self._rdb.mark_src_id_as_deleted(src_id)
         commit and self._rdb.commit()
 
@@ -1679,7 +1679,7 @@ class Rumar:
         try:
             f = archive_file.open('rb')
         except OSError as ex:
-            message = f"Cannot open {archive_file} - {ex} - mark as deleted"
+            message = f"Cannot open {archive_file} - {ex} - {OpReason.DELETE}"
             self._errors.append(message)
             logger.error(message)
             self._rdb.mark_backup_as_deleted(archive_file)
