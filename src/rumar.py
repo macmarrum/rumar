@@ -2568,10 +2568,14 @@ def execute(cur: sqlite3.Cursor | sqlite3.Connection, stmt: str, params: tuple |
     if '\n' in stmt_for_log:
         stmt_for_log = '\n' + stmt_for_log
     log(stmt_for_log)
-    if params:
-        result = cur.execute(stmt, params)
-    else:
-        result = cur.execute(stmt)
+    try:
+        if params:
+            result = cur.execute(stmt, params)
+        else:
+            result = cur.execute(stmt)
+    except sqlite3.DatabaseError as e:
+        logger.error(f"{e.__class__.__name__}: {e} - {stmt_for_log}")
+        raise
     if stmt.startswith('INSERT') or stmt.startswith('UPDATE') or stmt.startswith('DELETE'):
         log(f"{cur.rowcount=}")
     return result
