@@ -1749,7 +1749,7 @@ class Rumar:
             logger.warning(f"SKIP {profile} - {ex}")
             return
         self.scan_disk_and_mark_archive_files_for_deletion(s)
-        self.delete_marked_archive_files(is_dry_run)
+        self.remove_archive_files_ided_by_sweep_and_mark_as_deleted(is_dry_run)
         self._finalize_for_profile(identify_and_mark_deleted=False)
 
     def scan_disk_and_mark_archive_files_for_deletion(self, s: Settings):
@@ -1775,7 +1775,7 @@ class Rumar:
         self._bdb.commit()
         self._bdb.update_counts(s)
 
-    def delete_marked_archive_files(self, is_dry_run):
+    def remove_archive_files_ided_by_sweep_and_mark_as_deleted(self, is_dry_run: bool):
         logger.log(METHOD_17, f"{is_dry_run=}")
         rm_action_info = 'would be removed' if is_dry_run else '-- remove'
         for dirname, basename, d, w, m, d_rm, w_rm, m_rm in self._bdb.iter_marked_for_removal():
@@ -1787,8 +1787,9 @@ class Rumar:
                     path.unlink()
                 except OSError as ex:
                     logger.error(f"** {path_psx}  ** {ex}")
-                else:
-                    self._rdb.mark_backup_as_deleted(path)
+                else:  # no exception
+                    if self.s.db_path:
+                        self._rdb.mark_backup_as_deleted(path)
 
     def reconcile_for_all_profiles(self, src_records_with_disk: bool, bak_records_with_disk: bool, disk_with_bak_records: bool):
         for profile in self._profile_to_settings:
