@@ -1810,11 +1810,11 @@ class Rumar:
         self._finalize_for_profile(identify_and_mark_deleted=False)
 
     def iter_runs_with_active_files(self, profile):
-        self._init_for_profile(profile)
         if self.s.db_path:
+            self._init_for_profile(profile)
             for run_id, run_datetime_iso in self._rdb.iter_runs_with_active_files():
                 yield run_id, run_datetime_iso
-        self._finalize_for_profile(identify_and_mark_deleted=False)
+            self._finalize_for_profile(identify_and_mark_deleted=False)
 
 
 class BinaryReader(Protocol):
