@@ -266,10 +266,12 @@ def list_profiles(args):
         print(f"{settings}")
         if args.runs:
             db_path = profile_to_settings[profile].db_path
-            if db_path not in [':memory:', '']:
+            if db_path:
                 print(' run_id | run_datetime_iso')
                 for run_id, run_datetime_iso in rumar.iter_runs_with_active_files(profile):
                     print(f" {run_id:6} | {run_datetime_iso}")
+            else:
+                print(' SKIP - no db_path')
 
 
 def create(args):
