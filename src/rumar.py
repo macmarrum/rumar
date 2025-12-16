@@ -2588,6 +2588,7 @@ def execute(cur: sqlite3.Cursor | sqlite3.Connection, stmt: str, params: tuple |
 
 class BroomDB:
     DATABASE = ''  # a temporary file - like :memory: but might be flushed to disk if the database becomes large or if SQLite comes under memory pressure
+    TEMPORARY = 'TEMPORARY'
     TABLE_PREFIX = 'broom'
     TABLE_DT_FRMT = '_%Y%m%d_%H%M%S'
     DATE_FORMAT = '%Y-%m-%d'
@@ -2598,10 +2599,7 @@ class BroomDB:
     def __init__(self, profile: str, s: Settings):
         self._profile = profile
         self.s = s
-        if logger.level > logging.DEBUG:
-            database_file = BroomDB.DATABASE
-        else:  # create a separate broom-database file for debugging purposes or use rumar-database file
-            database_file = s.db_path.with_name(f"{s.db_path.stem}-broom{s.db_path.suffix}") if isinstance(s.db_path, Path) else s.db_path
+        database_file = self.s.db_path if self.s.db_path else self.DATABASE
         self._db = sqlite3.connect(database_file)
         self._table = f"{self.TABLE_PREFIX}{datetime.now().strftime(self.TABLE_DT_FRMT)}"
         logger.debug(f"{database_file} | {self._table}")
@@ -2620,7 +2618,7 @@ class BroomDB:
 
     def _create_table_if_not_exists(self):
         ddl = dedent(f'''\
-            CREATE TABLE IF NOT EXISTS {self._table} (
+            CREATE {self.TEMPORARY} TABLE IF NOT EXISTS {self._table} (
                 id INTEGER PRIMARY KEY,
                 bak_parent TEXT NOT NULL,
                 bak_name TEXT NOT NULL,
