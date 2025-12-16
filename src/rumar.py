@@ -1756,7 +1756,6 @@ class Rumar:
 
     def scan_disk_and_mark_archive_files_for_deletion(self):
         s = self.s
-        archive_format = RumarFormat(s.archive_format).value
         date_older_than_x_days = date.today() - timedelta(days=s.min_age_in_days_of_backups_to_sweep)
         # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
         if Command.SWEEP in s.commands_using_filters:
@@ -1767,7 +1766,7 @@ class Rumar:
             logger.debug(f"{s.commands_using_filters=} => iter_all_files")
         old_enough_file_to_mdate = {}
         for rath in iterator:
-            if self.is_archive(rath.name, archive_format):
+            if RX_ARCHIVE_SUFFIX.search(rath.name):
                 mdate = self.derive_date(rath.name)
                 if mdate <= date_older_than_x_days:
                     old_enough_file_to_mdate[rath] = mdate
