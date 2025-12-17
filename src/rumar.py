@@ -999,7 +999,7 @@ class Rumar:
         self._rdb: RumarDB = None  # initiated per profile in _init_for_profile to support db_path per profile
         self._db_path_to_rdb_cache = {}
         self._backup_to_bak_id_and_checksum = None
-        self._bdb: BroomDB = None  # initiated per profile in _init_for_profile to support db_path per profile
+        self._brm: Broom = None  # initiated per profile in _init_for_profile to support db_path per profile
         self._rath: Rath = None
         self._relative_psx: str = None
         self._archive_dir: Path = None
@@ -1237,7 +1237,7 @@ class Rumar:
         self._rdb = RumarDB(self._profile, self.s, rdb_cache) if self.s.db_path else None
         self._backup_to_bak_id_and_checksum = rdb_cache.get('backup_to_bak_id_and_checksum')
         if sweep:
-            self._bdb = BroomDB(self._profile, self.s)
+            self._brm = Broom(self._profile, self.s, self.lstat_cache, self._rdb)
 
     def _finalize_for_profile(self, *, identify_and_mark_deleted=True):
         if self.s.db_path:
@@ -1245,9 +1245,9 @@ class Rumar:
                 self._rdb.identify_and_mark_source_files_as_deleted_for_run()
             self._rdb.close_db()
             self._backup_to_bak_id_and_checksum = None
-        self._bdb and self._bdb.close_db()
+        self._brm and self._brm.close_db()
         self._rdb = None
-        self._bdb = None
+        self._brm = None
         self._profile = None  # safeguard so that self.s will complain
         self._set_rath_and_friends(None)
         if self._warnings:
@@ -1724,21 +1724,6 @@ class Rumar:
                 self._errors.append(error)
                 logger.error(error)
 
-    @classmethod
-    def is_archive(cls, name: str, archive_format: str) -> bool:
-        return (name.endswith('.' + archive_format) or
-                name.endswith('.' + RumarFormat.TAR.value))
-
-    @staticmethod
-    def is_checksum(name: str) -> bool:
-        return name.endswith(Rumar.CHECKSUM_SUFFIX)
-
-    @classmethod
-    def derive_date(cls, name: str) -> date:
-        iso_date_string = name[:10]
-        y, m, d = iso_date_string.split('-')
-        return date(int(y), int(m), int(d))
-
     def sweep_for_all_profiles(self, *, is_dry_run: bool):
         for profile in self._profile_to_settings:
             self.sweep_for_profile(profile, is_dry_run=is_dry_run)
@@ -1750,48 +1735,9 @@ class Rumar:
         if ex := try_to_iterate_dir(s.backup_dir):
             logger.warning(f"SKIP {profile} - {ex}")
             return
-        self.scan_disk_and_mark_archive_files_for_deletion()
-        self.remove_archive_files_ided_by_sweep_and_mark_as_deleted(is_dry_run)
+        self._brm.scan_disk_and_mark_archive_files_for_deletion()
+        self._brm.remove_archive_files_ided_by_sweep_and_mark_as_deleted(is_dry_run)
         self._finalize_for_profile(identify_and_mark_deleted=False)
-
-    def scan_disk_and_mark_archive_files_for_deletion(self):
-        s = self.s
-        date_older_than_x_days = date.today() - timedelta(days=s.min_age_in_days_of_backups_to_sweep)
-        # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
-        if Command.SWEEP in s.commands_using_filters:
-            iterator = iter_matching_files(Rath(s.backup_dir, lstat_cache=self.lstat_cache), s)
-            logger.debug(f"{s.commands_using_filters=} => iter_matching_files")
-        else:
-            iterator = iter_all_files(Rath(s.backup_dir, lstat_cache=self.lstat_cache))
-            logger.debug(f"{s.commands_using_filters=} => iter_all_files")
-        old_enough_file_to_mdate = {}
-        for rath in iterator:
-            if RX_ARCHIVE_SUFFIX.search(rath.name):
-                mdate = self.derive_date(rath.name)
-                if mdate <= date_older_than_x_days:
-                    old_enough_file_to_mdate[rath] = mdate
-            elif not self.is_checksum(rath.name):
-                logger.warning(f":! {str(rath)!r}  is unexpected (not an archive)")
-        for rath in sorted_files_by_stem_then_suffix_ignoring_case(old_enough_file_to_mdate):
-            self._bdb.insert(rath, mdate=old_enough_file_to_mdate[rath])
-        self._bdb.commit()
-        self._bdb.update_counts()
-
-    def remove_archive_files_ided_by_sweep_and_mark_as_deleted(self, is_dry_run: bool):
-        logger.log(METHOD_17, f"{is_dry_run=}")
-        rm_action_info = 'would be removed' if is_dry_run else '-- remove'
-        for dirname, basename, d, w, m, d_rm, w_rm, m_rm in self._bdb.iter_marked_for_removal():
-            path = Path(dirname, basename)
-            path_psx = path.as_posix()
-            logger.info(f"-- {path_psx!r}  {rm_action_info} because it's #{m_rm} in month {m}, #{w_rm} in week {w}, #{d_rm} in day {d}")
-            if not is_dry_run:
-                try:
-                    path.unlink()
-                except OSError as ex:
-                    logger.error(f"** {path_psx}  ** {ex}")
-                else:  # no exception
-                    if self.s.db_path:
-                        self._rdb.mark_backup_as_deleted(path)
 
     def reconcile_for_all_profiles(self, src_records_with_disk: bool, bak_records_with_disk: bool, disk_with_bak_records: bool):
         for profile in self._profile_to_settings:
@@ -2586,38 +2532,64 @@ def execute(cur: sqlite3.Cursor | sqlite3.Connection, stmt: str, params: tuple |
     return result
 
 
-class BroomDB:
-    DATABASE = ''  # a temporary file - like :memory: but might be flushed to disk if the database becomes large or if SQLite comes under memory pressure
+class Broom:
+    DATABASE = ''  # a temporary file like :memory: but might be flushed to disk if the database becomes large or if SQLite comes under memory pressure
     TEMPORARY = 'TEMPORARY'
     TABLE_PREFIX = 'broom'
-    TABLE_DT_FRMT = '_%Y%m%d_%H%M%S'
+    RX_NON_WORD = re.compile(r'\W')
     DATE_FORMAT = '%Y-%m-%d'
     WEEK_FORMAT = '%Y-%W'  # Monday as the first day of the week, zero-padded
     WEEK_ONLY_FORMAT = '%W'
     MONTH_FORMAT = '%Y-%m'
 
-    def __init__(self, profile: str, s: Settings):
+    def __init__(self, profile: str, s: Settings, lstat_cache: dict[Path, os.stat_result], rdb: RumarDB | None):
         self._profile = profile
         self.s = s
+        self.lstat_cache = lstat_cache
+        self._rdb = rdb
         database_file = self.s.db_path if self.s.db_path else self.DATABASE
-        self._db = sqlite3.connect(database_file)
-        self._table = f"{self.TABLE_PREFIX}{datetime.now().strftime(self.TABLE_DT_FRMT)}"
+        if PY_VER >= (3, 13):
+            self._db = sqlite3.connect(database_file, autocommit=False)
+        else:
+            self._db = sqlite3.connect(database_file)
+        self._table = f"{self.TABLE_PREFIX}{self.make_table_suffix()}"
         logger.debug(f"{database_file} | {self._table}")
         self._create_table_if_not_exists()
+        self._create_indexes_if_not_exist()
+        self._bak_parent_to_period_to_cnt = {}
 
     @classmethod
     def calc_week(cls, mdate: date) -> str:
-        """
-        consider week 0 as previous year's last week
-        """
+        """consider week 0 as previous year's last week"""
         m = mdate.month
         d = mdate.day
         if m == 1 and d < 7 and mdate.strftime(cls.WEEK_ONLY_FORMAT) == '00':
             mdate = mdate.replace(day=1) - timedelta(days=1)
         return mdate.strftime(cls.WEEK_FORMAT)
 
+    @classmethod
+    def is_archive(cls, name: str):
+        return RX_ARCHIVE_SUFFIX.search(name)
+
+    @staticmethod
+    def is_checksum(name: str) -> bool:
+        return name.endswith(Rumar.CHECKSUM_SUFFIX)
+
+    @classmethod
+    def derive_date(cls, name: str) -> date:
+        iso_date_string = name[:10]
+        y, m, d = iso_date_string.split('-')
+        return date(int(y), int(m), int(d))
+
+    @staticmethod
+    def _make_keep_msg(num_keep, bak_cnt, row_num):
+        return f"keep {num_keep} out of {bak_cnt} - #{row_num}"
+
+    def make_table_suffix(self):
+        return '_' + self.RX_NON_WORD.sub('_', self._profile)
+
     def _create_table_if_not_exists(self):
-        ddl = dedent(f'''\
+        ddl = dedent(f"""\
             CREATE {self.TEMPORARY} TABLE IF NOT EXISTS {self._table} (
                 id INTEGER PRIMARY KEY,
                 bak_parent TEXT NOT NULL,
@@ -2625,19 +2597,62 @@ class BroomDB:
                 d TEXT NOT NULL,
                 w TEXT NOT NULL,
                 m TEXT NOT NULL,
-                d_rm TEXT,
-                w_rm TEXT,
-                m_rm TEXT
-            )
-            ''')
+                d_keep INTEGER NOT NULL DEFAULT 0,
+                w_keep INTEGER NOT NULL DEFAULT 0,
+                m_keep INTEGER NOT NULL DEFAULT 0,
+                d_msg TEXT,
+                w_msg TEXT,
+                m_msg TEXT
+            ) STRICT;""")
         self._db.execute(ddl)
 
     def _create_indexes_if_not_exist(self):
-        index_ddls = (f"CREATE INDEX IF NOT EXISTS i_bak_parent_d ON {self._table} (bak_parent, d)",
-                      f"CREATE INDEX IF NOT EXISTS i_bak_parent_w ON {self._table} (bak_parent, w)",
-                      f"CREATE INDEX IF NOT EXISTS i_bak_parent_m ON {self._table} (bak_parent, m)")
+        index_ddls = (
+            f"CREATE INDEX IF NOT EXISTS i_bak_parent_d ON {self._table} (bak_parent, d);",
+            f"CREATE INDEX IF NOT EXISTS i_bak_parent_w ON {self._table} (bak_parent, w);",
+            f"CREATE INDEX IF NOT EXISTS i_bak_parent_m ON {self._table} (bak_parent, m);",
+            f"CREATE INDEX IF NOT EXISTS i_d_keep ON {self._table} (d_keep);",
+            f"CREATE INDEX IF NOT EXISTS i_w_keep ON {self._table} (w_keep);",
+            f"CREATE INDEX IF NOT EXISTS i_m_keep ON {self._table} (m_keep);",
+        )
         for ddl in index_ddls:
             self._db.execute(ddl)
+
+    def scan_disk_and_mark_archive_files_for_deletion(self):
+        s = self.s
+        date_older_than_x_days = date.today() - timedelta(days=s.min_age_in_days_of_backups_to_sweep)
+        # the make-iterator logic is not extracted to a function so that logger prints the calling function's name
+        if Command.SWEEP in s.commands_using_filters:
+            iterator = iter_matching_files(Rath(s.backup_dir, lstat_cache=self.lstat_cache), s)
+            logger.debug(f"{s.commands_using_filters=} => iter_matching_files")
+        else:
+            iterator = iter_all_files(Rath(s.backup_dir, lstat_cache=self.lstat_cache))
+            logger.debug(f"{s.commands_using_filters=} => iter_all_files")
+        old_enough_file_to_mdate = {}
+        for rath in iterator:
+            if self.is_archive(rath.name):
+                mdate = self.derive_date(rath.name)
+                if mdate <= date_older_than_x_days:
+                    old_enough_file_to_mdate[rath] = mdate
+            elif not self.is_checksum(rath.name):
+                logger.warning(f"{self._profile!r} {str(rath)!r}  is unexpected (not an archive)")
+        for rath in sorted_files_by_stem_then_suffix_ignoring_case(old_enough_file_to_mdate):
+            self.insert(rath, mdate=old_enough_file_to_mdate[rath])
+        self.calc_cnt_and_update_keep_flag_for_each_period()
+
+    def remove_archive_files_ided_by_sweep_and_mark_as_deleted(self, is_dry_run: bool):
+        logger.log(METHOD_17, f"{is_dry_run=}")
+        for brm_id, path, msg in self.iter_marked_for_removal():
+            relative_psx = derive_relative_psx(path, self.s.backup_dir)
+            logger.info(f"{self._profile!r} {relative_psx!r}  {'would be removed' if is_dry_run else 'REMOVE'} because it's {msg}")
+            if not is_dry_run:
+                try:
+                    path.unlink()
+                except OSError as ex:
+                    logger.error(f"** {str(path)!r}  ** {ex}")
+                else:  # no exception
+                    if self.s.db_path:
+                        self._rdb.mark_backup_as_deleted(path)
 
     def insert(self, path: Path, mdate: date, commit=False):
         # logger.log(METHOD_17, f"{path.as_posix()}")
@@ -2648,7 +2663,7 @@ class BroomDB:
             self.calc_week(mdate),
             mdate.strftime(self.MONTH_FORMAT),
         )
-        ins_stmt = f"INSERT INTO {self._table} (bak_parent, bak_name, d, w, m) VALUES (?,?,?,?,?)"
+        ins_stmt = f"INSERT INTO {self._table} (bak_parent, bak_name, d, w, m) VALUES (?,?,?,?,?);"
         self._db.execute(ins_stmt, params)
         commit and self._db.commit()
 
@@ -2658,157 +2673,180 @@ class BroomDB:
     def close_db(self):
         self._db.close()
 
-    def update_counts(self):
-        self._create_indexes_if_not_exist()
-        self._update_d_rm()
-        self._update_w_rm()
-        self._update_m_rm()
+    def _clear_counts(self):
+        self._db.execute(f"UPDATE {self._table} SET d_keep = 0, w_keep = 0, m_keep = 0, d_msg = NULL, w_msg = NULL, m_msg = NULL;")
 
-    def _update_d_rm(self):
-        """Sets d_rm, putting the information about 
-        backup-file number in a day to be removed,
-        maximum backup-file number in a day to be removed,
-        count of backups per files in a day,
-        backups to keep per file in a day.
-        To find the files, the SQL query looks for:\n
-        - months with the file count bigger than monthly backups to keep,
-        - weeks with the file count bigger than weekly backups to keep,
-        - days with the file count bigger than daily backups to keep.
-        """
+    def calc_cnt_and_update_keep_flag_for_each_period(self):
+        self._calc_cnt_and_update_d_keep()
+        self._calc_cnt_and_update_w_keep()
+        self._calc_cnt_and_update_m_keep()
+
+    def _calc_cnt_and_update_d_keep(self):
         s = self.s
         stmt = dedent(f"""\
-        SELECT * FROM (
-            SELECT br.bak_parent, br.d, br.id, dd.cnt, row_number() OVER (PARTITION BY br.bak_parent, br.d ORDER BY br.bak_parent, br.d, br.id) AS row_num
-            FROM {self._table} br
-            JOIN (
-                SELECT bak_parent, m, count(*) cnt
-                FROM {self._table} 
-                GROUP BY bak_parent, m
-                HAVING count(*) > {s.number_of_backups_per_month_to_keep}
-            ) mm ON br.bak_parent = mm.bak_parent AND br.m = mm.m
-            JOIN (
-                SELECT bak_parent, w, count(*) cnt
-                FROM {self._table} 
+            SELECT * FROM (
+                SELECT br.bak_parent, br.d, br.id, dd.bak_cnt, row_number() OVER (PARTITION BY br.bak_parent, br.d ORDER BY br.id DESC) AS row_num
+                FROM {self._table} br
+                JOIN (
+                    -- keep up to N per day, if available
+                    SELECT bak_parent, d, count(*) bak_cnt
+                    FROM {self._table}
+                    GROUP BY bak_parent, d
+                ) dd ON br.bak_parent = dd.bak_parent AND br.d = dd.d
+            )
+            WHERE row_num <= {s.number_of_backups_per_day_to_keep}
+            ORDER BY bak_parent, d, id;""")
+        cur = self._db.cursor()
+        updt_stmt = dedent(f"UPDATE {self._table} SET d_keep = 1, d_msg = ? WHERE id = ?;")
+        for bak_parent, d, brm_id, bak_cnt, row_num in self._db.execute(stmt):
+            self._bak_parent_to_period_to_cnt.setdefault(bak_parent, {})[d] = bak_cnt
+            cur.execute(updt_stmt, (self._make_keep_msg(s.number_of_backups_per_day_to_keep, bak_cnt, row_num), brm_id,))
+        cur.close()
+        self._db.commit()
+
+    def _calc_cnt_and_update_w_keep(self):
+        s = self.s
+        stmt = dedent(f"""\
+            WITH
+            week_totals AS (
+                SELECT bak_parent, w, count(*) bak_cnt
+                FROM {self._table}
                 GROUP BY bak_parent, w
-                HAVING count(*) > {s.number_of_backups_per_week_to_keep}
-            ) ww ON br.bak_parent = ww.bak_parent AND br.w = ww.w
-            JOIN (
-                SELECT bak_parent, d, count(*) cnt
-                FROM {self._table} 
-                GROUP BY bak_parent, d
-                HAVING count(*) > {s.number_of_backups_per_day_to_keep}
-            ) dd ON br.bak_parent = dd.bak_parent AND br.d = dd.d
-        )
-        WHERE row_num <= cnt - {s.number_of_backups_per_day_to_keep}
-        ORDER BY bak_parent, d, id
-        """)
-        db = self._db
-        rows = db.execute(stmt).fetchall()
-        cur = db.cursor()
-        for row in rows:
-            bak_parent, d, broom_id, cnt, row_num = row
-            max_num = max(row[4] for row in rows if row[0] == bak_parent and row[1] == d)
-            updt_stmt = dedent(f"""\
-                UPDATE {self._table}
-                SET d_rm = '{row_num} of {max_num} (max {cnt} - {s.number_of_backups_per_day_to_keep})'
-                WHERE id = ?
-                """)
-            cur.execute(updt_stmt, (broom_id,))
-        db.commit()
-
-    def _update_w_rm(self):
-        """Sets w_rm, putting the information about 
-        backup-file number in a week to be removed,
-        maximum backup-file number in a week to be removed,
-        count of all backups per file in a week,
-        backups to keep per file in a week.
-        To find the files, the SQL query looks for
-        days marked for removal, calculated based on\n
-        - months with the file count bigger than monthly backups to keep,
-        - weeks with the file count bigger than weekly backups to keep,
-        - days with the file count bigger than daily backups to keep.
-        """
-        s = self.s
-        stmt = dedent(f"""\
-        SELECT * FROM (
-            SELECT br.bak_parent, br.w, br.id, ww.cnt, row_number() OVER (PARTITION BY br.bak_parent, br.w ORDER BY br.bak_parent, br.w, br.id) AS row_num
-            FROM {self._table} br
-            JOIN (
-                SELECT bak_parent, w, count(*) cnt
-                FROM {self._table} 
+            ),
+            week_already_kept AS (
+                -- anything already kept by "day" counts towards the week's quota
+                SELECT bak_parent, w, count(*) kept_cnt
+                FROM {self._table}
+                WHERE d_keep = 1
                 GROUP BY bak_parent, w
-                HAVING count(*) > {s.number_of_backups_per_week_to_keep}
-            ) ww ON br.bak_parent = ww.bak_parent AND br.w = ww.w
-            WHERE br.d_rm IS NOT NULL
-        )
-        WHERE row_num <= cnt - {s.number_of_backups_per_week_to_keep}
-        ORDER BY bak_parent, w, id
-        """)
-        db = self._db
-        rows = db.execute(stmt).fetchall()
-        cur = db.cursor()
-        for row in rows:
-            bak_parent, w, broom_id, cnt, row_num = row
-            max_num = max(row[4] for row in rows if row[0] == bak_parent and row[1] == w)
-            updt_stmt = dedent(f"""\
-                UPDATE {self._table}
-                SET w_rm = '{row_num} of {max_num} (max {cnt} - {s.number_of_backups_per_week_to_keep})'
-                WHERE id = ?
-                """)
-            cur.execute(updt_stmt, (broom_id,))
-        db.commit()
+            ),
+            -- 1) Prefer overlaps: choose up to N from rows already kept by day in that week
+            from_day AS (
+                SELECT br.bak_parent, br.w, br.id, wt.bak_cnt, row_number() OVER (PARTITION BY br.bak_parent, br.w ORDER BY br.id DESC) AS rn
+                FROM {self._table} br
+                JOIN week_totals wt ON br.bak_parent = wt.bak_parent AND br.w = wt.w
+                WHERE br.d_keep = 1
+            ),
+            chosen_from_day AS (
+                SELECT bak_parent, w, id, bak_cnt
+                FROM from_day
+                WHERE rn <= {s.number_of_backups_per_week_to_keep}
+            ),
+            chosen_from_day_cnt AS (
+                SELECT bak_parent, w, count(*) chosen_cnt
+                FROM chosen_from_day
+                GROUP BY bak_parent, w
+            ),
+            -- 2) Top up (if needed): choose remaining newest rows not already kept by day
+            from_rest AS (
+                SELECT br.bak_parent, br.w, br.id, wt.bak_cnt, row_number() OVER (PARTITION BY br.bak_parent, br.w ORDER BY br.id DESC) AS rn
+                FROM {self._table} br
+                JOIN week_totals wt ON br.bak_parent = wt.bak_parent AND br.w = wt.w
+                LEFT JOIN chosen_from_day cd ON br.id = cd.id
+                WHERE br.d_keep = 0 AND cd.id IS NULL
+            ),
+            chosen_from_rest AS (
+                SELECT fr.bak_parent, fr.w, fr.id, fr.bak_cnt
+                FROM from_rest fr
+                LEFT JOIN chosen_from_day_cnt cdc ON fr.bak_parent = cdc.bak_parent AND fr.w = cdc.w
+                WHERE fr.rn <= iif({s.number_of_backups_per_week_to_keep} - ifnull(cdc.chosen_cnt, 0) > 0, {s.number_of_backups_per_week_to_keep} - ifnull(cdc.chosen_cnt, 0), 0)
+            ),
+            chosen AS (
+                SELECT * FROM chosen_from_day
+                UNION ALL
+                SELECT * FROM chosen_from_rest
+            ),
+            chosen_ranked AS (
+                SELECT c.bak_parent, c.w, c.id, c.bak_cnt, row_number() OVER (PARTITION BY c.bak_parent, c.w ORDER BY c.id DESC) AS row_num
+                FROM chosen c
+            )
+            SELECT bak_parent, w, id, bak_cnt, row_num
+            FROM chosen_ranked
+            ORDER BY bak_parent, w, id;""")
+        cur = self._db.cursor()
+        updt_stmt = dedent(f"UPDATE {self._table} SET w_keep = 1, w_msg = ? WHERE id = ?;")
+        for bak_parent, w, brm_id, bak_cnt, row_num in self._db.execute(stmt):
+            self._bak_parent_to_period_to_cnt.setdefault(bak_parent, {})[w] = bak_cnt
+            cur.execute(updt_stmt, (self._make_keep_msg(s.number_of_backups_per_week_to_keep, bak_cnt, row_num), brm_id,))
+        cur.close()
+        self._db.commit()
 
-    def _update_m_rm(self):
-        """Sets m_rm, putting the information about 
-        backup-file number in a month to be removed,
-        maximum backup-file number in a month to be removed,
-        count of all backups per file in a month,
-        backups to keep per file in a month.
-        To find the files, the SQL query looks for 
-        weeks marked for removal, calculated based on\n
-        - months with the file count bigger than monthly backups to keep,
-        - weeks with the file count bigger than weekly backups to keep,
-        - days with the file count bigger than daily backups to keep.
-        """
+    def _calc_cnt_and_update_m_keep(self):
         s = self.s
         stmt = dedent(f"""\
-        SELECT * FROM (
-            SELECT br.bak_parent, br.m, br.id, mm.cnt, row_number() OVER (PARTITION BY br.bak_parent, br.m ORDER BY br.bak_parent, br.m, br.id) AS row_num
-            FROM {self._table} br
-            JOIN (
-                SELECT bak_parent, m, count(*) cnt
-                FROM {self._table} 
+            WITH
+            month_totals AS (
+                SELECT bak_parent, m, count(*) bak_cnt
+                FROM {self._table}
                 GROUP BY bak_parent, m
-                HAVING count(*) > {s.number_of_backups_per_month_to_keep}
-            ) mm ON br.bak_parent = mm.bak_parent AND br.m = mm.m
-            WHERE br.w_rm IS NOT NULL
-        )
-        WHERE row_num <= cnt - {s.number_of_backups_per_month_to_keep}
-        ORDER BY bak_parent, m, id
-        """)
-        db = self._db
-        rows = db.execute(stmt).fetchall()
-        cur = db.cursor()
-        for row in rows:
-            bak_parent, m, broom_id, cnt, row_num = row
-            max_num = max(row[4] for row in rows if row[0] == bak_parent and row[1] == m)
-            updt_stmt = dedent(f"""\
-                UPDATE {self._table}
-                SET m_rm = '{row_num} of {max_num} (max {cnt} - {s.number_of_backups_per_month_to_keep})'
-                WHERE id = ?
-                """)
-            cur.execute(updt_stmt, (broom_id,))
-        db.commit()
-
-    def iter_marked_for_removal(self) -> Generator[tuple[str, str, str, str, str, str, str, str], None, None]:
-        stmt = dedent(f"""\
-            SELECT bak_parent, bak_name, d, w, m, d_rm, w_rm, m_rm
-            FROM {self._table}
-            WHERE m_rm IS NOT NULL
-            ORDER BY bak_parent, bak_name
-            """)
+            ),
+            -- 1) Prefer overlaps: choose up to N from rows already kept by day OR week in that month
+            from_dw AS (
+                SELECT br.bak_parent, br.m, br.id, mt.bak_cnt, row_number() OVER (PARTITION BY br.bak_parent, br.m ORDER BY br.id DESC) AS rn
+                FROM {self._table} br
+                JOIN month_totals mt ON br.bak_parent = mt.bak_parent AND br.m = mt.m
+                WHERE br.d_keep = 1 OR br.w_keep = 1
+            ),
+            chosen_from_dw AS (
+                SELECT bak_parent, m, id, bak_cnt
+                FROM from_dw
+                WHERE rn <= {s.number_of_backups_per_month_to_keep}
+            ),
+            chosen_from_dw_cnt AS (
+                SELECT bak_parent, m, count(*) chosen_cnt
+                FROM chosen_from_dw
+                GROUP BY bak_parent, m
+            ),
+            -- 2) Top up (if needed): choose remaining newest rows not already kept by day/week
+            from_rest AS (
+                SELECT br.bak_parent, br.m, br.id, mt.bak_cnt, row_number() OVER (PARTITION BY br.bak_parent, br.m ORDER BY br.id DESC) AS rn
+                FROM {self._table} br
+                JOIN month_totals mt ON br.bak_parent = mt.bak_parent AND br.m = mt.m
+                LEFT JOIN chosen_from_dw cdw ON br.id = cdw.id
+                WHERE br.d_keep = 0 AND br.w_keep = 0 AND cdw.id IS NULL
+            ),
+            chosen_from_rest AS (
+                SELECT fr.bak_parent, fr.m, fr.id, fr.bak_cnt
+                FROM from_rest fr
+                LEFT JOIN chosen_from_dw_cnt cdc ON fr.bak_parent = cdc.bak_parent AND fr.m = cdc.m
+                WHERE fr.rn <= iif({s.number_of_backups_per_month_to_keep} - ifnull(cdc.chosen_cnt, 0) > 0, {s.number_of_backups_per_month_to_keep} - ifnull(cdc.chosen_cnt, 0), 0)
+            ),
+            chosen AS (
+                SELECT * FROM chosen_from_dw
+                UNION ALL
+                SELECT * FROM chosen_from_rest
+            ),
+            chosen_ranked AS (
+                SELECT c.bak_parent, c.m, c.id, c.bak_cnt, row_number() OVER (PARTITION BY c.bak_parent, c.m ORDER BY c.id DESC) AS row_num
+                FROM chosen c
+            )
+            SELECT bak_parent, m, id, bak_cnt, row_num
+            FROM chosen_ranked
+            ORDER BY bak_parent, m, id;""")
+        cur = self._db.cursor()
+        updt_stmt = dedent(f"UPDATE {self._table} SET m_keep = 1, m_msg = ? WHERE id = ?;")
         for row in self._db.execute(stmt):
-            yield row
+            bak_parent, m, brm_id, bak_cnt, row_num = row
+            self._bak_parent_to_period_to_cnt.setdefault(bak_parent, {})[m] = bak_cnt
+            cur.execute(updt_stmt, (self._make_keep_msg(s.number_of_backups_per_month_to_keep, bak_cnt, row_num), brm_id,))
+        cur.close()
+        self._db.commit()
+
+    def iter_marked_for_removal(self) -> Generator[tuple[int, Path, str], None, None]:
+        stmt = dedent(f"""\
+            SELECT id, bak_parent, bak_name, d, w, m,
+            row_number() OVER (PARTITION BY bak_parent, d ORDER BY id) AS d_row_num,
+            row_number() OVER (PARTITION BY bak_parent, w ORDER BY id) AS w_row_num,
+            row_number() OVER (PARTITION BY bak_parent, m ORDER BY id) AS m_row_num
+            FROM {self._table}
+            WHERE d_keep = 0 AND w_keep = 0 AND m_keep = 0
+            ORDER BY id;""")
+        for brm_id, bak_parent, bak_name, d, w, m, d_row_num, w_row_num, m_row_num in self._db.execute(stmt):
+            d_cnt = self._bak_parent_to_period_to_cnt[bak_parent][d]
+            w_cnt = self._bak_parent_to_period_to_cnt[bak_parent][w]
+            m_cnt = self._bak_parent_to_period_to_cnt[bak_parent][m]
+            msg = f"#{d_row_num} in {d} (of {d_cnt} that day), #{w_row_num} in {w} (of {w_cnt} that week), #{m_row_num} in {m} (of {m_cnt} that month)"
+            yield brm_id, Path(bak_parent, bak_name), msg
 
 
 if __name__ == '__main__':
