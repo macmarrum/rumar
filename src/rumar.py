@@ -2527,7 +2527,7 @@ def execute(cur: sqlite3.Cursor | sqlite3.Connection, stmt: str, params: tuple |
     except sqlite3.DatabaseError as e:
         logger.error(f"{e.__class__.__name__}: {e} - {stmt_for_log}")
         raise
-    if stmt.startswith('INSERT') or stmt.startswith('UPDATE') or stmt.startswith('DELETE'):
+    if isinstance(cur, sqlite3.Cursor) and stmt.lstrip().split(maxsplit=1)[0] in ('INSERT', 'UPDATE', 'DELETE'):
         log(f"{cur.rowcount=}")
     return result
 
