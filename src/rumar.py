@@ -2865,9 +2865,9 @@ class Broom:
             WHERE b.d_keep = 0 AND b.w_keep = 0 AND b.m_keep = 0
             ORDER BY b.id;""")
         for brm_id, bak_parent, bak_name, d, w, m, d_cnt, w_cnt, m_cnt, d_row_num, w_row_num, m_row_num in execute(self._db, stmt):
-            msg = (f"#{d_row_num} on {d}, of {d_cnt} that day, {self.s.number_of_backups_per_day_to_keep} to keep;  "
-                   f"#{w_row_num} in {w}, of {w_cnt} that week, {self.s.number_of_backups_per_week_to_keep} to keep;  "
-                   f"#{m_row_num} in {m}, of {m_cnt} that month, {self.s.number_of_backups_per_month_to_keep} to keep")
+            msg = (f"#{d_row_num} of {d_cnt} on {d}, {self.s.number_of_backups_per_day_to_keep} to keep / "
+                   f"#{w_row_num} of {w_cnt} in {w}, {self.s.number_of_backups_per_week_to_keep} to keep / "
+                   f"#{m_row_num} of {m_cnt} in {m}, {self.s.number_of_backups_per_month_to_keep} to keep")
             yield Path(bak_parent, bak_name).as_posix(), msg
 
 
