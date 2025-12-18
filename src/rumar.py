@@ -2591,7 +2591,7 @@ class Broom:
 
     def _create_table_if_not_exists(self):
         ddl = dedent(f"""\
-            CREATE {self.TEMPORARY} TABLE IF NOT EXISTS {self._table} (
+            CREATE {self.TEMPORARY} TABLE {self._table} (
                 id INTEGER PRIMARY KEY,
                 bak_parent TEXT NOT NULL,
                 bak_name TEXT NOT NULL,
@@ -2609,12 +2609,12 @@ class Broom:
 
     def _create_indexes_if_not_exist(self):
         index_ddls = (
-            f"CREATE INDEX IF NOT EXISTS i_bak_parent_d ON {self._table} (bak_parent, d);",
-            f"CREATE INDEX IF NOT EXISTS i_bak_parent_w ON {self._table} (bak_parent, w);",
-            f"CREATE INDEX IF NOT EXISTS i_bak_parent_m ON {self._table} (bak_parent, m);",
-            f"CREATE INDEX IF NOT EXISTS i_d_keep ON {self._table} (d_keep);",
-            f"CREATE INDEX IF NOT EXISTS i_w_keep ON {self._table} (w_keep);",
-            f"CREATE INDEX IF NOT EXISTS i_m_keep ON {self._table} (m_keep);",
+            f"CREATE INDEX i_bak_parent_d ON {self._table} (bak_parent, d);",
+            f"CREATE INDEX i_bak_parent_w ON {self._table} (bak_parent, w);",
+            f"CREATE INDEX i_bak_parent_m ON {self._table} (bak_parent, m);",
+            f"CREATE INDEX i_d_keep ON {self._table} (d_keep);",
+            f"CREATE INDEX i_w_keep ON {self._table} (w_keep);",
+            f"CREATE INDEX i_m_keep ON {self._table} (m_keep);",
         )
         for ddl in index_ddls:
             execute(self._db, ddl)
@@ -2687,13 +2687,13 @@ class Broom:
         cur = self._db.cursor()
         ddls = (
             dedent('''\
-                CREATE TEMPORARY TABLE IF NOT EXISTS broom_totals (
+                CREATE TEMPORARY TABLE broom_totals (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     bak_parent TEXT NOT NULL,
                     period TEXT NOT NULL,
                     bak_cnt INTEGER NOT NULL
                 ) STRICT;'''),
-            'CREATE INDEX IF NOT EXISTS i_broom_totals_bak_parent_period ON broom_totals (bak_parent, period);',
+            'CREATE INDEX i_broom_totals_bak_parent_period ON broom_totals (bak_parent, period);',
         )
         for ddl in ddls:
             execute(cur, ddl)
