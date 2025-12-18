@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from rumar import Settings, Broom
+from rumar import Settings, Broom, derive_relative_psx
 
 
 class f:
@@ -21,7 +21,8 @@ def lifecycle():
     data = {
         f.settings: Settings(
             profile=f.profile,
-            backup_base_dir='/backup/base/dir',
+            backup_base_dir='/',
+            backup_dir='/a',
             source_dir='/source/dir',
             db_path=':memory:',
         ),
@@ -73,10 +74,10 @@ def _build_actual_and_expected(lifecycle, d, w, m, expected_indexes, where):
     bdb.calc_cnt_and_update_keep_flag_for_each_period()
     expected = []
     for i in expected_indexes:
-        expected.append(paths[i])
+        expected.append(derive_relative_psx(paths[i], settings.backup_dir))
     actual = []
     for row in bdb._db.execute(f"SELECT bak_parent, bak_name FROM broom WHERE {where} ORDER BY id"):
-        actual.append(Path(*row))
+        actual.append(Path(*row).as_posix())
     print()
     for row in bdb._db.execute(f"SELECT * FROM broom ORDER BY id"):
         print(' | '.join((f"{'' if e is None else e!s:{'22' if i in (9, 10, 11) else '>3' if i == 0 else '0'}}" for i, e in enumerate(row))))

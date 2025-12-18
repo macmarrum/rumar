@@ -2643,10 +2643,10 @@ class Broom:
 
     def remove_archive_files_ided_by_sweep_and_mark_as_deleted(self, is_dry_run: bool):
         logger.log(METHOD_17, f"{is_dry_run=}")
-        for brm_id, path, msg in self.iter_marked_for_removal():
-            relative_psx = derive_relative_psx(path, self.s.backup_dir)
+        for relative_psx, msg in self.iter_marked_for_removal():
             logger.info(f"{self._profile!r} {relative_psx!r}  {'would be removed' if is_dry_run else 'REMOVE'} because it's {msg}")
             if not is_dry_run:
+                path = Path(self.s.backup_dir, relative_psx)
                 try:
                     path.unlink()
                 except OSError as ex:
@@ -2658,7 +2658,7 @@ class Broom:
     def insert(self, path: Path, mdate: date, commit=False):
         # logger.log(METHOD_17, f"{path.as_posix()}")
         params = (
-            path.parent.as_posix(),
+            derive_relative_psx(path.parent, self.s.backup_dir),
             path.name,
             mdate.strftime(self.DATE_FORMAT),
             mdate.strftime(self.WEEK_FORMAT),
@@ -2852,7 +2852,7 @@ class Broom:
         cur.close()
         self._db.commit()
 
-    def iter_marked_for_removal(self) -> Generator[tuple[int, Path, str], None, None]:
+    def iter_marked_for_removal(self) -> Generator[tuple[str, str], None, None]:
         stmt = dedent(f"""\
             SELECT b.id, b.bak_parent, b.bak_name, b.d, b.w, b.m, td.bak_cnt d_cnt, tw.bak_cnt w_cnt, tm.bak_cnt m_cnt,
             row_number() OVER (PARTITION BY b.bak_parent, b.d ORDER BY b.id) AS d_row_num,
@@ -2868,7 +2868,7 @@ class Broom:
             msg = (f"#{d_row_num} on {d}, of {d_cnt} that day, {self.s.number_of_backups_per_day_to_keep} to keep;  "
                    f"#{w_row_num} in {w}, of {w_cnt} that week, {self.s.number_of_backups_per_week_to_keep} to keep;  "
                    f"#{m_row_num} in {m}, of {m_cnt} that month, {self.s.number_of_backups_per_month_to_keep} to keep")
-            yield brm_id, Path(bak_parent, bak_name), msg
+            yield Path(bak_parent, bak_name).as_posix(), msg
 
 
 if __name__ == '__main__':
