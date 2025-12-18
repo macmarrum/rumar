@@ -2538,8 +2538,7 @@ class Broom:
     TABLE_PREFIX = 'broom'
     TABLE_SEP = '~'
     DATE_FORMAT = '%Y-%m-%d'
-    WEEK_FORMAT = '%Y-%W'  # Monday as the first day of the week, zero-padded
-    WEEK_ONLY_FORMAT = '%W'
+    WEEK_FORMAT = '%Y-W%V'  # ISO-8601, Monday as the first day of the week, zero-padded
     MONTH_FORMAT = '%Y-%m'
 
     def __init__(self, profile: str, s: Settings, lstat_cache: dict[Path, os.stat_result], rdb: RumarDB | None):
@@ -2558,15 +2557,6 @@ class Broom:
         self._create_table_if_not_exists()
         self._create_indexes_if_not_exist()
         self._bak_parent_to_period_to_cnt = {}
-
-    @classmethod
-    def calc_week(cls, mdate: date) -> str:
-        """consider week 0 as previous year's last week"""
-        m = mdate.month
-        d = mdate.day
-        if m == 1 and d < 7 and mdate.strftime(cls.WEEK_ONLY_FORMAT) == '00':
-            mdate = mdate.replace(day=1) - timedelta(days=1)
-        return mdate.strftime(cls.WEEK_FORMAT)
 
     @classmethod
     def is_archive(cls, name: str):
@@ -2671,7 +2661,7 @@ class Broom:
             path.parent.as_posix(),
             path.name,
             mdate.strftime(self.DATE_FORMAT),
-            self.calc_week(mdate),
+            mdate.strftime(self.WEEK_FORMAT),
             mdate.strftime(self.MONTH_FORMAT),
         )
         ins_stmt = f"INSERT INTO {self._table} (bak_parent, bak_name, d, w, m) VALUES (?,?,?,?,?);"
@@ -2688,42 +2678,68 @@ class Broom:
         execute(self._db, f"UPDATE {self._table} SET d_keep = 0, w_keep = 0, m_keep = 0, d_msg = NULL, w_msg = NULL, m_msg = NULL;")
 
     def calc_cnt_and_update_keep_flag_for_each_period(self):
-        self._calc_cnt_and_update_d_keep()
-        self._calc_cnt_and_update_w_keep()
-        self._calc_cnt_and_update_m_keep()
+        self._gather_broom_totals()
+        self._calc_and_update_d_keep()
+        self._calc_and_update_w_keep()
+        self._calc_and_update_m_keep()
 
-    def _calc_cnt_and_update_d_keep(self):
+    def _gather_broom_totals(self):
+        cur = self._db.cursor()
+        ddls = (
+            dedent('''\
+                CREATE TEMPORARY TABLE IF NOT EXISTS broom_totals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    bak_parent TEXT NOT NULL,
+                    period TEXT NOT NULL,
+                    bak_cnt INTEGER NOT NULL
+                ) STRICT;'''),
+            'CREATE INDEX IF NOT EXISTS i_broom_totals_bak_parent_period ON broom_totals (bak_parent, period);',
+        )
+        for ddl in ddls:
+            execute(cur, ddl)
+        stmts = (
+            dedent(f"""\
+                INSERT INTO broom_totals (bak_parent, period, bak_cnt)
+                SELECT bak_parent, d, count(*) bak_cnt
+                FROM {self._table}
+                GROUP BY bak_parent, d;"""),
+            dedent(f"""\
+                INSERT INTO broom_totals (bak_parent, period, bak_cnt)
+                SELECT bak_parent, w, count(*) bak_cnt
+                FROM {self._table}
+                GROUP BY bak_parent, w;"""),
+            dedent(f"""\
+                INSERT INTO broom_totals (bak_parent, period, bak_cnt)
+                SELECT bak_parent, m, count(*) bak_cnt
+                FROM {self._table}
+                GROUP BY bak_parent, m;"""),
+        )
+        for stmt in stmts:
+            execute(cur, stmt)
+        cur.close()
+
+    def _calc_and_update_d_keep(self):
         s = self.s
+        cur = self._db.cursor()
         stmt = dedent(f"""\
             SELECT * FROM (
-                SELECT br.bak_parent, br.d, br.id, dd.bak_cnt, row_number() OVER (PARTITION BY br.bak_parent, br.d ORDER BY br.id DESC) AS row_num
-                FROM {self._table} br
-                JOIN (
-                    -- keep up to N per day, if available
-                    SELECT bak_parent, d, count(*) bak_cnt
-                    FROM {self._table}
-                    GROUP BY bak_parent, d
-                ) dd ON br.bak_parent = dd.bak_parent AND br.d = dd.d
+                SELECT b.bak_parent, b.d, b.id, t.bak_cnt, row_number() OVER (PARTITION BY b.bak_parent, b.d ORDER BY b.id DESC) AS row_num
+                FROM {self._table} b
+                JOIN broom_totals t ON b.bak_parent = t.bak_parent AND b.d = t.period
             )
+            -- keep up to N per day, if available
             WHERE row_num <= {s.number_of_backups_per_day_to_keep}
             ORDER BY bak_parent, d, id;""")
-        cur = self._db.cursor()
         updt_stmt = dedent(f"UPDATE {self._table} SET d_keep = 1, d_msg = ? WHERE id = ?;")
         for bak_parent, d, brm_id, bak_cnt, row_num in execute(self._db, stmt):
-            self._bak_parent_to_period_to_cnt.setdefault(bak_parent, {})[d] = bak_cnt
             execute(cur, updt_stmt, (self._make_keep_msg(s.number_of_backups_per_day_to_keep, bak_cnt, row_num), brm_id,))
         cur.close()
         self._db.commit()
 
-    def _calc_cnt_and_update_w_keep(self):
+    def _calc_and_update_w_keep(self):
         s = self.s
         stmt = dedent(f"""\
             WITH
-            week_totals AS (
-                SELECT bak_parent, w, count(*) bak_cnt
-                FROM {self._table}
-                GROUP BY bak_parent, w
-            ),
             week_already_kept AS (
                 -- anything already kept by "day" counts towards the week's quota
                 SELECT bak_parent, w, count(*) kept_cnt
@@ -2733,10 +2749,10 @@ class Broom:
             ),
             -- 1) Prefer overlaps: choose up to N from rows already kept by day in that week
             from_day AS (
-                SELECT br.bak_parent, br.w, br.id, wt.bak_cnt, row_number() OVER (PARTITION BY br.bak_parent, br.w ORDER BY br.id DESC) AS rn
-                FROM {self._table} br
-                JOIN week_totals wt ON br.bak_parent = wt.bak_parent AND br.w = wt.w
-                WHERE br.d_keep = 1
+                SELECT b.bak_parent, b.w, b.id, t.bak_cnt, row_number() OVER (PARTITION BY b.bak_parent, b.w ORDER BY b.id DESC) AS rn
+                FROM {self._table} b
+                JOIN broom_totals t ON b.bak_parent = t.bak_parent AND b.w = t.period
+                WHERE b.d_keep = 1
             ),
             chosen_from_day AS (
                 SELECT bak_parent, w, id, bak_cnt
@@ -2750,17 +2766,17 @@ class Broom:
             ),
             -- 2) Top up (if needed): choose remaining newest rows not already kept by day
             from_rest AS (
-                SELECT br.bak_parent, br.w, br.id, wt.bak_cnt, row_number() OVER (PARTITION BY br.bak_parent, br.w ORDER BY br.id DESC) AS rn
-                FROM {self._table} br
-                JOIN week_totals wt ON br.bak_parent = wt.bak_parent AND br.w = wt.w
-                LEFT JOIN chosen_from_day cd ON br.id = cd.id
-                WHERE br.d_keep = 0 AND cd.id IS NULL
+                SELECT b.bak_parent, b.w, b.id, t.bak_cnt, row_number() OVER (PARTITION BY b.bak_parent, b.w ORDER BY b.id DESC) AS rn
+                FROM {self._table} b
+                JOIN broom_totals t ON b.bak_parent = t.bak_parent AND b.w = t.period
+                LEFT JOIN chosen_from_day c ON b.id = c.id
+                WHERE b.d_keep = 0 AND c.id IS NULL
             ),
             chosen_from_rest AS (
-                SELECT fr.bak_parent, fr.w, fr.id, fr.bak_cnt
-                FROM from_rest fr
-                LEFT JOIN chosen_from_day_cnt cdc ON fr.bak_parent = cdc.bak_parent AND fr.w = cdc.w
-                WHERE fr.rn <= iif({s.number_of_backups_per_week_to_keep} - ifnull(cdc.chosen_cnt, 0) > 0, {s.number_of_backups_per_week_to_keep} - ifnull(cdc.chosen_cnt, 0), 0)
+                SELECT f.bak_parent, f.w, f.id, f.bak_cnt
+                FROM from_rest f
+                LEFT JOIN chosen_from_day_cnt c ON f.bak_parent = c.bak_parent AND f.w = c.w
+                WHERE f.rn <= iif({s.number_of_backups_per_week_to_keep} - ifnull(c.chosen_cnt, 0) > 0, {s.number_of_backups_per_week_to_keep} - ifnull(c.chosen_cnt, 0), 0)
             ),
             chosen AS (
                 SELECT * FROM chosen_from_day
@@ -2777,26 +2793,20 @@ class Broom:
         cur = self._db.cursor()
         updt_stmt = dedent(f"UPDATE {self._table} SET w_keep = 1, w_msg = ? WHERE id = ?;")
         for bak_parent, w, brm_id, bak_cnt, row_num in execute(self._db, stmt):
-            self._bak_parent_to_period_to_cnt.setdefault(bak_parent, {})[w] = bak_cnt
             execute(cur, updt_stmt, (self._make_keep_msg(s.number_of_backups_per_week_to_keep, bak_cnt, row_num), brm_id,))
         cur.close()
         self._db.commit()
 
-    def _calc_cnt_and_update_m_keep(self):
+    def _calc_and_update_m_keep(self):
         s = self.s
         stmt = dedent(f"""\
             WITH
-            month_totals AS (
-                SELECT bak_parent, m, count(*) bak_cnt
-                FROM {self._table}
-                GROUP BY bak_parent, m
-            ),
             -- 1) Prefer overlaps: choose up to N from rows already kept by day OR week in that month
             from_dw AS (
-                SELECT br.bak_parent, br.m, br.id, mt.bak_cnt, row_number() OVER (PARTITION BY br.bak_parent, br.m ORDER BY br.id DESC) AS rn
-                FROM {self._table} br
-                JOIN month_totals mt ON br.bak_parent = mt.bak_parent AND br.m = mt.m
-                WHERE br.d_keep = 1 OR br.w_keep = 1
+                SELECT b.bak_parent, b.m, b.id, t.bak_cnt, row_number() OVER (PARTITION BY b.bak_parent, b.m ORDER BY b.id DESC) AS rn
+                FROM {self._table} b
+                JOIN broom_totals t ON b.bak_parent = t.bak_parent AND b.m = t.period
+                WHERE b.d_keep = 1 OR b.w_keep = 1
             ),
             chosen_from_dw AS (
                 SELECT bak_parent, m, id, bak_cnt
@@ -2810,17 +2820,17 @@ class Broom:
             ),
             -- 2) Top up (if needed): choose remaining newest rows not already kept by day/week
             from_rest AS (
-                SELECT br.bak_parent, br.m, br.id, mt.bak_cnt, row_number() OVER (PARTITION BY br.bak_parent, br.m ORDER BY br.id DESC) AS rn
-                FROM {self._table} br
-                JOIN month_totals mt ON br.bak_parent = mt.bak_parent AND br.m = mt.m
-                LEFT JOIN chosen_from_dw cdw ON br.id = cdw.id
-                WHERE br.d_keep = 0 AND br.w_keep = 0 AND cdw.id IS NULL
+                SELECT b.bak_parent, b.m, b.id, t.bak_cnt, row_number() OVER (PARTITION BY b.bak_parent, b.m ORDER BY b.id DESC) AS rn
+                FROM {self._table} b
+                JOIN broom_totals t ON b.bak_parent = t.bak_parent AND b.m = t.period
+                LEFT JOIN chosen_from_dw c ON b.id = c.id
+                WHERE b.d_keep = 0 AND b.w_keep = 0 AND c.id IS NULL
             ),
             chosen_from_rest AS (
-                SELECT fr.bak_parent, fr.m, fr.id, fr.bak_cnt
-                FROM from_rest fr
-                LEFT JOIN chosen_from_dw_cnt cdc ON fr.bak_parent = cdc.bak_parent AND fr.m = cdc.m
-                WHERE fr.rn <= iif({s.number_of_backups_per_month_to_keep} - ifnull(cdc.chosen_cnt, 0) > 0, {s.number_of_backups_per_month_to_keep} - ifnull(cdc.chosen_cnt, 0), 0)
+                SELECT f.bak_parent, f.m, f.id, f.bak_cnt
+                FROM from_rest f
+                LEFT JOIN chosen_from_dw_cnt c ON f.bak_parent = c.bak_parent AND f.m = c.m
+                WHERE f.rn <= iif({s.number_of_backups_per_month_to_keep} - ifnull(c.chosen_cnt, 0) > 0, {s.number_of_backups_per_month_to_keep} - ifnull(c.chosen_cnt, 0), 0)
             ),
             chosen AS (
                 SELECT * FROM chosen_from_dw
@@ -2838,24 +2848,23 @@ class Broom:
         updt_stmt = dedent(f"UPDATE {self._table} SET m_keep = 1, m_msg = ? WHERE id = ?;")
         for row in execute(self._db, stmt):
             bak_parent, m, brm_id, bak_cnt, row_num = row
-            self._bak_parent_to_period_to_cnt.setdefault(bak_parent, {})[m] = bak_cnt
             execute(cur, updt_stmt, (self._make_keep_msg(s.number_of_backups_per_month_to_keep, bak_cnt, row_num), brm_id,))
         cur.close()
         self._db.commit()
 
     def iter_marked_for_removal(self) -> Generator[tuple[int, Path, str], None, None]:
         stmt = dedent(f"""\
-            SELECT id, bak_parent, bak_name, d, w, m,
-            row_number() OVER (PARTITION BY bak_parent, d ORDER BY id) AS d_row_num,
-            row_number() OVER (PARTITION BY bak_parent, w ORDER BY id) AS w_row_num,
-            row_number() OVER (PARTITION BY bak_parent, m ORDER BY id) AS m_row_num
-            FROM {self._table}
-            WHERE d_keep = 0 AND w_keep = 0 AND m_keep = 0
-            ORDER BY id;""")
-        for brm_id, bak_parent, bak_name, d, w, m, d_row_num, w_row_num, m_row_num in execute(self._db, stmt):
-            d_cnt = self._bak_parent_to_period_to_cnt[bak_parent][d]
-            w_cnt = self._bak_parent_to_period_to_cnt[bak_parent][w]
-            m_cnt = self._bak_parent_to_period_to_cnt[bak_parent][m]
+            SELECT b.id, b.bak_parent, b.bak_name, b.d, b.w, b.m, td.bak_cnt d_cnt, tw.bak_cnt w_cnt, tm.bak_cnt m_cnt,
+            row_number() OVER (PARTITION BY b.bak_parent, b.d ORDER BY b.id) AS d_row_num,
+            row_number() OVER (PARTITION BY b.bak_parent, b.w ORDER BY b.id) AS w_row_num,
+            row_number() OVER (PARTITION BY b.bak_parent, b.m ORDER BY b.id) AS m_row_num
+            FROM {self._table} b
+            JOIN broom_totals td ON b.bak_parent = td.bak_parent AND b.d = td.period
+            JOIN broom_totals tw ON b.bak_parent = tw.bak_parent AND b.w = tw.period
+            JOIN broom_totals tm ON b.bak_parent = tm.bak_parent AND b.m = tm.period
+            WHERE b.d_keep = 0 AND b.w_keep = 0 AND b.m_keep = 0
+            ORDER BY b.id;""")
+        for brm_id, bak_parent, bak_name, d, w, m, d_cnt, w_cnt, m_cnt, d_row_num, w_row_num, m_row_num in execute(self._db, stmt):
             msg = (f"#{d_row_num} on {d}, of {d_cnt} that day, {self.s.number_of_backups_per_day_to_keep} to keep; "
                    f"#{w_row_num} in {w}, of {w_cnt} that week, {self.s.number_of_backups_per_week_to_keep} to keep; "
                    f"#{m_row_num} in {m}, of {m_cnt} that month, {self.s.number_of_backups_per_month_to_keep} to keep")
