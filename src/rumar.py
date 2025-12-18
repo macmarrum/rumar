@@ -2536,7 +2536,7 @@ class Broom:
     DATABASE = ''  # a temporary file like :memory: but might be flushed to disk if the database becomes large or if SQLite comes under memory pressure
     TEMPORARY = 'TEMPORARY'
     TABLE_PREFIX = 'broom'
-    RX_NON_WORD = re.compile(r'\W')
+    TABLE_SEP = '~'
     DATE_FORMAT = '%Y-%m-%d'
     WEEK_FORMAT = '%Y-%W'  # Monday as the first day of the week, zero-padded
     WEEK_ONLY_FORMAT = '%W'
@@ -2552,7 +2552,8 @@ class Broom:
             self._db = sqlite3.connect(database_file, autocommit=False)
         else:
             self._db = sqlite3.connect(database_file)
-        self._table = f"{self.TABLE_PREFIX}{self.make_table_suffix()}"
+        self._gen_table_num = iter(range(1, sys.maxsize))
+        self._table = self.make_table_name()
         logger.debug(f"{database_file} | {self._table}")
         self._create_table_if_not_exists()
         self._create_indexes_if_not_exist()
@@ -2585,8 +2586,18 @@ class Broom:
     def _make_keep_msg(num_keep, bak_cnt, row_num):
         return f"keep {num_keep} out of {bak_cnt} - #{row_num}"
 
-    def make_table_suffix(self):
-        return '_' + self.RX_NON_WORD.sub('_', self._profile)
+    def make_table_name(self):
+        suffix = self.make_table_suffix()
+        sep = self.TABLE_SEP if self.TABLE_PREFIX and suffix else ''
+        name = f"{self.TABLE_PREFIX}{sep}{suffix}"
+        if len(name) > 64:
+            num = next(self._gen_table_num)
+            num_size = len(str(num))
+            name = f"{name[:64 - num_size - len(sep)]}{sep}{num}"
+        return f'"{name}"'
+
+    def make_table_suffix(self) -> str:
+        return self._profile
 
     def _create_table_if_not_exists(self):
         ddl = dedent(f"""\
@@ -2604,7 +2615,7 @@ class Broom:
                 w_msg TEXT,
                 m_msg TEXT
             ) STRICT;""")
-        self._db.execute(ddl)
+        execute(self._db, ddl)
 
     def _create_indexes_if_not_exist(self):
         index_ddls = (
@@ -2616,7 +2627,7 @@ class Broom:
             f"CREATE INDEX IF NOT EXISTS i_m_keep ON {self._table} (m_keep);",
         )
         for ddl in index_ddls:
-            self._db.execute(ddl)
+            execute(self._db, ddl)
 
     def scan_disk_and_mark_archive_files_for_deletion(self):
         s = self.s
@@ -2664,7 +2675,7 @@ class Broom:
             mdate.strftime(self.MONTH_FORMAT),
         )
         ins_stmt = f"INSERT INTO {self._table} (bak_parent, bak_name, d, w, m) VALUES (?,?,?,?,?);"
-        self._db.execute(ins_stmt, params)
+        execute(self._db, ins_stmt, params)
         commit and self._db.commit()
 
     def commit(self):
@@ -2674,7 +2685,7 @@ class Broom:
         self._db.close()
 
     def _clear_counts(self):
-        self._db.execute(f"UPDATE {self._table} SET d_keep = 0, w_keep = 0, m_keep = 0, d_msg = NULL, w_msg = NULL, m_msg = NULL;")
+        execute(self._db, f"UPDATE {self._table} SET d_keep = 0, w_keep = 0, m_keep = 0, d_msg = NULL, w_msg = NULL, m_msg = NULL;")
 
     def calc_cnt_and_update_keep_flag_for_each_period(self):
         self._calc_cnt_and_update_d_keep()
@@ -2698,9 +2709,9 @@ class Broom:
             ORDER BY bak_parent, d, id;""")
         cur = self._db.cursor()
         updt_stmt = dedent(f"UPDATE {self._table} SET d_keep = 1, d_msg = ? WHERE id = ?;")
-        for bak_parent, d, brm_id, bak_cnt, row_num in self._db.execute(stmt):
+        for bak_parent, d, brm_id, bak_cnt, row_num in execute(self._db, stmt):
             self._bak_parent_to_period_to_cnt.setdefault(bak_parent, {})[d] = bak_cnt
-            cur.execute(updt_stmt, (self._make_keep_msg(s.number_of_backups_per_day_to_keep, bak_cnt, row_num), brm_id,))
+            execute(cur, updt_stmt, (self._make_keep_msg(s.number_of_backups_per_day_to_keep, bak_cnt, row_num), brm_id,))
         cur.close()
         self._db.commit()
 
@@ -2765,9 +2776,9 @@ class Broom:
             ORDER BY bak_parent, w, id;""")
         cur = self._db.cursor()
         updt_stmt = dedent(f"UPDATE {self._table} SET w_keep = 1, w_msg = ? WHERE id = ?;")
-        for bak_parent, w, brm_id, bak_cnt, row_num in self._db.execute(stmt):
+        for bak_parent, w, brm_id, bak_cnt, row_num in execute(self._db, stmt):
             self._bak_parent_to_period_to_cnt.setdefault(bak_parent, {})[w] = bak_cnt
-            cur.execute(updt_stmt, (self._make_keep_msg(s.number_of_backups_per_week_to_keep, bak_cnt, row_num), brm_id,))
+            execute(cur, updt_stmt, (self._make_keep_msg(s.number_of_backups_per_week_to_keep, bak_cnt, row_num), brm_id,))
         cur.close()
         self._db.commit()
 
@@ -2825,10 +2836,10 @@ class Broom:
             ORDER BY bak_parent, m, id;""")
         cur = self._db.cursor()
         updt_stmt = dedent(f"UPDATE {self._table} SET m_keep = 1, m_msg = ? WHERE id = ?;")
-        for row in self._db.execute(stmt):
+        for row in execute(self._db, stmt):
             bak_parent, m, brm_id, bak_cnt, row_num = row
             self._bak_parent_to_period_to_cnt.setdefault(bak_parent, {})[m] = bak_cnt
-            cur.execute(updt_stmt, (self._make_keep_msg(s.number_of_backups_per_month_to_keep, bak_cnt, row_num), brm_id,))
+            execute(cur, updt_stmt, (self._make_keep_msg(s.number_of_backups_per_month_to_keep, bak_cnt, row_num), brm_id,))
         cur.close()
         self._db.commit()
 
@@ -2841,11 +2852,13 @@ class Broom:
             FROM {self._table}
             WHERE d_keep = 0 AND w_keep = 0 AND m_keep = 0
             ORDER BY id;""")
-        for brm_id, bak_parent, bak_name, d, w, m, d_row_num, w_row_num, m_row_num in self._db.execute(stmt):
+        for brm_id, bak_parent, bak_name, d, w, m, d_row_num, w_row_num, m_row_num in execute(self._db, stmt):
             d_cnt = self._bak_parent_to_period_to_cnt[bak_parent][d]
             w_cnt = self._bak_parent_to_period_to_cnt[bak_parent][w]
             m_cnt = self._bak_parent_to_period_to_cnt[bak_parent][m]
-            msg = f"#{d_row_num} in {d} (of {d_cnt} that day), #{w_row_num} in {w} (of {w_cnt} that week), #{m_row_num} in {m} (of {m_cnt} that month)"
+            msg = (f"#{d_row_num} on {d}, of {d_cnt} that day, {self.s.number_of_backups_per_day_to_keep} to keep; "
+                   f"#{w_row_num} in {w}, of {w_cnt} that week, {self.s.number_of_backups_per_week_to_keep} to keep; "
+                   f"#{m_row_num} in {m}, of {m_cnt} that month, {self.s.number_of_backups_per_month_to_keep} to keep")
             yield brm_id, Path(bak_parent, bak_name), msg
 
 
