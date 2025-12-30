@@ -48,7 +48,7 @@ from pathlib import Path, PurePath
 from stat import S_ISDIR, S_ISSOCK, S_ISDOOR, S_ISLNK
 from textwrap import dedent
 from time import sleep
-from typing import Literal, Pattern, Any, Iterable, cast, Generator, Callable, Sequence, ClassVar, Protocol
+from typing import Literal, Pattern, Any, Iterable, cast, Generator, Callable, Sequence, ClassVar, Protocol, BinaryIO
 
 try:
     from stream_zip import stream_zip, ZipAutoMethod, ZIP_ZSTANDARD
@@ -1815,7 +1815,7 @@ def try_to_iterate_dir(path: Path):
     return None
 
 
-def compute_blake2b_checksum(f: BufferedIOBase) -> bytes:
+def compute_blake2b_checksum(f: BinaryIO) -> bytes:
     # https://docs.python.org/3/library/functions.html#open
     # The type of file object returned by the open() function depends on the mode.
     # When used to open a file in a binary mode with buffering, the returned class is a subclass of io.BufferedIOBase.
@@ -1823,6 +1823,7 @@ def compute_blake2b_checksum(f: BufferedIOBase) -> bytes:
     # https://docs.python.org/3/library/io.html#io.BufferedIOBase
     # BufferedIOBase: [read(), readinto() and write(),] unlike their RawIOBase counterparts, [...] will never return None.
     # read(): An empty bytes object is returned if the stream is already at EOF.
+    # typing.BinaryIO is the standard typing alias for a file-like object opened in binary mode.
     b = blake2b()
     for chunk in iter(lambda: f.read(32768), b''):
         b.update(chunk)
