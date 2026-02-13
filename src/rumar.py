@@ -1149,7 +1149,11 @@ class Rumar:
             self._set_rath_and_friends(rath)
             if self.s.db_path:
                 if (src_id := self._rdb.get_src_id(self._relative_psx)) is None:
-                    self._create(OpReason.CREATE)
+                    if self._archive_path.exists():
+                        archive_checksum = self._get_archive_checksum(0, self._archive_path)
+                        self._save_or_unlink_and_create(0, archive_checksum)
+                    else:
+                        self._create(OpReason.CREATE)
                     continue
                 else:  # file is already in the database (was backed up before)
                     while True:
@@ -1199,17 +1203,7 @@ class Rumar:
                         self._rdb.mark_bak_id_as_deleted(bak_id)
                     # compare checksums
                     logger.info(f"{self._profile!r} INFORM {self._relative_psx!r}  {latest_mtime_str}  {latest_size} =: last backup")
-                    if not self._rath_checksum:
-                        with self._rath.open('rb') as f:
-                            self._rath_checksum = compute_blake2b_checksum(f)
-                    if checksum == self._rath_checksum:  # if checksums match, add a record to `backup`
-                        logger.info(f"{self._profile!r} {OpReason.UPDATE} {self._relative_psx!r}  {self._mtime_str}  {self._size}  {self._archive_dir / '...'}")
-                        self.s.db_path and self._rdb.save(OpReason.UPDATE, self._relative_psx, self._archive_path, checksum)
-                    else:  # edge case: first must delete the old archive because its name is the same as the to-be-created archive, although checksums differ
-                        logger.info(f"{self._profile!r} REMOVE and {OpReason.DELETE} {self._archive_path.__str__()!r}  {bak_id=}")
-                        self._archive_path.unlink()
-                        self.s.db_path and bak_id and self._rdb.mark_bak_id_as_deleted(bak_id)
-                        self._create(OpReason.UPDATE)
+                    self._save_or_unlink_and_create(bak_id, checksum)
                 else:  # archive_path not found on disk
                     # mark the old backup as deleted to make room for a new one
                     if self.s.db_path and bak_id and self._rdb.is_bak_id_marked_as_active(bak_id):
@@ -1224,6 +1218,20 @@ class Rumar:
             if self.s.db_path and self._rdb.get_latest_source_lc_reason_x(src_id) == REASON_D:
                 logger.debug(f"{self._profile!r} {OpReason.RESTORE} {self._relative_psx!r}  {rath.parent}")
                 self._rdb.restore_source_lc(src_id)
+
+    def _save_or_unlink_and_create(self, bak_id, checksum):
+        """Saves if checksums match, otherwise unlinks archive and creates it anew"""
+        if not self._rath_checksum and not self._islnk:  # checksum for link makes little sense
+            with self._rath.open('rb') as f:
+                self._rath_checksum = compute_blake2b_checksum(f)
+        if checksum == self._rath_checksum or self._islnk:  # if checksums match, add a record to `backup`
+            logger.info(f"{self._profile!r} {OpReason.UPDATE} {self._relative_psx!r}  {self._mtime_str}  {self._size}  {self._archive_dir / '...'}")
+            self.s.db_path and self._rdb.save(OpReason.UPDATE, self._relative_psx, self._archive_path, checksum)
+        else:  # edge case: first must delete the old archive because its name is the same as the to-be-created archive, although checksums differ
+            logger.info(f"{self._profile!r} REMOVE and {OpReason.DELETE} {self._archive_path.__str__()!r}  {bak_id=}")
+            self._archive_path.unlink()
+            self.s.db_path and bak_id and self._rdb.mark_bak_id_as_deleted(bak_id)
+            self._create(OpReason.UPDATE)
 
     def _init_for_profile(self, profile: str, *, sweep=False):
         if profile not in self._profile_to_settings:
@@ -1258,7 +1266,7 @@ class Rumar:
                 logger.error(e)
 
     def _get_archive_checksum(self, bak_id: int, archive_path: Path):
-        """Gets checksum from .b2 file or from RumarDB. Removes .b2 if zero-size"""
+        """Gets checksum from .b2 file or from RumarDB. Removes .b2 if zero-size. Writes checksum to RumarDB or .b2"""
         if not (latest_checksum := self._rdb.get_blake2b_checksum(bak_id) if self.s.db_path else None):
             checksum_file = self.compose_checksum_file_path(archive_path)
             try:
@@ -1270,6 +1278,8 @@ class Rumar:
                         checksum_file.write_bytes(latest_checksum)
                     except OSError as e:
                         logger.info(f"{e}: skip writing checksum to {checksum_file.__str__()!r}")
+                else:
+                    self._rdb.set_blake2b_checksum(bak_id, latest_checksum)
             else:  # no exception
                 if st.st_size == 0:
                     with suppress(OSError):
