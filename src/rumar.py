@@ -14,13 +14,6 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
-# Notes for AI Agents
-# This file uses Groovy-like string quotations wherever possible, i.e.,
-# double quotes for f-strings — also when triple: `f"""..."""`,
-# otherwise, single quotes — also when triple: `r'''...'''`,
-# but allows exceptions to avoid escaping quotes in strings.
-# The allowed line length is 300 (aka hard wrap columns).
 import argparse
 import logging
 import logging.config
