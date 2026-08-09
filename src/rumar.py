@@ -1310,7 +1310,7 @@ class Rumar:
             checksum_file = archive_dir / f"{mtime_str}{self.ARCHIVE_SEP}{size}{self.CHECKSUM_SUFFIX}"
             logger.info(f':  {relative_psx}  {checksum.hex()}')
             archive_dir.mkdir(parents=True, exist_ok=True)
-            checksum_file.write_text(checksum)
+            checksum_file.write_bytes(checksum)
 
     def _create(self, op_reason: OpReason):
         """:return: useful for tests"""
