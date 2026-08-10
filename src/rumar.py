@@ -1399,7 +1399,7 @@ class Rumar:
             if attempt == attempt_limit:
                 message = f"File changed during the archival process {self._relative_psx!r} - tried {attempt_limit} times - skip"
                 self._errors.append(message)
-                logging.error(message)
+                logger.error(message)
                 return True
             message = f"File changed during the archival process {self._relative_psx!r} - attempt {attempt} of {attempt_limit}"
             logger.warning(message)
