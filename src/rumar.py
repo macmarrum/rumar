@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # rumar – a file-backup utility
-# Copyright (C) 2023-2025  macmarrum (at) outlook (dot) ie
+# Copyright (C) 2023-2026  macmarrum (at) outlook (dot) ie
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
